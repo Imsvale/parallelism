@@ -97,6 +97,14 @@ Ideas and open questions parked until the core track building is robust.
   roads crossing tracks (level crossings are not planned, neither are tracks crossing
   roads today), and whether side-specific edge decorations (barriers) need flipping on
   reversed edges.
+- **Road drags kink at road ends.** Unlike the track builder, the road builder (straight
+  and curved mode alike) lets a drag leave the end of a road at an angle. Handled from
+  the geometry, not the mode: the old road's parallel is cut back or extended to the
+  corner where both parallels meet (miter), between 1 and 100 degrees. Two crashes in
+  the game's street code (`map_util.h` "it != map.end()") came from the stubs left
+  before this; pieces under 5 m next to a crossing or branch are now refused anyway.
+  Open: kinks where the drag starts at a junction (not a road end), and the settings'
+  alternative curve mode, if it exists.
 - **Extra spacing.** Slider 0-20 m in 0.5 m steps (1 m without the precision key),
   added to the track distance or road width. Untested in game.
 - **Undo.** To be started here, where it can be built in context, and moved to its own
