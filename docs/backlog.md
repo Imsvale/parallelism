@@ -103,8 +103,22 @@ Ideas and open questions parked until the core track building is robust.
   corner where both parallels meet (miter), between 1 and 100 degrees. Two crashes in
   the game's street code (`map_util.h` "it != map.end()") came from the stubs left
   before this; pieces under 5 m next to a crossing or branch are now refused anyway.
-  Open: kinks where the drag starts at a junction (not a road end), and the settings'
-  alternative curve mode, if it exists.
+  Confirmed 2026-10-01: a loop of corners from 10 to 100 degrees, both turn directions,
+  all joined, no crash. The limit is now 135 degrees (untested above 100); sharper is
+  refused ("would turn too sharply").
+  Open:
+  - Starting a drag from the extra road's end instead of the main road's: the new
+    pair pivots around the other road, so its extra road lands beside or into the old
+    pair; some angles are accepted, some refused (collision). Wanted: treat a drag from
+    either end of a pair as continuing the pair.
+  - Sharp corners only join the centre lines. Roads are wide, so the inside of a sharp
+    corner overlaps and outside corners are spiky. The real answer is filling the gaps
+    (a short curve on the extra road in the corner), much more work than tracks needed.
+  - Kinks where the drag starts at a junction (not a road end).
+  - Curved mode: first click sets the start direction, second the end point, and the
+    game fits a curve between them. Crash seen once while wiggling a first stretch in
+    it (`lane_config_util.cpp` "!laneConfigs.empty()"); lane configs of every planned
+    edge are now checked before the game sees them.
 - **Road junctions crash the game.** Three crashes (`map_util.h` "it != map.end()",
   while the game evaluated the preview) all came from plans where an extra road crossed
   or branched onto a road; the last one was a plain 44 degree crossing of one-way roads
