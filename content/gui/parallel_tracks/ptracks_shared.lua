@@ -5,6 +5,8 @@
 local shared = {
 	KEY_COUNT = "ptracksCount",
 	KEY_SIDE = "ptracksSide",
+	-- hidden, only changed to make the menu redraw the preview
+	KEY_REDRAW = "ptracksRedraw",
 
 	SIDE_LEFT = 1,
 	SIDE_CENTER = 2,

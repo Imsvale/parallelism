@@ -6,6 +6,9 @@ function data()
 		handleEventScript = {
 			fileName = "ptracks.script@handleEvent",
 		},
+		guiUpdateScript = {
+			fileName = "ptracks.script@guiUpdate",
+		},
 		guiHandleEventScript = {
 			fileName = "ptracks.script@guiHandleEvent",
 		},

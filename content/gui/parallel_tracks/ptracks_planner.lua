@@ -1,0 +1,718 @@
+-- Planning of the tracks next to a drawn one: offset geometry, anchoring on and
+-- crossing existing tracks, and the proposal for it. Loaded on both lua states that
+-- need it: the game script (building) and the menu (preview).
+
+local shared = require "ptracks_shared.lua"
+local geometry = require "ptracks_geometry.lua"
+
+local planner = {}
+
+-- an added segment within this distance of a removed one is a leftover of splitting it
+local REMNANT_TOLERANCE = 0.25
+local DEFAULT_TRACK_DISTANCE = 5.0
+-- an existing node this close to where a new one would go is used instead
+local NODE_SNAP_DISTANCE = 0.5
+-- height difference up to which nodes / crossings count as the same level
+local NODE_SNAP_HEIGHT = 1.0
+-- an existing track edge this close to the start or end of an offset track gets split
+-- there, so the offset track branches off it
+local EDGE_SEARCH_RADIUS = 1.0
+local EDGE_SNAP_DISTANCE = 0.25
+-- no split or crossing this close (in meters) to the end of an edge, it is at the node
+local EDGE_END_DISTANCE = 0.1
+-- a split closer than this to a node of the split edge moves that node instead
+local MIN_PIECE_LENGTH = 5.0
+-- crossings flatter than this (degrees) are not built: measured in game, the builder
+-- refuses crossings under 6.0 degrees (and a very flat one once crashed the game)
+local MIN_CROSSING_ANGLE = 6.05
+planner.MIN_CROSSING_ANGLE = MIN_CROSSING_ANGLE
+-- how much room a crossing needs along each track, as clearance / tan(angle)
+local CROSSING_CLEARANCE = 1.5
+-- cap on the length of a switch zone (a branch leaving on a straight never clears)
+local MAX_SWITCH_ZONE = 150.0
+
+local function plain(v)
+	return { x = v.x, y = v.y, z = v.z }
+end
+
+local function vec3(v)
+	return api.type.Vec3f.new(v.x, v.y, v.z)
+end
+
+local function toEdge(comp)
+	return {
+		p0 = plain(comp.position0),
+		p1 = plain(comp.position1),
+		t0 = plain(comp.tangent0),
+		t1 = plain(comp.tangent1),
+	}
+end
+
+local function isTrack(comp)
+	return comp.roadType == api.type["enum"].RoadType.TRACK
+end
+
+local function getEdgeComp(entity)
+	return api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE)
+end
+
+local function getPlayerOwned(entity)
+	local ok, result = pcall(function()
+		return api.engine.getComponent(entity, api.type.ComponentType.PLAYER_OWNED)
+	end)
+	return ok and result or nil
+end
+
+local function sizeOf(list)
+	local ok, n = pcall(function()
+		return #list
+	end)
+	return ok and n or 0
+end
+
+-- The lane configs for an edge like comp. Segments of the builder's live proposal can
+-- come without them in the middle of a drag, and an edge without lane configs crashes
+-- the game, so they are then taken from the track template.
+local function getTemplate(name)
+	local ok, template = pcall(function()
+		return api.res.streetTemplateRep.get(api.res.streetTemplateRep.find(name))
+	end)
+	return ok and template or nil
+end
+
+local function laneConfigsOf(comp, templateName)
+	if comp.laneConfigs ~= nil and sizeOf(comp.laneConfigs) > 0 then
+		return comp.laneConfigs
+	end
+	local template = getTemplate(templateName)
+	if template and template.laneConfigs ~= nil and sizeOf(template.laneConfigs) > 0 then
+		return template.laneConfigs
+	end
+	error("no lane configs for an edge of " .. tostring(templateName))
+end
+
+local function nonEmpty(s)
+	return s ~= nil and s ~= "" and s or nil
+end
+
+-- Track template and style for an edge like props.comp. Segments of the builder's live
+-- proposal can also come without them, then props.template (the track type selected in
+-- the menu) is used.
+local function templateOf(props)
+	return nonEmpty(props.comp.roadTemplate) or props.template
+end
+
+local function styleOf(props)
+	local style = nonEmpty(props.comp.roadStyle)
+	if style then
+		return style
+	end
+	local template = getTemplate(templateOf(props))
+	return template and template.streetStyle or nil
+end
+
+-- The shortest piece of track the game accepts next to a node on it. A crossing needs
+-- more the flatter it is: the two tracks run side by side for a while (fitted to builds
+-- in game: at 6.1 degrees 7.7 m next to a crossing failed, 14.9 m worked).
+local function minPieceLength(cut)
+	if cut.zone ~= nil then
+		return math.max(MIN_PIECE_LENGTH, cut.zone)
+	end
+	if cut.angle == nil then
+		return MIN_PIECE_LENGTH
+	end
+	local t = math.tan(math.rad(math.max(cut.angle, 1)))
+	return math.max(MIN_PIECE_LENGTH, CROSSING_CLEARANCE / t)
+end
+
+-- How far along the base track a switch reaches: until the track branching off it with
+-- this radius is a track distance away. The game wants no other node on the base
+-- track within that (seen in game: the builder removed a node 40 m into such a zone,
+-- and building with the node there failed).
+local function switchZone(radius)
+	if radius == nil or radius == math.huge then
+		return MAX_SWITCH_ZONE
+	end
+	return math.min(MAX_SWITCH_ZONE, math.sqrt(2 * radius * DEFAULT_TRACK_DISTANCE))
+end
+
+local function getTrackDistance(roadTemplate)
+	local ok, distance = pcall(function()
+		return api.res.streetTemplateRep.get(api.res.streetTemplateRep.find(roadTemplate)).trackDistance
+	end)
+	if ok and distance and distance > 0 then
+		return distance
+	end
+	return DEFAULT_TRACK_DISTANCE
+end
+
+local function formatRadius(r)
+	return string.format("%.1f", r)
+end
+
+--------------------------------------------------------------------------------
+-- reading the player's build
+
+-- The segments the player has drawn, as { entity, segmentType, comp, edge }. The proposal also
+-- re-adds the pieces of every existing track or street that got split by the new
+-- track, those are left out.
+local function collectDrawnSegments(streetProposal)
+	local removed = {}
+	for __, segment in ipairs(streetProposal.removedSegments) do
+		removed[#removed + 1] = toEdge(segment.comp)
+	end
+
+	local drawn = {}
+	for __, segment in ipairs(streetProposal.addedSegments) do
+		if isTrack(segment.comp) then
+			local edge = toEdge(segment.comp)
+			if not geometry.liesOnAny(edge, removed, REMNANT_TOLERANCE) then
+				drawn[#drawn + 1] = { entity = segment.entity, segmentType = segment.type, comp = segment.comp, edge = edge }
+			end
+		end
+	end
+	return drawn
+end
+
+-- true once every drawn segment exists in the world as it was proposed. Entity ids get
+-- reused, so the id alone does not tell.
+local function isApplied(drawn)
+	for __, d in ipairs(drawn) do
+		local comp = getEdgeComp(d.entity)
+		if comp == nil
+			or geometry.horizontalDistance(plain(comp.position0), d.edge.p0) > 0.01
+			or geometry.horizontalDistance(plain(comp.position1), d.edge.p1) > 0.01 then
+			return false
+		end
+	end
+	return true
+end
+
+--------------------------------------------------------------------------------
+-- searching the world
+
+-- A node that already exists at the position, e.g. the end of the parallel track of
+-- the previous drag. A new node on top of it would make the whole build fail.
+local function findExistingNode(position)
+	local center = api.type.Vec2f.new(position.x, position.y)
+	local candidates = api.engine.util.octree.findEntitiesInCircle(center, NODE_SNAP_DISTANCE, api.type.ComponentType.BASE_NODE)
+	for __, entity in ipairs(candidates) do
+		local comp = api.engine.getComponent(entity, api.type.ComponentType.BASE_NODE)
+		if comp and math.abs(comp.position.x - position.x) < NODE_SNAP_DISTANCE
+			and math.abs(comp.position.y - position.y) < NODE_SNAP_DISTANCE
+			and math.abs(comp.position.z - position.z) < NODE_SNAP_HEIGHT then
+			return { entity = entity, position = plain(comp.position) }
+		end
+	end
+	return nil
+end
+
+local function isAwayFromEnds(edge, point)
+	return geometry.horizontalDistance(point, edge.p0) > EDGE_END_DISTANCE
+		and geometry.horizontalDistance(point, edge.p1) > EDGE_END_DISTANCE
+end
+
+-- An existing track edge running through the position, away from its ends, e.g. the
+-- neighbour of the track a branch was drawn from.
+local function findEdgeAt(position)
+	local center = api.type.Vec2f.new(position.x, position.y)
+	local candidates = api.engine.util.octree.findEntitiesInCircle(center, EDGE_SEARCH_RADIUS, api.type.ComponentType.BASE_EDGE)
+	for __, entity in ipairs(candidates) do
+		local comp = getEdgeComp(entity)
+		if comp and isTrack(comp) then
+			local edge = toEdge(comp)
+			local u, distance = geometry.closestParameter(position, edge)
+			local point = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, u)
+			if distance < EDGE_SNAP_DISTANCE and isAwayFromEnds(edge, point)
+				and math.abs(point.z - position.z) < NODE_SNAP_HEIGHT then
+				return entity, u, point
+			end
+		end
+	end
+	return nil
+end
+
+-- existing track edges that may cross the edge
+local function findEdgesNear(edge)
+	local cx, cy = (edge.p0.x + edge.p1.x) / 2, (edge.p0.y + edge.p1.y) / 2
+	-- the chord plus some room for the bulge of a curve
+	local radius = geometry.horizontalDistance(edge.p0, edge.p1) * 0.75 + 5
+	return api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(cx, cy), radius, api.type.ComponentType.BASE_EDGE)
+end
+
+--------------------------------------------------------------------------------
+-- building one offset track
+
+-- Builds the proposal for one track next to the drawn one. The plan is made on plain
+-- tables first: nodes, offset edges, cuts where offset edges cross existing tracks
+-- and splits of existing edges. Returns the proposal and stats for the log; with
+-- planOnly just nil and the stats, e.g. to check a drag before it is built.
+local function makeProposal(drawn, offsets, log, planOnly)
+	if type(offsets) == "number" then
+		offsets = { offsets }
+	end
+	log = log or function() end
+	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {} }
+	-- existing nodes the offset track connects to, they must stay where they are
+	local reusedNodes = {}
+	local nextNodeId = -100000
+	local nodesToAdd = {}
+
+	local function newNode(position)
+		local node = { entity = nextNodeId, position = position }
+		nodesToAdd[#nodesToAdd + 1] = node
+		nextNodeId = nextNodeId - 1
+		return node
+	end
+
+	-- existing edges to split: entity -> { comp, edge, cuts = { { u, node } } }
+	local splits = {}
+	local function addSplit(entity, u, node, angle)
+		local split = splits[entity]
+		if split == nil then
+			local comp = getEdgeComp(entity)
+			split = { comp = comp, edge = toEdge(comp), cuts = {} }
+			splits[entity] = split
+		end
+		local cut = { u = u, node = node, angle = angle }
+		split.cuts[#split.cuts + 1] = cut
+		return cut
+	end
+	-- the cuts of switches (anchors), by their node, to give them their zone once the
+	-- track branching off is known
+	local anchorCuts = {}
+
+	local drawnEntities = {}
+	local useCount = {}
+	for __, d in ipairs(drawn) do
+		drawnEntities[d.entity] = true
+		useCount[d.comp.node0] = (useCount[d.comp.node0] or 0) + 1
+		useCount[d.comp.node1] = (useCount[d.comp.node1] or 0) + 1
+	end
+
+	-- the offset edges of each planned track
+	local tracks = {}
+	for __, offset in ipairs(offsets) do
+		-- node of the drawn track -> its counterpart on the offset track
+		local nodes = {}
+		-- new nodes in the middle of the offset track, which may be dropped
+		local movable = {}
+		local function getNode(entity, position, tangent)
+			local node = nodes[entity]
+			if node == nil then
+				local newPosition = geometry.offsetPoint(position, tangent, offset)
+				if newPosition == nil then
+					return nil
+				end
+				node = findExistingNode(newPosition)
+				if node then
+					stats.reused = stats.reused + 1
+					reusedNodes[node.entity] = true
+					log("  node " .. entity .. ": existing node " .. node.entity .. " " .. shared.vecToString(node.position))
+				elseif useCount[entity] == 1 then
+					-- an end of the run lying on an existing track: branch off it
+					local edgeEntity, u, point = findEdgeAt(newPosition)
+					if edgeEntity then
+						node = newNode(point)
+						anchorCuts[node.entity] = addSplit(edgeEntity, u, node)
+						stats.anchored = stats.anchored + 1
+						log("  node " .. entity .. ": anchored on edge " .. edgeEntity .. string.format(" at u = %.3f ", u) .. shared.vecToString(point))
+					end
+				end
+				if node == nil then
+					node = newNode(newPosition)
+					if useCount[entity] == 2 then
+						-- only mirrors a node of the drawn track, free to go if in the way
+						movable[node.entity] = true
+					end
+				end
+				nodes[entity] = node
+			end
+			return node
+		end
+
+		-- offset edges: { node0, node1, edge, props, cuts }
+		local offsetEdges = {}
+		for __, d in ipairs(drawn) do
+			local node0 = getNode(d.comp.node0, d.edge.p0, d.edge.t0)
+			local node1 = getNode(d.comp.node1, d.edge.p1, d.edge.t1)
+			if node0 and node1 then
+				local t0, t1 = geometry.offsetTangents(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1, node0.position, node1.position)
+				local edge = { p0 = node0.position, p1 = node1.position, t0 = t0, t1 = t1 }
+				stats.minRadius = math.min(stats.minRadius, geometry.radius(edge.p0, edge.p1, t0, t1))
+				offsetEdges[#offsetEdges + 1] = {
+					node0 = node0,
+					node1 = node1,
+					edge = edge,
+					props = { comp = d.comp, template = d.template, segmentType = d.segmentType, playerOwned = getPlayerOwned(d.entity) },
+					cuts = {},
+				}
+				-- a switch reaches as far along the base track as its branch takes to clear it
+				for __, node in ipairs({ node0, node1 }) do
+					local cut = anchorCuts[node.entity]
+					if cut then
+						cut.zone = switchZone(geometry.radius(edge.p0, edge.p1, t0, t1))
+						log(string.format("  switch at node %d keeps the base track clear for %.1f m", node.entity, cut.zone))
+					end
+				end
+			end
+		end
+
+		-- crossings with existing tracks on the same level get a shared node
+		for __, oe in ipairs(offsetEdges) do
+			for __, entity in ipairs(findEdgesNear(oe.edge)) do
+				local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
+				if comp and isTrack(comp) then
+					local other = toEdge(comp)
+					for __, x in ipairs(geometry.intersections(oe.edge, other)) do
+						local angle = geometry.crossingAngle(oe.edge, x.ua, other, x.ub)
+						if math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
+							and isAwayFromEnds(oe.edge, x.pointA) and isAwayFromEnds(other, x.pointB) then
+							if angle < MIN_CROSSING_ANGLE then
+								-- the game crashes building the geometry of a crossing this
+								-- shallow, better let the build fail on the collision
+								stats.shallow = stats.shallow + 1
+								log(string.format("  crossing edge %d at %.1f deg is too shallow, not built", entity, angle))
+							else
+								local node = newNode(x.pointA)
+								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle }
+								addSplit(entity, x.ub, node, angle)
+								stats.crossings = stats.crossings + 1
+								log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg ", x.ub, angle) .. shared.vecToString(x.pointA))
+							end
+						end
+					end
+				end
+			end
+		end
+
+		-- A crossing close to a node in the middle of the offset track would leave a short
+		-- piece there. Those nodes only mirror nodes of the drawn track, so drop them: merge
+		-- the two offset edges around it, the crossing takes its place.
+		local dropped = {}
+		local function edgesAt(entity)
+			local result = {}
+			for i, oe in ipairs(offsetEdges) do
+				if oe.node0.entity == entity or oe.node1.entity == entity then
+					result[#result + 1] = i
+				end
+			end
+			return result
+		end
+		local function reversed(oe)
+			return { node0 = oe.node1, node1 = oe.node0, edge = geometry.reverse(oe.edge), props = oe.props, cuts = oe.cuts }
+		end
+		local merging = true
+		while merging do
+			merging = false
+			for entity in pairs(movable) do
+				local at = edgesAt(entity)
+				if not dropped[entity] and #at == 2 then
+					local a = offsetEdges[at[1]]
+					local b = offsetEdges[at[2]]
+					local position = a.node0.entity == entity and a.node0.position or a.node1.position
+					-- the cut most in need of room: distance short of its minimum piece
+					local nearest = math.huge
+					local tooClose = false
+					for __, oe in ipairs({ a, b }) do
+						for __, cut in ipairs(oe.cuts) do
+							local d = geometry.horizontalDistance(cut.node.position, position)
+							nearest = math.min(nearest, d)
+							if d < minPieceLength(cut) then
+								tooClose = true
+							end
+						end
+					end
+					if tooClose
+						and a.props.comp.type == b.props.comp.type and a.props.comp.typeIndex == b.props.comp.typeIndex then
+						if a.node1.entity ~= entity then
+							a = reversed(a)
+						end
+						if b.node0.entity ~= entity then
+							b = reversed(b)
+						end
+						local cuts = {}
+						for __, cut in ipairs(a.cuts) do
+							cuts[#cuts + 1] = cut
+						end
+						for __, cut in ipairs(b.cuts) do
+							cuts[#cuts + 1] = cut
+						end
+						offsetEdges[at[1]] = { node0 = a.node0, node1 = b.node1, edge = geometry.merge(a.edge, b.edge), props = a.props, cuts = cuts }
+						table.remove(offsetEdges, at[2])
+						dropped[entity] = true
+						stats.dropped = stats.dropped + 1
+						log(string.format("  own node %d is %.2f m from a crossing, dropped it", entity, nearest))
+						merging = true
+						break
+					end
+				end
+			end
+		end
+		if next(dropped) ~= nil then
+			local kept = {}
+			for __, node in ipairs(nodesToAdd) do
+				if not dropped[node.entity] then
+					kept[#kept + 1] = node
+				end
+			end
+			nodesToAdd = kept
+		end
+		-- the cut parameters refer to the edges as they were, find them again
+		for __, oe in ipairs(offsetEdges) do
+			for __, cut in ipairs(oe.cuts) do
+				cut.u = geometry.closestParameter(cut.node.position, oe.edge)
+			end
+		end
+		tracks[#tracks + 1] = offsetEdges
+	end
+	if planOnly then
+		return nil, stats
+	end
+
+	-- emit
+	local edgesToAdd = {}
+	local edgesToRemove = {}
+	local nextEdgeId = -1
+
+	local function addSegment(node0, node1, piece, props)
+		local segment = api.type.SegmentAndEntity.new()
+		segment.entity = nextEdgeId
+		nextEdgeId = nextEdgeId - 1
+		segment.type = props.segmentType
+		segment.comp.node0 = node0.entity
+		segment.comp.node1 = node1.entity
+		segment.comp.position0 = vec3(node0.position)
+		segment.comp.position1 = vec3(node1.position)
+		segment.comp.tangent0 = vec3(piece.t0)
+		segment.comp.tangent1 = vec3(piece.t1)
+		segment.comp.type = props.comp.type
+		segment.comp.typeIndex = props.comp.typeIndex
+		segment.comp.laneConfigs = laneConfigsOf(props.comp, templateOf(props))
+		segment.comp.roadTemplate = templateOf(props)
+		segment.comp.roadStyle = styleOf(props)
+		segment.comp.roadType = props.comp.roadType
+		if props.playerOwned then
+			-- not set by the base game's scripted track builder, so optional here
+			pcall(function()
+				segment.playerOwned = props.playerOwned
+			end)
+		end
+		edgesToAdd[#edgesToAdd + 1] = segment
+		stats.plan[#stats.plan + 1] = {
+			entity = segment.entity,
+			node0 = node0.entity,
+			node1 = node1.entity,
+			edge = { p0 = node0.position, p1 = node1.position, t0 = piece.t0, t1 = piece.t1 },
+		}
+	end
+
+	-- adds the edge cut into pieces between its end nodes and the cut nodes
+	local function addCut(edge, node0, node1, cuts, props)
+		table.sort(cuts, function(a, b) return a.u < b.u end)
+		local us = {}
+		local chain = { node0 }
+		for __, cut in ipairs(cuts) do
+			us[#us + 1] = cut.u
+			chain[#chain + 1] = cut.node
+		end
+		chain[#chain + 1] = node1
+		for i, piece in ipairs(geometry.splitMany(edge, us)) do
+			addSegment(chain[i], chain[i + 1], piece, props)
+		end
+	end
+
+	local nodesToRemove = {}
+
+	-- A cut this close to an end node of the edge would leave a very short piece, or a
+	-- node inside a switch zone, which the game refuses. Like the game's own builder,
+	-- remove that node: merge the edge with the one on the other side of the node, drop
+	-- the node and cut the merged curve. Only for a node between exactly two plain edges
+	-- of the same kind. Returns true if it removed one.
+	local node2segments = nil
+	local function tryMoveEnd(part, which)
+		local endNode = which == 0 and part.node0 or part.node1
+		local nearest = nil
+		for __, cut in ipairs(part.cuts) do
+			local d = geometry.horizontalDistance(cut.node.position, endNode.position)
+			if d < minPieceLength(cut) and (nearest == nil or d < nearest) then
+				nearest = d
+			end
+		end
+		if nearest == nil then
+			return
+		end
+		local prefix = string.format("  cut %.2f m from node %d", nearest, endNode.entity)
+
+		if reusedNodes[endNode.entity] then
+			log(prefix .. ", which this track uses, not moved")
+			return
+		end
+		node2segments = node2segments or api.engine.system.streetSystem.getNode2SegmentMap()
+		local segments = node2segments[endNode.entity]
+		if segments == nil or #segments ~= 2 then
+			log(prefix .. ", which has " .. (segments and #segments or 0) .. " edges, not moved")
+			return
+		end
+		local own = part.endEdge[which]
+		local other = segments[1] == own and segments[2] or segments[1]
+		local otherComp = getEdgeComp(other)
+		if splits[other] or drawnEntities[other] or otherComp == nil or not isTrack(otherComp)
+			or otherComp.roadTemplate ~= part.comp.roadTemplate or otherComp.type ~= part.comp.type
+			or (otherComp.objects and #otherComp.objects > 0) then
+			log(prefix .. ", its other edge " .. other .. " cannot be rebuilt, not moved")
+			return
+		end
+
+		local otherEdge = toEdge(otherComp)
+		if which == 0 then
+			-- other runs far node -> end node
+			local far
+			if otherComp.node1 == endNode.entity then
+				far = { entity = otherComp.node0, position = otherEdge.p0 }
+			else
+				otherEdge = geometry.reverse(otherEdge)
+				far = { entity = otherComp.node1, position = otherEdge.p0 }
+			end
+			part.edge = geometry.merge(otherEdge, part.edge)
+			part.node0 = far
+		else
+			-- other runs end node -> far node
+			local far
+			if otherComp.node0 == endNode.entity then
+				far = { entity = otherComp.node1, position = otherEdge.p1 }
+			else
+				otherEdge = geometry.reverse(otherEdge)
+				far = { entity = otherComp.node0, position = otherEdge.p1 }
+			end
+			part.edge = geometry.merge(part.edge, otherEdge)
+			part.node1 = far
+		end
+		part.endEdge[which] = other
+		part.removeEdges[#part.removeEdges + 1] = other
+		part.removeNodes[#part.removeNodes + 1] = endNode.entity
+		stats.moved = stats.moved + 1
+		log(prefix .. ", removed it (merged with edge " .. other .. ")")
+		return true
+	end
+
+	-- clears one end of a split edge of nodes too close to its cuts, several in a row if a
+	-- switch zone reaches that far
+	local function clearEnd(part, which)
+		for __ = 1, 10 do
+			if not tryMoveEnd(part, which) then
+				return
+			end
+		end
+	end
+
+	local segmentType = drawn[1].segmentType
+	for entity, split in pairs(splits) do
+		local objects = split.comp.objects
+		if objects and #objects > 0 then
+			-- rebuilding the edge would lose its signals, the build will fail on the collision
+			log("  not splitting edge " .. entity .. ", it has " .. #objects .. " objects (signals?)")
+			stats.skipped = stats.skipped + 1
+		else
+			local part = {
+				comp = split.comp,
+				edge = split.edge,
+				node0 = { entity = split.comp.node0, position = split.edge.p0 },
+				node1 = { entity = split.comp.node1, position = split.edge.p1 },
+				endEdge = { [0] = entity, [1] = entity },
+				removeEdges = { entity },
+				removeNodes = {},
+				cuts = split.cuts,
+			}
+			clearEnd(part, 0)
+			clearEnd(part, 1)
+			if #part.removeNodes > 0 then
+				-- the curve changed, find the cuts on it again
+				for __, cut in ipairs(part.cuts) do
+					cut.u = geometry.closestParameter(cut.node.position, part.edge)
+				end
+			end
+			addCut(part.edge, part.node0, part.node1, part.cuts, { comp = split.comp, segmentType = segmentType, playerOwned = getPlayerOwned(entity) })
+			for __, e in ipairs(part.removeEdges) do
+				edgesToRemove[#edgesToRemove + 1] = e
+			end
+			for __, n in ipairs(part.removeNodes) do
+				nodesToRemove[#nodesToRemove + 1] = n
+			end
+		end
+	end
+
+	for __, offsetEdges in ipairs(tracks) do
+		for __, oe in ipairs(offsetEdges) do
+			addCut(oe.edge, oe.node0, oe.node1, oe.cuts, oe.props)
+			stats.edges = stats.edges + 1
+		end
+	end
+
+	local nodeAndEntities = {}
+	for __, node in ipairs(nodesToAdd) do
+		local nodeAndEntity = api.type.NodeAndEntity.new()
+		nodeAndEntity.entity = node.entity
+		nodeAndEntity.comp.position = vec3(node.position)
+		nodeAndEntities[#nodeAndEntities + 1] = nodeAndEntity
+	end
+
+	local proposal = api.type.SimpleProposal.new()
+	proposal.streetProposal.nodesToAdd = nodeAndEntities
+	proposal.streetProposal.edgesToAdd = edgesToAdd
+	proposal.streetProposal.edgesToRemove = edgesToRemove
+	proposal.streetProposal.nodesToRemove = nodesToRemove
+	return proposal, stats
+end
+
+local function planToString(plan)
+	local function vec(v)
+		return string.format("{x=%.4f,y=%.4f,z=%.4f}", v.x, v.y, v.z)
+	end
+	local parts = {}
+	for __, p in ipairs(plan) do
+		parts[#parts + 1] = string.format("{entity=%d,node0=%d,node1=%d,p0=%s,p1=%s,t0=%s,t1=%s}",
+			p.entity, p.node0, p.node1, vec(p.edge.p0), vec(p.edge.p1), vec(p.edge.t0), vec(p.edge.t1))
+	end
+	return "{" .. table.concat(parts, ",") .. "}"
+end
+
+-- what an entity is, for the log
+local function describeEntity(entity)
+	local parts = { tostring(entity) }
+	local ok = pcall(function()
+		local edge = getEdgeComp(entity)
+		if edge then
+			parts[#parts + 1] = "edge " .. tostring(edge.node0) .. " -> " .. tostring(edge.node1)
+				.. " " .. shared.vecToString(edge.position0) .. " -> " .. shared.vecToString(edge.position1)
+				.. " " .. tostring(edge.roadTemplate)
+			return
+		end
+		local node = api.engine.getComponent(entity, api.type.ComponentType.BASE_NODE)
+		if node then
+			parts[#parts + 1] = "node " .. shared.vecToString(node.position)
+			return
+		end
+		local construction = api.engine.getComponent(entity, api.type.ComponentType.CONSTRUCTION)
+		if construction then
+			parts[#parts + 1] = "construction " .. tostring(construction.fileName)
+			return
+		end
+		parts[#parts + 1] = "(not an edge, node or construction)"
+	end)
+	if not ok then
+		parts[#parts + 1] = "(lookup failed)"
+	end
+	return table.concat(parts, " ")
+end
+planner.toEdge = toEdge
+planner.getEdgeComp = getEdgeComp
+planner.getTrackDistance = getTrackDistance
+planner.formatRadius = formatRadius
+planner.collectDrawnSegments = collectDrawnSegments
+planner.isApplied = isApplied
+planner.makeProposal = makeProposal
+planner.planToString = planToString
+planner.describeEntity = describeEntity
+
+return planner

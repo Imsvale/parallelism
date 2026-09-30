@@ -1,9 +1,24 @@
+-- dev aid: a save reload runs this file again but keeps the modules it requires in
+-- the loader's cache, so edits to them would need a game restart. Dropping them from
+-- the cache makes the requires below load the current files.
+if type(_ug_loadedModules) == "table" then
+	for path in pairs(_ug_loadedModules) do
+		if type(path) == "string" and path:find("imsvale_parallel_tracks", 1, true) then
+			_ug_loadedModules[path] = nil
+		end
+	end
+end
+
 local shared = require "ptracks_shared.lua"
 local geometry = require "ptracks_geometry.lua"
 
--- an added segment within this distance of a removed one is a leftover of splitting it
-local REMNANT_TOLERANCE = 0.25
-local DEFAULT_TRACK_DISTANCE = 5.0
+local planner = require "ptracks_planner.lua"
+
+-- how long to wait for the player's build to show up in the world before giving up
+local PENDING_MAX_FRAMES = 300
+
+-- dev aid: log the whole proposal of every track build, also with a track count of 1
+local DEBUG_DUMP = true
 
 -- engine state: once per loaded script, saves made before an event was added still get it
 local subscribed = false
@@ -14,6 +29,7 @@ local function ensureSubscriptions(state)
 	end
 	subscribed = true
 	state:subscribeToEvent("builder.proposalApply")
+	state:subscribeToEvent("builder.proposalCreate")
 	state:subscribeToEvent(shared.EVENT_SET_PARAMS)
 end
 
@@ -23,129 +39,176 @@ local current = {
 	side = shared.SIDE_RIGHT,
 }
 
-local function plain(v)
-	return { x = v.x, y = v.y, z = v.z }
-end
+-- gui state: player builds waiting to be applied before their parallel tracks are built
+local pending = {}
 
-local function vec3(v)
-	return api.type.Vec3f.new(v.x, v.y, v.z)
-end
+--------------------------------------------------------------------------------
+-- logging
 
-local function toEdge(comp)
-	return {
-		p0 = plain(comp.position0),
-		p1 = plain(comp.position1),
-		t0 = plain(comp.tangent0),
-		t1 = plain(comp.tangent1),
-	}
-end
+-- dev aid: measures the crossings in the builder's proposal while dragging, next to the
+-- game's verdict, to find out which crossings the game refuses
+local MEASURE_CROSSINGS = true
+local lastMeasurement = nil
 
-local function getTrackDistance(roadTemplate)
-	local ok, distance = pcall(function()
-		return api.res.streetTemplateRep.get(api.res.streetTemplateRep.find(roadTemplate)).trackDistance
-	end)
-	if ok and distance and distance > 0 then
-		return distance
+local function angleBetween(a, b)
+	local la = math.sqrt(a.x * a.x + a.y * a.y)
+	local lb = math.sqrt(b.x * b.x + b.y * b.y)
+	if la < 1e-9 or lb < 1e-9 then
+		return 0
 	end
-	return DEFAULT_TRACK_DISTANCE
+	local c = (a.x * b.x + a.y * b.y) / (la * lb)
+	return math.deg(math.acos(math.max(-1, math.min(1, c))))
 end
 
--- The segments the player has drawn. The proposal also re-adds the pieces of every
--- existing track or street that got split by the new track, those are left out.
-local function collectDrawnSegments(streetProposal)
-	local removed = {}
-	for __, segment in ipairs(streetProposal.removedSegments) do
-		removed[#removed + 1] = toEdge(segment.comp)
+local function measureCrossings(param)
+	local street = param[1].proposal
+	local errorState = param[2].errorState
+
+	-- the added edges at each node, with the direction leaving the node
+	local byNode = {}
+	for __, s in ipairs(street.addedSegments) do
+		local edge = planner.toEdge(s.comp)
+		local length = geometry.arcLength(edge)
+		for __, e in ipairs({
+			{ node = s.comp.node0, dir = edge.t0, length = length },
+			{ node = s.comp.node1, dir = { x = -edge.t1.x, y = -edge.t1.y }, length = length },
+		}) do
+			byNode[e.node] = byNode[e.node] or {}
+			table.insert(byNode[e.node], e)
+		end
 	end
 
-	local drawn = {}
-	for __, segment in ipairs(streetProposal.addedSegments) do
-		if segment.comp.roadType == api.type["enum"].RoadType.TRACK then
-			local edge = toEdge(segment.comp)
-			local remnant = false
-			for __, other in ipairs(removed) do
-				if geometry.liesOn(edge, other, REMNANT_TOLERANCE) then
-					remnant = true
-					break
+	local crossings = {}
+	for __, list in pairs(byNode) do
+		if #list == 4 then
+			-- pair the edges into the two tracks running straight through
+			local best, bestPairing = math.huge, nil
+			for __, pairing in ipairs({ { 1, 2, 3, 4 }, { 1, 3, 2, 4 }, { 1, 4, 2, 3 } }) do
+				local bend = math.max(180 - angleBetween(list[pairing[1]].dir, list[pairing[2]].dir),
+					180 - angleBetween(list[pairing[3]].dir, list[pairing[4]].dir))
+				if bend < best then
+					best, bestPairing = bend, pairing
 				end
 			end
-			if not remnant then
-				drawn[#drawn + 1] = { segment = segment, edge = edge }
+			local p = bestPairing
+			local angle = angleBetween(list[p[1]].dir, list[p[3]].dir)
+			if angle > 90 then
+				angle = 180 - angle
 			end
+			crossings[#crossings + 1] = string.format("%.1f deg, pieces %.1f/%.1f and %.1f/%.1f m%s",
+				angle, list[p[1]].length, list[p[2]].length, list[p[3]].length, list[p[4]].length,
+				best > 1 and string.format(" (bends %.1f deg)", best) or "")
 		end
 	end
-	return drawn
+	table.sort(crossings)
+
+	local messages = {}
+	for __, m in ipairs(errorState.messages) do
+		messages[#messages + 1] = tostring(m)
+	end
+	local verdict = errorState.critical and "REFUSED" or (#messages > 0 and "not ok" or "ok")
+	local summary = verdict .. (#messages > 0 and (" (" .. table.concat(messages, "; ") .. ")") or "")
+		.. ", " .. #crossings .. " crossings" .. (#crossings > 0 and (": " .. table.concat(crossings, " | ")) or "")
+	-- only the boundary: the state just before and just after the verdict flips
+	if lastMeasurement ~= nil and verdict ~= lastMeasurement.verdict then
+		shared.log("measure: " .. lastMeasurement.summary)
+		shared.log("measure: " .. summary)
+	end
+	lastMeasurement = { verdict = verdict, summary = summary }
 end
 
--- proposal for one track next to the drawn one, and the tightest radius on it
-local function makeProposal(drawn, offset)
-	local nodesToAdd = {}
-	local edgesToAdd = {}
-	local nextEdgeId = -1
-	local nextNodeId = -100000
-	local minRadius = math.huge
+-- The builder asks the game scripts about its proposal on every change of the drag. If
+-- one of the extra tracks would cross another track flatter than the game allows, the
+-- whole drag is refused, with the reason, instead of building the rest around it.
+local lastRefusal = nil
 
-	-- node of the drawn track -> its counterpart on the offset track
-	local nodes = {}
-	local function getNode(entity, position, tangent)
-		local node = nodes[entity]
-		if node == nil then
-			local newPosition = geometry.offsetPoint(position, tangent, offset)
-			if newPosition == nil then
-				return nil
-			end
-			local nodeAndEntity = api.type.NodeAndEntity.new()
-			nodeAndEntity.entity = nextNodeId
-			nodeAndEntity.comp.position = vec3(newPosition)
-			nodesToAdd[#nodesToAdd + 1] = nodeAndEntity
-			node = { entity = nextNodeId, position = newPosition }
-			nodes[entity] = node
-			nextNodeId = nextNodeId - 1
-		end
-		return node
+local function checkPlayerProposal(param)
+	local drawn = planner.collectDrawnSegments(param[1].proposal)
+	if #drawn == 0 then
+		return nil
 	end
-
 	for __, d in ipairs(drawn) do
-		local comp = d.segment.comp
-		local edge = d.edge
-		local node0 = getNode(comp.node0, edge.p0, edge.t0)
-		local node1 = getNode(comp.node1, edge.p1, edge.t1)
-		if node0 and node1 then
-			local t0, t1 = geometry.offsetTangents(edge.p0, edge.p1, edge.t0, edge.t1, node0.position, node1.position)
-			minRadius = math.min(minRadius, geometry.radius(node0.position, node1.position, t0, t1))
-
-			local newSegment = api.type.SegmentAndEntity.new()
-			newSegment.entity = nextEdgeId
-			nextEdgeId = nextEdgeId - 1
-			newSegment.type = d.segment.type
-			newSegment.comp.node0 = node0.entity
-			newSegment.comp.node1 = node1.entity
-			newSegment.comp.position0 = vec3(node0.position)
-			newSegment.comp.position1 = vec3(node1.position)
-			newSegment.comp.tangent0 = vec3(t0)
-			newSegment.comp.tangent1 = vec3(t1)
-			newSegment.comp.type = comp.type
-			newSegment.comp.typeIndex = comp.typeIndex
-			newSegment.comp.laneConfigs = comp.laneConfigs
-			newSegment.comp.roadTemplate = comp.roadTemplate
-			newSegment.comp.roadStyle = comp.roadStyle
-			newSegment.comp.roadType = comp.roadType
-			-- not set by the base game's scripted track builder, so optional here
-			pcall(function()
-				newSegment.playerOwned = d.segment.playerOwned
-			end)
-			edgesToAdd[#edgesToAdd + 1] = newSegment
-		end
+		d.template = current.resName
 	end
-
-	local proposal = api.type.SimpleProposal.new()
-	proposal.streetProposal.nodesToAdd = nodesToAdd
-	proposal.streetProposal.edgesToAdd = edgesToAdd
-	return proposal, #edgesToAdd, minRadius
+	local distance = planner.getTrackDistance(current.resName)
+	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, true)
+	local message = nil
+	if stats.shallow > 0 then
+		message = string.format("Parallel tracks would cross a track at less than %.0f degrees", planner.MIN_CROSSING_ANGLE)
+	end
+	if message ~= lastRefusal then
+		lastRefusal = message
+		shared.log("check: " .. (message or "ok"))
+	end
+	if message == nil then
+		return nil
+	end
+	local errorMessages = {}
+	errorMessages[message] = true
+	return { errorMessages = errorMessages, skipRender = false }
 end
+
+local function dumpProposal(id, param)
+	local proposal = param[1]
+	local data = param[2]
+	local street = proposal.proposal
+	local v = shared.vecToString
+	shared.log("dump " .. id .. ": costs = " .. tostring(data.costs)
+		.. ", critical = " .. tostring(data.errorState.critical))
+	for __, n in ipairs(street.addedNodes) do
+		shared.log("  + node " .. tostring(n.entity) .. " " .. v(n.comp.position))
+	end
+	for __, n in ipairs(street.removedNodes) do
+		shared.log("  - node " .. tostring(n.entity) .. " " .. v(n.comp.position))
+	end
+	local function logSegment(prefix, s)
+		local c = s.comp
+		shared.log("  " .. prefix .. " edge " .. tostring(s.entity)
+			.. " nodes " .. tostring(c.node0) .. " -> " .. tostring(c.node1)
+			.. " p " .. v(c.position0) .. " -> " .. v(c.position1)
+			.. " t " .. v(c.tangent0) .. " -> " .. v(c.tangent1)
+			.. " type " .. tostring(s.type) .. "/" .. tostring(c.type) .. "/" .. tostring(c.typeIndex)
+			.. " objects " .. tostring(c.objects and #c.objects or "nil")
+			.. " " .. tostring(c.roadTemplate))
+	end
+	for __, s in ipairs(street.removedSegments) do
+		logSegment("-", s)
+	end
+	for __, s in ipairs(street.addedSegments) do
+		logSegment("+", s)
+	end
+	for __, nc in ipairs(street.nodeConfigsToAdd) do
+		local c = nc.comp
+		shared.log("  + nodeConfig " .. tostring(nc.entity)
+			.. " laneConnections " .. tostring(c.laneConnections and #c.laneConnections or "nil")
+			.. " doubleSlipSwitch " .. tostring(c.doubleSlipSwitch))
+	end
+	for __, entity in ipairs(street.nodeConfigsToRemove) do
+		shared.log("  - nodeConfig " .. tostring(entity))
+	end
+	shared.log("  edgeObjectsToAdd " .. #street.edgeObjectsToAdd
+		.. ", parallel strips + " .. #data.parallelProposal.toAdd .. " / - " .. #data.parallelProposal.toRemove)
+end
+
 
 local function logErrorState(res)
-	local errorState = res.resultProposalData.errorState
+	local data = res.resultProposalData
+	local ok, err = pcall(function()
+		local collision = data.collisionInfo
+		for __, e in ipairs(collision.collisionEntities) do
+			shared.log("  collides with " .. planner.describeEntity(e.entity))
+		end
+		for entity in pairs(collision.autoRemovalEntity2models) do
+			shared.log("  would auto-remove " .. planner.describeEntity(entity))
+		end
+		for __, entity in ipairs(collision.buildingEntities) do
+			shared.log("  touches building " .. planner.describeEntity(entity))
+		end
+	end)
+	if not ok then
+		shared.log("  no collision info: " .. tostring(err))
+	end
+	local errorState = data.errorState
 	shared.log("  critical = " .. tostring(errorState.critical))
 	for __, message in ipairs(errorState.messages) do
 		shared.log("  message: " .. tostring(message))
@@ -155,9 +218,85 @@ local function logErrorState(res)
 	end
 end
 
-local function buildParallelTracks(param)
+--------------------------------------------------------------------------------
+-- building all offset tracks of a player build
+
+-- Builds the track at offsets[index], then the next one once that is in the world.
+-- One command per track, so a track that cannot be built does not take the others
+-- with it, and one after the other, since a track may split an edge that the next
+-- one has to split as well. Each is planned from the world as it is at that moment.
+local buildTrack
+
+local function buildNext(job, index)
+	local ok, err = pcall(buildTrack, job, index)
+	if not ok then
+		shared.log("buildTrack failed: " .. tostring(err))
+	end
+end
+
+buildTrack = function(job, index)
+	local offset = job.offsets[index]
+	if offset == nil then
+		return
+	end
+
+	local drawn = {}
+	for __, d in ipairs(job.drawn) do
+		local comp = planner.getEdgeComp(d.entity)
+		drawn[#drawn + 1] = { entity = d.entity, segmentType = d.segmentType, comp = comp, edge = planner.toEdge(comp) }
+	end
+
+	shared.log("track at offset " .. offset .. ":")
+	local proposal, stats = planner.makeProposal(drawn, offset, shared.log)
+	if stats.edges == 0 then
+		buildNext(job, index + 1)
+		return
+	end
+	local label = "track at offset " .. offset .. " (" .. stats.edges .. " edges, min radius " .. planner.formatRadius(stats.minRadius)
+		.. ", " .. stats.reused .. " existing nodes, " .. stats.anchored .. " anchored, "
+		.. stats.crossings .. " crossings, " .. stats.shallow .. " too shallow, " .. stats.moved .. " nodes moved, " .. stats.dropped .. " own nodes dropped, " .. stats.skipped .. " splits skipped)"
+	-- with a player in the context the build is paid like the player's own, as the base
+	-- game does when swapping a bridge type from the entity window
+	local context = api.type.Context.new()
+	context.player = api.engine.util.getPlayer()
+	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
+		local costs = ""
+		pcall(function()
+			costs = ", costs " .. tostring(res.resultProposalData.costs)
+		end)
+		shared.log(label .. ": " .. (success and "ok" or "FAILED") .. costs)
+		if not success then
+			-- the whole plan, as a lua table that tests can load; also for successful builds
+			-- while hunting a crash that comes after them
+			shared.log("  plan: " .. planner.planToString(stats.plan))
+		end
+		if not success then
+			local ok, err = pcall(logErrorState, res)
+			if not ok then
+				shared.log("  no error details: " .. tostring(err))
+			end
+		end
+		buildNext(job, index + 1)
+	end)
+end
+
+-- Runs once the player's build is in the world: the drawn edges are read back from
+-- there, and edges it split are found in their new state.
+local function runJob(job)
+	local ok, err = pcall(function()
+		local comp = planner.getEdgeComp(job.drawn[1].entity)
+		job.offsets = geometry.offsets(job.count, job.side, planner.getTrackDistance(comp.roadTemplate))
+	end)
+	if not ok then
+		shared.log("runJob failed: " .. tostring(err))
+		return
+	end
+	buildNext(job, 1)
+end
+
+local function onPlayerBuild(param)
 	local streetProposal = param[1].proposal
-	local drawn = collectDrawnSegments(streetProposal)
+	local drawn = planner.collectDrawnSegments(streetProposal)
 	local drawnRadius = math.huge
 	for __, d in ipairs(drawn) do
 		drawnRadius = math.min(drawnRadius, geometry.radius(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1))
@@ -166,28 +305,39 @@ local function buildParallelTracks(param)
 		.. ", added = " .. #streetProposal.addedSegments
 		.. ", removed = " .. #streetProposal.removedSegments
 		.. ", drawn = " .. #drawn
-		.. ", min radius = " .. string.format("%.1f", drawnRadius))
+		.. ", min radius = " .. planner.formatRadius(drawnRadius))
 	if #drawn == 0 then
 		return
 	end
 
-	-- one command per track, so a track that cannot be built does not take the others with it
-	local distance = getTrackDistance(drawn[1].segment.comp.roadTemplate)
-	for __, offset in ipairs(geometry.offsets(current.count, current.side, distance)) do
-		local proposal, numEdges, minRadius = makeProposal(drawn, offset)
-		if numEdges > 0 then
-			local label = "track at offset " .. offset .. " (" .. numEdges .. " edges, min radius " .. string.format("%.1f", minRadius) .. ")"
-			api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, nil, false, true), function(res, success)
-				shared.log(label .. ": " .. (success and "ok" or "FAILED"))
-				if not success then
-					local ok, err = pcall(logErrorState, res)
-					if not ok then
-						shared.log("  no error details: " .. tostring(err))
-					end
-				end
-			end)
+	local job = { drawn = drawn, count = current.count, side = current.side, frames = 0 }
+	if planner.isApplied(drawn) then
+		shared.log("  player build already in the world")
+		runJob(job)
+	else
+		pending[#pending + 1] = job
+	end
+end
+
+local function processPending()
+	if #pending == 0 then
+		return
+	end
+	local remaining = {}
+	for __, job in ipairs(pending) do
+		if planner.isApplied(job.drawn) then
+			shared.log("  player build in the world after " .. job.frames .. " frames")
+			runJob(job)
+		else
+			job.frames = job.frames + 1
+			if job.frames > PENDING_MAX_FRAMES then
+				shared.log("  gave up waiting for the player build")
+			else
+				remaining[#remaining + 1] = job
+			end
 		end
 	end
+	pending = remaining
 end
 
 function data()
@@ -200,18 +350,48 @@ return {
 		ensureSubscriptions(state)
 	end,
 
+	guiUpdate = function(_userParams, _state, _guiState)
+		local ok, err = pcall(processPending)
+		if not ok then
+			pending = {}
+			shared.log("processPending failed: " .. tostring(err))
+		end
+	end,
+
 	guiHandleEvent = function(_userParams, _state, _guiState, _src, id, name, param)
 		if name == shared.EVENT_SET_PARAMS then
+			current.resName = param.resName
 			if param.count ~= current.count or param.side ~= current.side then
 				current.count = param.count
 				current.side = param.side
 				shared.log("params: count = " .. tostring(current.count) .. ", side = " .. tostring(current.side))
 			end
-		elseif name == "builder.proposalApply" and id == "trackBuilder" then
-			if current.count > 1 then
-				local ok, err = pcall(buildParallelTracks, param)
+		elseif name == "builder.proposalCreate" and id == "trackBuilder" then
+			if MEASURE_CROSSINGS then
+				local ok, err = pcall(measureCrossings, param)
 				if not ok then
-					shared.log("buildParallelTracks failed: " .. tostring(err))
+					shared.log("measureCrossings failed: " .. tostring(err))
+				end
+			end
+			if current.count > 1 then
+				local ok, result = pcall(checkPlayerProposal, param)
+				if not ok then
+					shared.log("checkPlayerProposal failed: " .. tostring(result))
+				elseif result then
+					return result
+				end
+			end
+		elseif name == "builder.proposalApply" and id == "trackBuilder" then
+			if DEBUG_DUMP then
+				local ok, err = pcall(dumpProposal, id, param)
+				if not ok then
+					shared.log("dumpProposal failed: " .. tostring(err))
+				end
+			end
+			if current.count > 1 then
+				local ok, err = pcall(onPlayerBuild, param)
+				if not ok then
+					shared.log("onPlayerBuild failed: " .. tostring(err))
 				end
 			end
 		end
