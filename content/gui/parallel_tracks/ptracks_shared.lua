@@ -19,6 +19,11 @@ local shared = {
 	-- drawing it costs the game
 	SHOW_PREVIEW = true,
 
+	-- dev switch: false turns off the speed-ups (planning only some changes of a moving
+	-- drag, the drag check without game objects, adaptive sampling in the crossing
+	-- search, caches for templates, components and edge geometry), to compare with them
+	PERF_MEASURES = true,
+
 	-- gui script event the menu uses to hand the toolbar values to the game script
 	EVENT_ID = "ptracks",
 	EVENT_SET_PARAMS = "ptracks.setParams",

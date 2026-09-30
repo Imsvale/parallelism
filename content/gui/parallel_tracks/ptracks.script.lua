@@ -156,7 +156,7 @@ local function checkPlayerProposal(param)
 	end
 	local distance = planner.getTrackDistance(current.resName)
 	-- only the verdict is needed here, not the game objects of a proposal
-	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, true)
+	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, shared.PERF_MEASURES)
 	if started then
 		local took = planner.clockMs() - started
 		checkDebounce.planned(signature, took)

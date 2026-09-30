@@ -271,7 +271,14 @@ end
 -- against many others
 local polylineCache = setmetatable({}, { __mode = "k" })
 
+-- speed-ups in the crossing search (adaptive sampling, cache); set by the planner
+geometry.fastIntersections = true
+
 local function sampled(e)
+	if not geometry.fastIntersections then
+		local points, box = polyline(e, 32)
+		return { n = 32, points = points, box = box }
+	end
 	local cached = polylineCache[e]
 	if cached == nil then
 		local n = samplesFor(e)

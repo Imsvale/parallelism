@@ -108,7 +108,7 @@ local function getTemplate(name)
 	if name == nil then
 		return nil
 	end
-	local cached = templateCache[name]
+	local cached = shared.PERF_MEASURES and templateCache[name] or nil
 	if cached == nil then
 		local ok, template = pcall(function()
 			return api.res.streetTemplateRep.get(api.res.streetTemplateRep.find(name))
@@ -290,7 +290,8 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		offsets = { offsets }
 	end
 	log = log or function() end
-	compCache = {}
+	compCache = shared.PERF_MEASURES and {} or nil
+	geometry.fastIntersections = shared.PERF_MEASURES
 	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0 }
 	local function lap(name, since)
 		local t = clockMs()
@@ -452,7 +453,7 @@ local function makeProposal(drawn, offsets, log, planOnly)
 				if comp and isTrack(comp) then
 					-- one edge table per existing edge and plan, so its sampled polyline is
 					-- reused for every offset edge it is tested against
-					local other = worldEdges[entity]
+					local other = shared.PERF_MEASURES and worldEdges[entity] or nil
 					if other == nil then
 						other = toEdge(comp)
 						worldEdges[entity] = other
@@ -842,7 +843,7 @@ local function newDebounce(every, cheapMs)
 		if signature == d.lastPlanned then
 			return false
 		end
-		if d.lastCost == nil or d.lastCost < cheapMs then
+		if not shared.PERF_MEASURES or d.lastCost == nil or d.lastCost < cheapMs then
 			return true
 		end
 		if signature == d.lastSeen then
