@@ -1100,6 +1100,25 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		proposal.streetProposal.edgesToAdd = edgesToAdd
 		proposal.streetProposal.edgesToRemove = edgesToRemove
 		proposal.streetProposal.nodesToRemove = nodesToRemove
+		-- An edge without lane configs crashes the game (lane_config_util.cpp, seen for
+		-- tracks and for roads in curved mode). Read them back from what the game gets.
+		local ok, err = pcall(function()
+			for i, segment in ipairs(proposal.streetProposal.edgesToAdd) do
+				if sizeOf(segment.comp.laneConfigs) == 0 then
+					local p = stats.plan[i]
+					local problem = string.format("edge %d has no lane configs (%s)", segment.entity,
+						p and (shared.vecToString(p.edge.p0) .. " -> " .. shared.vecToString(p.edge.p1)) or "?")
+					table.insert(stats.problems, 1, problem)
+					log("  plan problem: " .. problem)
+					shared.log("lane config check: " .. problem .. ", template " .. tostring(segment.comp.roadTemplate))
+					break
+				end
+			end
+		end)
+		if not ok then
+			table.insert(stats.problems, 1, "lane configs could not be checked: " .. tostring(err))
+			shared.log("lane config check failed: " .. tostring(err))
+		end
 	end
 	compCache = nil
 	node2segmentsCache = nil
