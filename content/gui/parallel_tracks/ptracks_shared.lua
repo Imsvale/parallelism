@@ -14,6 +14,11 @@ local shared = {
 
 	MAX_COUNT = 6,
 
+	-- dev switch: false keeps the preview's planning, tooltip line and the drag check, but
+	-- does not draw the preview (no proposal viewer, no menu redraw), to measure what
+	-- drawing it costs the game
+	SHOW_PREVIEW = true,
+
 	-- gui script event the menu uses to hand the toolbar values to the game script
 	EVENT_ID = "ptracks",
 	EVENT_SET_PARAMS = "ptracks.setParams",

@@ -7,6 +7,12 @@ local geometry = require "ptracks_geometry.lua"
 
 local planner = {}
 
+-- CPU time in milliseconds, for timing logs; nil if the game does not offer it
+local function clockMs()
+	local ok, t = pcall(os.clock)
+	return ok and t and t * 1000 or nil
+end
+
 -- an added segment within this distance of a removed one is a leftover of splitting it
 local REMNANT_TOLERANCE = 0.25
 local DEFAULT_TRACK_DISTANCE = 5.0
@@ -30,6 +36,10 @@ planner.MIN_CROSSING_ANGLE = MIN_CROSSING_ANGLE
 local CROSSING_CLEARANCE = 1.5
 -- cap on the length of a switch zone (a branch leaving on a straight never clears)
 local MAX_SWITCH_ZONE = 150.0
+-- two edges are only merged into one if that one strays no more than this from them
+local MAX_MERGE_DEVIATION = 0.2
+-- smallest curve radius for extra tracks if the track template does not say
+local DEFAULT_MIN_RADIUS = 40.0
 
 local function plain(v)
 	return { x = v.x, y = v.y, z = v.z }
@@ -52,7 +62,24 @@ local function isTrack(comp)
 	return comp.roadType == api.type["enum"].RoadType.TRACK
 end
 
+-- While a plan is made, edge components read from the world are kept: reading one
+-- copies it into lua, and the same nearby edges come up for many offset edges.
+local compCache = nil
+
+-- the component as it is in the world now, for everything outside a plan
+local function readEdgeComp(entity)
+	return api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE)
+end
+
 local function getEdgeComp(entity)
+	if compCache ~= nil then
+		local cached = compCache[entity]
+		if cached == nil then
+			cached = api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE) or false
+			compCache[entity] = cached
+		end
+		return cached or nil
+	end
 	return api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE)
 end
 
@@ -73,11 +100,23 @@ end
 -- The lane configs for an edge like comp. Segments of the builder's live proposal can
 -- come without them in the middle of a drag, and an edge without lane configs crashes
 -- the game, so they are then taken from the track template.
+-- Track templates by name. Fetching one copies the whole template into lua, and they do
+-- not change during a game, so each is fetched once.
+local templateCache = {}
+
 local function getTemplate(name)
-	local ok, template = pcall(function()
-		return api.res.streetTemplateRep.get(api.res.streetTemplateRep.find(name))
-	end)
-	return ok and template or nil
+	if name == nil then
+		return nil
+	end
+	local cached = templateCache[name]
+	if cached == nil then
+		local ok, template = pcall(function()
+			return api.res.streetTemplateRep.get(api.res.streetTemplateRep.find(name))
+		end)
+		cached = ok and template or false
+		templateCache[name] = cached
+	end
+	return cached or nil
 end
 
 local function laneConfigsOf(comp, templateName)
@@ -137,10 +176,9 @@ local function switchZone(radius)
 end
 
 local function getTrackDistance(roadTemplate)
-	local ok, distance = pcall(function()
-		return api.res.streetTemplateRep.get(api.res.streetTemplateRep.find(roadTemplate)).trackDistance
-	end)
-	if ok and distance and distance > 0 then
+	local template = getTemplate(roadTemplate)
+	local distance = template and template.trackDistance
+	if distance and distance > 0 then
 		return distance
 	end
 	return DEFAULT_TRACK_DISTANCE
@@ -178,7 +216,7 @@ end
 -- reused, so the id alone does not tell.
 local function isApplied(drawn)
 	for __, d in ipairs(drawn) do
-		local comp = getEdgeComp(d.entity)
+		local comp = readEdgeComp(d.entity)
 		if comp == nil
 			or geometry.horizontalDistance(plain(comp.position0), d.edge.p0) > 0.01
 			or geometry.horizontalDistance(plain(comp.position1), d.edge.p1) > 0.01 then
@@ -252,7 +290,43 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		offsets = { offsets }
 	end
 	log = log or function() end
-	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {} }
+	compCache = {}
+	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0 }
+	local function lap(name, since)
+		local t = clockMs()
+		if t and since then
+			timing[name] = timing[name] + (t - since)
+		end
+		return t
+	end
+	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {}, problems = {} }
+
+	-- Right and left are taken from each segment's own direction, so all segments of the
+	-- run must run the same way. The builder does not always hand them over like that.
+	do
+		local segments = {}
+		for __, d in ipairs(drawn) do
+			segments[#segments + 1] = { node0 = d.comp.node0, node1 = d.comp.node1, edge = d.edge, d = d }
+		end
+		local ordered, turned = geometry.orientChain(segments)
+		if turned > 0 then
+			log("  " .. turned .. " of " .. #segments .. " drawn segments ran the other way, turned them around")
+		end
+		local oriented = {}
+		for __, s in ipairs(ordered) do
+			local d = (s.source or s).d
+			oriented[#oriented + 1] = {
+				entity = d.entity,
+				segmentType = d.segmentType,
+				comp = d.comp,
+				template = d.template,
+				node0 = s.node0,
+				node1 = s.node1,
+				edge = s.edge,
+			}
+		end
+		drawn = oriented
+	end
 	-- existing nodes the offset track connects to, they must stay where they are
 	local reusedNodes = {}
 	local nextNodeId = -100000
@@ -286,13 +360,17 @@ local function makeProposal(drawn, offsets, log, planOnly)
 	local useCount = {}
 	for __, d in ipairs(drawn) do
 		drawnEntities[d.entity] = true
-		useCount[d.comp.node0] = (useCount[d.comp.node0] or 0) + 1
-		useCount[d.comp.node1] = (useCount[d.comp.node1] or 0) + 1
+		useCount[d.node0] = (useCount[d.node0] or 0) + 1
+		useCount[d.node1] = (useCount[d.node1] or 0) + 1
 	end
 
+	-- existing edges as geometry, by entity, for the crossing search
+	local worldEdges = {}
 	-- the offset edges of each planned track
 	local tracks = {}
+	timing.firstTrack = clockMs()
 	for __, offset in ipairs(offsets) do
+		timing.trackStart = clockMs()
 		-- node of the drawn track -> its counterpart on the offset track
 		local nodes = {}
 		-- new nodes in the middle of the offset track, which may be dropped
@@ -334,12 +412,20 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		-- offset edges: { node0, node1, edge, props, cuts }
 		local offsetEdges = {}
 		for __, d in ipairs(drawn) do
-			local node0 = getNode(d.comp.node0, d.edge.p0, d.edge.t0)
-			local node1 = getNode(d.comp.node1, d.edge.p1, d.edge.t1)
+			local node0 = getNode(d.node0, d.edge.p0, d.edge.t0)
+			local node1 = getNode(d.node1, d.edge.p1, d.edge.t1)
 			if node0 and node1 then
 				local t0, t1 = geometry.offsetTangents(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1, node0.position, node1.position)
 				local edge = { p0 = node0.position, p1 = node1.position, t0 = t0, t1 = t1 }
-				stats.minRadius = math.min(stats.minRadius, geometry.radius(edge.p0, edge.p1, t0, t1))
+				local radius = geometry.radius(edge.p0, edge.p1, t0, t1)
+				-- on the inside of a bend tighter than the offset the track turns inside out:
+				-- its ends swap over, the chord runs against the drawn one
+				local dx, dy = edge.p1.x - edge.p0.x, edge.p1.y - edge.p0.y
+				local ex, ey = d.edge.p1.x - d.edge.p0.x, d.edge.p1.y - d.edge.p0.y
+				if dx * ex + dy * ey <= 0 then
+					radius = 0
+				end
+				stats.minRadius = math.min(stats.minRadius, radius)
 				offsetEdges[#offsetEdges + 1] = {
 					node0 = node0,
 					node1 = node1,
@@ -358,12 +444,19 @@ local function makeProposal(drawn, offsets, log, planOnly)
 			end
 		end
 
+		local phase = lap("offsets", timing.trackStart)
 		-- crossings with existing tracks on the same level get a shared node
 		for __, oe in ipairs(offsetEdges) do
 			for __, entity in ipairs(findEdgesNear(oe.edge)) do
 				local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
 				if comp and isTrack(comp) then
-					local other = toEdge(comp)
+					-- one edge table per existing edge and plan, so its sampled polyline is
+					-- reused for every offset edge it is tested against
+					local other = worldEdges[entity]
+					if other == nil then
+						other = toEdge(comp)
+						worldEdges[entity] = other
+					end
 					for __, x in ipairs(geometry.intersections(oe.edge, other)) do
 						local angle = geometry.crossingAngle(oe.edge, x.ua, other, x.ub)
 						if math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
@@ -386,10 +479,13 @@ local function makeProposal(drawn, offsets, log, planOnly)
 			end
 		end
 
+		phase = lap("crossings", phase)
 		-- A crossing close to a node in the middle of the offset track would leave a short
 		-- piece there. Those nodes only mirror nodes of the drawn track, so drop them: merge
 		-- the two offset edges around it, the crossing takes its place.
 		local dropped = {}
+		-- nodes that stay because merging around them would bend the track
+		local keptNodes = {}
 		local function edgesAt(entity)
 			local result = {}
 			for i, oe in ipairs(offsetEdges) do
@@ -407,7 +503,8 @@ local function makeProposal(drawn, offsets, log, planOnly)
 			merging = false
 			for entity in pairs(movable) do
 				local at = edgesAt(entity)
-				if not dropped[entity] and #at == 2 then
+				-- a node whose merge was refused stays refused, no need to work it out again
+				if not dropped[entity] and not keptNodes[entity] and #at == 2 then
 					local a = offsetEdges[at[1]]
 					local b = offsetEdges[at[2]]
 					local position = a.node0.entity == entity and a.node0.position or a.node1.position
@@ -431,20 +528,31 @@ local function makeProposal(drawn, offsets, log, planOnly)
 						if b.node0.entity ~= entity then
 							b = reversed(b)
 						end
-						local cuts = {}
-						for __, cut in ipairs(a.cuts) do
-							cuts[#cuts + 1] = cut
+						-- one curve cannot follow every shape two can (e.g. a long stretch of a
+						-- tight spiral): keep the node if the merged curve would stray
+						local merged = geometry.merge(a.edge, b.edge)
+						local deviation = geometry.mergeDeviation(a.edge, b.edge, merged)
+						if deviation > MAX_MERGE_DEVIATION then
+							if not keptNodes[entity] then
+								keptNodes[entity] = true
+								log(string.format("  own node %d is %.2f m from a crossing, kept it: merging would stray %.2f m", entity, nearest, deviation))
+							end
+						else
+							local cuts = {}
+							for __, cut in ipairs(a.cuts) do
+								cuts[#cuts + 1] = cut
+							end
+							for __, cut in ipairs(b.cuts) do
+								cuts[#cuts + 1] = cut
+							end
+							offsetEdges[at[1]] = { node0 = a.node0, node1 = b.node1, edge = merged, props = a.props, cuts = cuts }
+							table.remove(offsetEdges, at[2])
+							dropped[entity] = true
+							stats.dropped = stats.dropped + 1
+							log(string.format("  own node %d is %.2f m from a crossing, dropped it", entity, nearest))
+							merging = true
+							break
 						end
-						for __, cut in ipairs(b.cuts) do
-							cuts[#cuts + 1] = cut
-						end
-						offsetEdges[at[1]] = { node0 = a.node0, node1 = b.node1, edge = geometry.merge(a.edge, b.edge), props = a.props, cuts = cuts }
-						table.remove(offsetEdges, at[2])
-						dropped[entity] = true
-						stats.dropped = stats.dropped + 1
-						log(string.format("  own node %d is %.2f m from a crossing, dropped it", entity, nearest))
-						merging = true
-						break
 					end
 				end
 			end
@@ -465,10 +573,9 @@ local function makeProposal(drawn, offsets, log, planOnly)
 			end
 		end
 		tracks[#tracks + 1] = offsetEdges
+		lap("merges", phase)
 	end
-	if planOnly then
-		return nil, stats
-	end
+	local emitStart = clockMs()
 
 	-- emit
 	local edgesToAdd = {}
@@ -476,9 +583,20 @@ local function makeProposal(drawn, offsets, log, planOnly)
 	local nextEdgeId = -1
 
 	local function addSegment(node0, node1, piece, props)
-		local segment = api.type.SegmentAndEntity.new()
-		segment.entity = nextEdgeId
+		local entity = nextEdgeId
 		nextEdgeId = nextEdgeId - 1
+		stats.plan[#stats.plan + 1] = {
+			entity = entity,
+			node0 = node0.entity,
+			node1 = node1.entity,
+			edge = { p0 = node0.position, p1 = node1.position, t0 = piece.t0, t1 = piece.t1 },
+		}
+		-- the game objects only when a proposal is wanted, a check needs just the plan
+		if planOnly then
+			return
+		end
+		local segment = api.type.SegmentAndEntity.new()
+		segment.entity = entity
 		segment.type = props.segmentType
 		segment.comp.node0 = node0.entity
 		segment.comp.node1 = node1.entity
@@ -499,12 +617,6 @@ local function makeProposal(drawn, offsets, log, planOnly)
 			end)
 		end
 		edgesToAdd[#edgesToAdd + 1] = segment
-		stats.plan[#stats.plan + 1] = {
-			entity = segment.entity,
-			node0 = node0.entity,
-			node1 = node1.entity,
-			edge = { p0 = node0.position, p1 = node1.position, t0 = piece.t0, t1 = piece.t1 },
-		}
 	end
 
 	-- adds the edge cut into pieces between its end nodes and the cut nodes
@@ -565,27 +677,36 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		end
 
 		local otherEdge = toEdge(otherComp)
+		local merged, far
 		if which == 0 then
 			-- other runs far node -> end node
-			local far
 			if otherComp.node1 == endNode.entity then
 				far = { entity = otherComp.node0, position = otherEdge.p0 }
 			else
 				otherEdge = geometry.reverse(otherEdge)
 				far = { entity = otherComp.node1, position = otherEdge.p0 }
 			end
-			part.edge = geometry.merge(otherEdge, part.edge)
-			part.node0 = far
+			merged = geometry.merge(otherEdge, part.edge)
 		else
 			-- other runs end node -> far node
-			local far
 			if otherComp.node0 == endNode.entity then
 				far = { entity = otherComp.node1, position = otherEdge.p1 }
 			else
 				otherEdge = geometry.reverse(otherEdge)
 				far = { entity = otherComp.node0, position = otherEdge.p1 }
 			end
-			part.edge = geometry.merge(part.edge, otherEdge)
+			merged = geometry.merge(part.edge, otherEdge)
+		end
+		-- one curve cannot follow every shape two can: rather keep the node than bend the track
+		local deviation = geometry.mergeDeviation(part.edge, otherEdge, merged)
+		if deviation > MAX_MERGE_DEVIATION then
+			log(prefix .. string.format(", not removed: merging with edge %d would stray %.2f m", other, deviation))
+			return
+		end
+		part.edge = merged
+		if which == 0 then
+			part.node0 = far
+		else
 			part.node1 = far
 		end
 		part.endEdge[which] = other
@@ -649,20 +770,96 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		end
 	end
 
-	local nodeAndEntities = {}
-	for __, node in ipairs(nodesToAdd) do
-		local nodeAndEntity = api.type.NodeAndEntity.new()
-		nodeAndEntity.entity = node.entity
-		nodeAndEntity.comp.position = vec3(node.position)
-		nodeAndEntities[#nodeAndEntities + 1] = nodeAndEntity
+	-- A plan with a track bending at one of its nodes must not reach the game: at a
+	-- crossing that crashes it. Callers check stats.problems.
+	local checkStart = clockMs()
+	stats.problems = geometry.checkPlan(stats.plan)
+	-- The tracks on the inside of a bend are tighter than the drawn one, on a hairpin they
+	-- turn inside out. The game allows down to the template's minCurveRadius for tracks
+	-- laid along others (seen in game: 45 m built where dragging needs 55 m).
+	local template = getTemplate(templateOf({ comp = drawn[1].comp, template = drawn[1].template }))
+	local minRadius = template and template.minCurveRadius or DEFAULT_MIN_RADIUS
+	stats.tooTight = stats.minRadius < minRadius
+	if stats.tooTight then
+		table.insert(stats.problems, 1, string.format("a parallel track would curve at %.1f m radius, the track type needs %.0f m",
+			stats.minRadius, minRadius))
+		log("  plan problem: " .. stats.problems[1])
+	end
+	stats.minAllowedRadius = minRadius
+	for __, problem in ipairs(stats.problems) do
+		log("  plan problem: " .. problem)
 	end
 
-	local proposal = api.type.SimpleProposal.new()
-	proposal.streetProposal.nodesToAdd = nodeAndEntities
-	proposal.streetProposal.edgesToAdd = edgesToAdd
-	proposal.streetProposal.edgesToRemove = edgesToRemove
-	proposal.streetProposal.nodesToRemove = nodesToRemove
+	local proposal = nil
+	if not planOnly then
+		local nodeAndEntities = {}
+		for __, node in ipairs(nodesToAdd) do
+			local nodeAndEntity = api.type.NodeAndEntity.new()
+			nodeAndEntity.entity = node.entity
+			nodeAndEntity.comp.position = vec3(node.position)
+			nodeAndEntities[#nodeAndEntities + 1] = nodeAndEntity
+		end
+
+		proposal = api.type.SimpleProposal.new()
+		proposal.streetProposal.nodesToAdd = nodeAndEntities
+		proposal.streetProposal.edgesToAdd = edgesToAdd
+		proposal.streetProposal.edgesToRemove = edgesToRemove
+		proposal.streetProposal.nodesToRemove = nodesToRemove
+	end
+	compCache = nil
+	local finished = clockMs()
+	if finished and timing.start then
+		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f, crossings %.0f, merges %.0f, emit %.0f, check %.0f",
+			finished - timing.start, (timing.firstTrack or timing.start) - timing.start, timing.offsets, timing.crossings, timing.merges,
+			checkStart - emitStart, finished - checkStart)
+	end
 	return proposal, stats
+end
+
+-- Identifies a drag and the settings it is planned with, to plan again only when one
+-- of them changed. The builder asks about the same drag many times.
+local function signatureOf(drawn, ...)
+	local parts = {}
+	for __, extra in ipairs({ ... }) do
+		parts[#parts + 1] = tostring(extra)
+	end
+	for __, d in ipairs(drawn) do
+		local e = d.edge
+		parts[#parts + 1] = string.format("%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f,%.2f",
+			e.p0.x, e.p0.y, e.p1.x, e.p1.y, e.t0.x, e.t0.y, e.t1.x, e.t1.y)
+	end
+	return table.concat(parts, ";")
+end
+
+-- Decides when to plan a drag that keeps changing. The builder asks about the drag
+-- continuously, also while it holds still. As long as planning is cheap (open ground)
+-- every change is planned, so the preview follows the mouse exactly. When it gets
+-- expensive (many tracks nearby), only every n-th change is planned while the drag
+-- moves, and the drag as soon as it holds still (the same drag asked about twice).
+local function newDebounce(every, cheapMs)
+	local d = { lastSeen = nil, lastPlanned = nil, skipped = 0, lastCost = nil }
+	function d.shouldPlan(signature)
+		if signature == d.lastPlanned then
+			return false
+		end
+		if d.lastCost == nil or d.lastCost < cheapMs then
+			return true
+		end
+		if signature == d.lastSeen then
+			return true
+		end
+		d.lastSeen = signature
+		d.skipped = d.skipped + 1
+		return d.skipped >= every
+	end
+	-- cost: how long planning it took, in ms, if known
+	function d.planned(signature, cost)
+		d.lastPlanned = signature
+		d.lastSeen = signature
+		d.skipped = 0
+		d.lastCost = cost
+	end
+	return d
 end
 
 local function planToString(plan)
@@ -706,13 +903,20 @@ local function describeEntity(entity)
 	return table.concat(parts, " ")
 end
 planner.toEdge = toEdge
-planner.getEdgeComp = getEdgeComp
+planner.getEdgeComp = readEdgeComp
 planner.getTrackDistance = getTrackDistance
 planner.formatRadius = formatRadius
 planner.collectDrawnSegments = collectDrawnSegments
 planner.isApplied = isApplied
 planner.makeProposal = makeProposal
 planner.planToString = planToString
+planner.signatureOf = signatureOf
+planner.newDebounce = newDebounce
+-- while a drag moves and planning it is expensive, plan only every this many changes
+planner.PLAN_EVERY = 4
+-- planning that takes less than this (ms) counts as cheap: every change is planned
+planner.CHEAP_PLAN_MS = 10
+planner.clockMs = clockMs
 planner.describeEntity = describeEntity
 
 return planner

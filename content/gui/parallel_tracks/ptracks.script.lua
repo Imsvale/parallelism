@@ -121,31 +121,72 @@ end
 -- one of the extra tracks would cross another track flatter than the game allows, the
 -- whole drag is refused, with the reason, instead of building the rest around it.
 local lastRefusal = nil
+-- the last drag checked and the answer, the builder asks about the same drag many times
+local lastCheck = { signature = nil, result = nil }
+local checkDebounce = planner.newDebounce(planner.PLAN_EVERY, planner.CHEAP_PLAN_MS)
+-- dev aid: how often the builder asks and what answering costs, logged every so often
+local perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0 }
+
+local function logPerf()
+	if perf.requests >= 100 then
+		shared.log(string.format("perf [tracks " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring",
+			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs))
+		perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0 }
+	end
+end
 
 local function checkPlayerProposal(param)
 	local drawn = planner.collectDrawnSegments(param[1].proposal)
 	if #drawn == 0 then
 		return nil
 	end
+	local signature = planner.signatureOf(drawn, current.count, current.side, current.resName)
+	if signature == lastCheck.signature then
+		return lastCheck.result
+	end
+	-- while the drag moves, the answer for a recent position stands in; the position it
+	-- stops at is always checked
+	if not checkDebounce.shouldPlan(signature) then
+		return lastCheck.result
+	end
+	checkDebounce.planned(signature)
+	local started = planner.clockMs()
 	for __, d in ipairs(drawn) do
 		d.template = current.resName
 	end
 	local distance = planner.getTrackDistance(current.resName)
+	-- only the verdict is needed here, not the game objects of a proposal
 	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, true)
+	if started then
+		local took = planner.clockMs() - started
+		checkDebounce.planned(signature, took)
+		perf.planned = perf.planned + 1
+		perf.planMs = perf.planMs + took
+		if took > perf.worstMs then
+			perf.worstMs = took
+			perf.worstTiming = stats.timing
+		end
+	end
 	local message = nil
 	if stats.shallow > 0 then
 		message = string.format("Parallel tracks would cross a track at less than %.0f degrees", planner.MIN_CROSSING_ANGLE)
+	elseif stats.tooTight then
+		message = string.format("Parallel tracks would curve tighter than %.0f m", stats.minAllowedRadius)
+	elseif #stats.problems > 0 then
+		message = "Parallel tracks cannot be laid out here"
 	end
 	if message ~= lastRefusal then
 		lastRefusal = message
 		shared.log("check: " .. (message or "ok"))
 	end
-	if message == nil then
-		return nil
+	local result = nil
+	if message ~= nil then
+		local errorMessages = {}
+		errorMessages[message] = true
+		result = { errorMessages = errorMessages, skipRender = false }
 	end
-	local errorMessages = {}
-	errorMessages[message] = true
-	return { errorMessages = errorMessages, skipRender = false }
+	lastCheck = { signature = signature, result = result }
+	return result
 end
 
 local function dumpProposal(id, param)
@@ -221,10 +262,50 @@ end
 --------------------------------------------------------------------------------
 -- building all offset tracks of a player build
 
--- Builds the track at offsets[index], then the next one once that is in the world.
--- One command per track, so a track that cannot be built does not take the others
--- with it, and one after the other, since a track may split an edge that the next
--- one has to split as well. Each is planned from the world as it is at that moment.
+-- The drawn edges as they are in the world now
+local function readDrawn(job)
+	local drawn = {}
+	for __, d in ipairs(job.drawn) do
+		local comp = planner.getEdgeComp(d.entity)
+		drawn[#drawn + 1] = { entity = d.entity, segmentType = d.segmentType, comp = comp, edge = planner.toEdge(comp) }
+	end
+	return drawn
+end
+
+local function describeStats(stats)
+	return stats.edges .. " edges, min radius " .. planner.formatRadius(stats.minRadius)
+		.. ", " .. stats.reused .. " existing nodes, " .. stats.anchored .. " anchored, "
+		.. stats.crossings .. " crossings, " .. stats.shallow .. " too shallow, " .. stats.moved .. " nodes moved, "
+		.. stats.dropped .. " own nodes dropped, " .. stats.skipped .. " splits skipped"
+end
+
+-- Sends one build and logs how it went; onDone(success) runs after it.
+local function sendBuild(label, proposal, stats, onDone)
+	-- with a player in the context the build is paid like the player's own, as the base
+	-- game does when swapping a bridge type from the entity window
+	local context = api.type.Context.new()
+	context.player = api.engine.util.getPlayer()
+	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
+		local costs = ""
+		pcall(function()
+			costs = ", costs " .. tostring(res.resultProposalData.costs)
+		end)
+		shared.log(label .. " (" .. describeStats(stats) .. "): " .. (success and "ok" or "FAILED") .. costs)
+		if not success then
+			-- the whole plan, as a lua table that tests can load
+			shared.log("  plan: " .. planner.planToString(stats.plan))
+			local ok, err = pcall(logErrorState, res)
+			if not ok then
+				shared.log("  no error details: " .. tostring(err))
+			end
+		end
+		onDone(success)
+	end)
+end
+
+-- Fallback: builds the track at offsets[index], then the next one once that is in the
+-- world. One command per track, planned from the world as it is at that moment, so a
+-- track that cannot be built does not take the others with it.
 local buildTrack
 
 local function buildNext(job, index)
@@ -239,44 +320,37 @@ buildTrack = function(job, index)
 	if offset == nil then
 		return
 	end
-
-	local drawn = {}
-	for __, d in ipairs(job.drawn) do
-		local comp = planner.getEdgeComp(d.entity)
-		drawn[#drawn + 1] = { entity = d.entity, segmentType = d.segmentType, comp = comp, edge = planner.toEdge(comp) }
-	end
-
 	shared.log("track at offset " .. offset .. ":")
-	local proposal, stats = planner.makeProposal(drawn, offset, shared.log)
-	if stats.edges == 0 then
+	local proposal, stats = planner.makeProposal(readDrawn(job), offset, shared.log)
+	if stats.edges == 0 or #stats.problems > 0 then
 		buildNext(job, index + 1)
 		return
 	end
-	local label = "track at offset " .. offset .. " (" .. stats.edges .. " edges, min radius " .. planner.formatRadius(stats.minRadius)
-		.. ", " .. stats.reused .. " existing nodes, " .. stats.anchored .. " anchored, "
-		.. stats.crossings .. " crossings, " .. stats.shallow .. " too shallow, " .. stats.moved .. " nodes moved, " .. stats.dropped .. " own nodes dropped, " .. stats.skipped .. " splits skipped)"
-	-- with a player in the context the build is paid like the player's own, as the base
-	-- game does when swapping a bridge type from the entity window
-	local context = api.type.Context.new()
-	context.player = api.engine.util.getPlayer()
-	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
-		local costs = ""
-		pcall(function()
-			costs = ", costs " .. tostring(res.resultProposalData.costs)
-		end)
-		shared.log(label .. ": " .. (success and "ok" or "FAILED") .. costs)
-		if not success then
-			-- the whole plan, as a lua table that tests can load; also for successful builds
-			-- while hunting a crash that comes after them
-			shared.log("  plan: " .. planner.planToString(stats.plan))
-		end
-		if not success then
-			local ok, err = pcall(logErrorState, res)
-			if not ok then
-				shared.log("  no error details: " .. tostring(err))
-			end
-		end
+	sendBuild("track at offset " .. offset, proposal, stats, function()
 		buildNext(job, index + 1)
+	end)
+end
+
+-- All extra tracks in one command: they appear together, the drag is built completely
+-- or not at all, and it is the same plan the preview shows. While it is new, a failure
+-- falls back to building the tracks one by one, and the log tells how often that is.
+local function buildCombined(job)
+	shared.log("tracks at offsets " .. table.concat(job.offsets, ", ") .. ":")
+	local proposal, stats = planner.makeProposal(readDrawn(job), job.offsets, shared.log)
+	if stats.edges == 0 then
+		return
+	end
+	if #stats.problems > 0 then
+		-- never hand the game a plan like this, it can crash on it
+		shared.log("  not built: the plan has " .. #stats.problems .. " problems")
+		shared.log("  plan: " .. planner.planToString(stats.plan))
+		return
+	end
+	sendBuild("all tracks", proposal, stats, function(success)
+		if not success then
+			shared.log("combined build failed, building the tracks one by one")
+			buildNext(job, 1)
+		end
 	end)
 end
 
@@ -286,12 +360,11 @@ local function runJob(job)
 	local ok, err = pcall(function()
 		local comp = planner.getEdgeComp(job.drawn[1].entity)
 		job.offsets = geometry.offsets(job.count, job.side, planner.getTrackDistance(comp.roadTemplate))
+		buildCombined(job)
 	end)
 	if not ok then
 		shared.log("runJob failed: " .. tostring(err))
-		return
 	end
-	buildNext(job, 1)
 end
 
 local function onPlayerBuild(param)
@@ -367,10 +440,16 @@ return {
 				shared.log("params: count = " .. tostring(current.count) .. ", side = " .. tostring(current.side))
 			end
 		elseif name == "builder.proposalCreate" and id == "trackBuilder" then
+			perf.requests = perf.requests + 1
+			logPerf()
 			if MEASURE_CROSSINGS then
+				local started = planner.clockMs()
 				local ok, err = pcall(measureCrossings, param)
 				if not ok then
 					shared.log("measureCrossings failed: " .. tostring(err))
+				end
+				if started then
+					perf.measureMs = perf.measureMs + planner.clockMs() - started
 				end
 			end
 			if current.count > 1 then

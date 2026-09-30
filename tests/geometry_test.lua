@@ -137,5 +137,53 @@ check("3 degree crossing", math.abs(geometry.crossingAngle(ew, 0.5, diagonal, 0.
 	string.format("%.4f", geometry.crossingAngle(ew, 0.5, diagonal, 0.5)))
 check("angle ignores direction", math.abs(geometry.crossingAngle(ns, 0.5, geometry.reverse(ew), 0.5) - 90) < 1e-6)
 
+-- orientChain: a run with one segment stored the other way round
+local s1 = { node0 = 1, node1 = 2, edge = straight(v(0, 0), v(0, 50)) }
+local s2 = { node0 = 3, node1 = 2, edge = straight(v(0, 100), v(0, 50)) } -- reversed
+local s3 = { node0 = 3, node1 = 4, edge = straight(v(0, 100), v(0, 150)) }
+local chain, turned = geometry.orientChain({ s1, s2, s3 })
+check("orientChain turns the odd one", turned == 1, tostring(turned))
+check("orientChain keeps the majority direction", chain[1].node0 == 1 and chain[3].node1 == 4,
+	chain[1].node0 .. " .. " .. chain[3].node1)
+check("orientChain reverses its geometry", chain[2].edge.p0.y == 50 and chain[2].edge.t0.y > 0)
+local backwards, turnedBack = geometry.orientChain({
+	{ node0 = 2, node1 = 1, edge = straight(v(0, 50), v(0, 0)) },
+	{ node0 = 3, node1 = 2, edge = straight(v(0, 100), v(0, 50)) },
+})
+check("orientChain leaves a consistent run alone", turnedBack == 0 and backwards[1].node0 == 3, tostring(turnedBack))
+
+local tieFirst = { node0 = 5, node1 = 6, edge = straight(v(0, 50), v(0, 100)) }
+local tieSecond = { node0 = 5, node1 = 4, edge = straight(v(0, 50), v(0, 0)) } -- runs the other way
+local tie = geometry.orientChain({ tieFirst, tieSecond })
+check("orientChain tie: the first segment decides", tie[#tie].node1 == 6 and tie[1].node0 == 4,
+	tie[1].node0 .. " .. " .. tie[#tie].node1)
+
+-- mergeDeviation: two halves of one arc merge cleanly, two quarters of a tight spiral
+-- (180 degrees at 30 m radius) do not
+local q1 = { p0 = v(30, 0), p1 = v(0, 30), t0 = v(0, 47.1, 0), t1 = v(-47.1, 0, 0) }
+local q2 = { p0 = v(0, 30), p1 = v(-30, 0), t0 = v(-47.1, 0, 0), t1 = v(0, -47.1, 0) }
+local halfA, halfB = geometry.split(q1, 0.5)
+check("clean merge strays little", geometry.mergeDeviation(halfA, halfB, geometry.merge(halfA, halfB)) < 0.2)
+local spiral = geometry.mergeDeviation(q1, q2, geometry.merge(q1, q2))
+check("merging half a tight circle strays", spiral > 0.2, string.format("%.2f m", spiral))
+
+-- checkPlan: a crossing with a bent track is a problem, a straight one is not
+local function planEdge(entity, node0, node1, p0, p1, t)
+	return { entity = entity, node0 = node0, node1 = node1, edge = { p0 = p0, p1 = p1, t0 = t, t1 = t } }
+end
+local goodCrossing = {
+	planEdge(-1, 1, 9, v(0, -50), v(0, 0), v(0, 50, 0)),
+	planEdge(-2, 9, 2, v(0, 0), v(0, 50), v(0, 50, 0)),
+	planEdge(-3, 3, 9, v(-50, 0), v(0, 0), v(50, 0, 0)),
+	planEdge(-4, 9, 4, v(0, 0), v(50, 0), v(50, 0, 0)),
+}
+check("straight crossing passes", #geometry.checkPlan(goodCrossing) == 0)
+local badCrossing = {
+	goodCrossing[1], goodCrossing[2], goodCrossing[3],
+	planEdge(-4, 9, 4, v(0, 0), v(50, 10), v(50, 10, 0)),
+}
+local problems = geometry.checkPlan(badCrossing)
+check("bent crossing is a problem", #problems == 1, problems[1])
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

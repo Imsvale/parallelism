@@ -39,12 +39,10 @@ end
 
 -- identifies a drawn proposal, to plan again only when the drag changed
 local function signatureOf(drawn)
-	local parts = { preview.count, preview.side }
-	for __, d in ipairs(drawn) do
-		parts[#parts + 1] = string.format("%.2f,%.2f,%.2f,%.2f", d.edge.p0.x, d.edge.p0.y, d.edge.p1.x, d.edge.p1.y)
-	end
-	return table.concat(parts, ";")
+	return planner.signatureOf(drawn, preview.count, preview.side, preview.resName)
 end
+
+local previewDebounce = planner.newDebounce(planner.PLAN_EVERY, planner.CHEAP_PLAN_MS)
 
 local function updatePreview(proposal)
 	local drawn = planner.collectDrawnSegments(proposal.proposal)
@@ -56,6 +54,11 @@ local function updatePreview(proposal)
 	if signature == preview.signature then
 		return
 	end
+	-- while the drag moves the preview follows every few changes, and settles where it stops
+	if not previewDebounce.shouldPlan(signature) then
+		return
+	end
+	previewDebounce.planned(signature)
 	-- segments of the live proposal can come without a track type, the one selected in
 	-- the menu is what is being built
 	for __, d in ipairs(drawn) do
@@ -64,13 +67,27 @@ local function updatePreview(proposal)
 	-- all extra tracks in one proposal: an action takes only one proposal viewer
 	local proposals = {}
 	local distance = planner.getTrackDistance(preview.resName)
+	local started = planner.clockMs()
 	local planned, stats = planner.makeProposal(drawn, geometry.offsets(preview.count, preview.side, distance))
-	if stats.edges > 0 then
+	-- the cost decides whether the next changes are all planned; slow ones are logged
+	if started then
+		local took = planner.clockMs() - started
+		previewDebounce.planned(signature, took)
+		if took > 20 then
+			shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: preview plan took %.0f ms (%d drawn, %d edges, %d crossings; %s)", took, #drawn, stats.edges, stats.crossings,
+				tostring(stats.timing)))
+		end
+	end
+	-- a plan with problems is not shown: the game can crash drawing it
+	if stats.edges > 0 and #stats.problems == 0 then
 		proposals[1] = planned
 	end
+	preview.problems = #stats.problems
+	preview.tooTight = stats.tooTight and stats.minAllowedRadius or nil
 	-- dev aid: what the preview planned, next to what the game says about it
-	local planned = string.format("%d drawn, %d edges, %d anchored, %d crossings, %d too shallow, %d moved, %d dropped",
-		#drawn, stats.edges, stats.anchored, stats.crossings, stats.shallow, stats.moved, stats.dropped)
+	local planned = string.format("%d drawn, %d edges, %d anchored, %d crossings, %d too shallow, %d moved, %d dropped, %d problems%s",
+		#drawn, stats.edges, stats.anchored, stats.crossings, stats.shallow, stats.moved, stats.dropped, #stats.problems,
+		#stats.problems > 0 and (" (" .. stats.problems[1] .. ")") or "")
 	if planned ~= preview.loggedPlan then
 		preview.loggedPlan = planned
 		shared.log("preview planned: " .. planned)
@@ -102,6 +119,10 @@ local function previewSummary()
 	if (preview.shallow or 0) > 0 then
 		-- the game script refuses the drag for this, see checkPlayerProposal
 		text = text .. string.format(" (would cross a track at less than %.0f degrees)", planner.MIN_CROSSING_ANGLE)
+	elseif preview.tooTight then
+		text = text .. string.format(" (would curve tighter than %.0f m)", preview.tooTight)
+	elseif (preview.problems or 0) > 0 then
+		text = text .. " (cannot be laid out here)"
 	elseif failed > 0 then
 		text = text .. " (cannot be built)"
 	end
@@ -136,6 +157,8 @@ local function makeViewer(index)
 			end
 		end,
 		entityForRefundableContext = api.engine.util.getPlayer(),
+		-- the version must be in the id: with one id for the whole drag the viewer does
+		-- not pick up a changed proposal (tried in game)
 		proposalId = "imsvale_parallel_tracks_preview," .. index .. "," .. version,
 	}
 end
@@ -158,6 +181,27 @@ local function paramsApi(ref)
 end
 
 local lastLoggedRedraw = nil
+
+-- dev aid: how often the builder asks for its tooltip lines, how often that changes the
+-- preview (each change redraws the menu and has the game evaluate the preview), and the
+-- lua time spent, logged every 100 calls
+local previewPerf = { calls = 0, changes = 0, ms = 0 }
+
+local function countPreviewCall(changed, started)
+	previewPerf.calls = previewPerf.calls + 1
+	if changed then
+		previewPerf.changes = previewPerf.changes + 1
+	end
+	local now = planner.clockMs()
+	if started and now then
+		previewPerf.ms = previewPerf.ms + (now - started)
+	end
+	if previewPerf.calls >= 100 then
+		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua",
+			previewPerf.calls, previewPerf.changes, previewPerf.ms))
+		previewPerf = { calls = 0, changes = 0, ms = 0 }
+	end
+end
 
 -- bumps the hidden redraw param to the preview version
 local function requestRedraw()
@@ -332,11 +376,13 @@ function patch.install()
 				local strings = getProposalStrings(proposal, proposalData) or {}
 				local ok, err = pcall(function()
 					local version = preview.version
+					local started = planner.clockMs()
 					updatePreview(proposal)
-					if preview.version ~= version then
+					countPreviewCall(preview.version ~= version, started)
+					if preview.version ~= version and shared.SHOW_PREVIEW then
 						requestRedraw()
 					end
-					if #preview.proposals > 0 then
+					if #preview.proposals > 0 or (preview.problems or 0) > 0 or (preview.shallow or 0) > 0 then
 						strings[#strings + 1] = previewSummary()
 					end
 				end)
@@ -356,6 +402,9 @@ function patch.install()
 	-- as the base game does with its proposal viewer for swapping bridge types.
 	local ActionDescriptor = builtin.ActionDescriptor
 	builtin.ActionDescriptor = function(params, ...)
+		if injectPreview and not shared.SHOW_PREVIEW then
+			injectPreview = false
+		end
 		if injectPreview then
 			injectPreview = false
 			if params and params.children and type(params.tool) == "string" and params.tool:find("construction-menu-", 1, true) == 1 then

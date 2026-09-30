@@ -254,21 +254,56 @@ local function refine(a, b, ua, ub)
 	return ua, ub
 end
 
+-- Sample points for finding crossings: a straight edge needs few, a curve about one per
+-- 4 degrees of turn. The crossing found on them is refined on the curves afterwards.
+local function samplesFor(e)
+	local l0 = length2d(e.t0.x, e.t0.y)
+	local l1 = length2d(e.t1.x, e.t1.y)
+	local turn = 0
+	if l0 > 1e-9 and l1 > 1e-9 then
+		local c = (e.t0.x * e.t1.x + e.t0.y * e.t1.y) / (l0 * l1)
+		turn = math.deg(math.acos(math.max(-1, math.min(1, c))))
+	end
+	return math.max(4, math.min(32, math.ceil(turn / 4)))
+end
+
+-- the sampled polyline of an edge, kept while the edge table lives: an edge is tested
+-- against many others
+local polylineCache = setmetatable({}, { __mode = "k" })
+
+local function sampled(e)
+	local cached = polylineCache[e]
+	if cached == nil then
+		local n = samplesFor(e)
+		local points, box = polyline(e, n)
+		cached = { n = n, points = points, box = box }
+		polylineCache[e] = cached
+	end
+	return cached
+end
+
 -- Horizontal crossings of two edges: list of { ua, ub, pointA, pointB }.
 function geometry.intersections(a, b)
-	local n = 32
-	local pa, boxA = polyline(a, n)
-	local pb, boxB = polyline(b, n)
+	local sa, sb = sampled(a), sampled(b)
 	local result = {}
-	if not boxesOverlap(boxA, boxB) then
+	if not boxesOverlap(sa.box, sb.box) then
 		return result
 	end
-	for i = 0, n - 1 do
+	local pa, pb, na, nb = sa.points, sb.points, sa.n, sb.n
+	for i = 0, na - 1 do
 		local a0, a1 = pa[i], pa[i + 1]
-		for j = 0, n - 1 do
-			local s, t = segmentIntersection(a0, a1, pb[j], pb[j + 1])
+		local aMinX, aMaxX = math.min(a0.x, a1.x), math.max(a0.x, a1.x)
+		local aMinY, aMaxY = math.min(a0.y, a1.y), math.max(a0.y, a1.y)
+		for j = 0, nb - 1 do
+			local b0, b1 = pb[j], pb[j + 1]
+			-- cheap box test before the exact one
+			local s, t = nil, nil
+			if (b0.x >= aMinX or b1.x >= aMinX) and (b0.x <= aMaxX or b1.x <= aMaxX)
+				and (b0.y >= aMinY or b1.y >= aMinY) and (b0.y <= aMaxY or b1.y <= aMaxY) then
+				s, t = segmentIntersection(a0, a1, b0, b1)
+			end
 			if s then
-				local ua, ub = refine(a, b, (i + s) / n, (j + t) / n)
+				local ua, ub = refine(a, b, (i + s) / na, (j + t) / nb)
 				if ua then
 					local point = evalEdge(a, ua)
 					local duplicate = false
@@ -354,6 +389,155 @@ function geometry.liesOnAny(edge, others, tolerance)
 		end
 	end
 	return true
+end
+
+-- How far the merged curve strays from the two pieces it replaces, by sampling both.
+function geometry.mergeDeviation(a, b, merged)
+	-- the merged curve sampled once, the pieces checked against that polyline
+	local n = 32
+	local line = {}
+	for i = 0, n do
+		line[i] = geometry.hermite(merged.p0, merged.p1, merged.t0, merged.t1, i / n)
+	end
+	local worst = 0
+	for _, piece in ipairs({ a, b }) do
+		for i = 0, 6 do
+			local p = geometry.hermite(piece.p0, piece.p1, piece.t0, piece.t1, i / 6)
+			local best = math.huge
+			for j = 0, n - 1 do
+				local q0, q1 = line[j], line[j + 1]
+				local dx, dy = q1.x - q0.x, q1.y - q0.y
+				local len2 = dx * dx + dy * dy
+				local s = 0
+				if len2 > 1e-12 then
+					s = math.max(0, math.min(1, ((p.x - q0.x) * dx + (p.y - q0.y) * dy) / len2))
+				end
+				local d = length2d(p.x - (q0.x + s * dx), p.y - (q0.y + s * dy))
+				if d < best then
+					best = d
+				end
+			end
+			worst = math.max(worst, best)
+		end
+	end
+	return worst
+end
+
+local function angleBetween(a, b)
+	local la, lb = length2d(a.x, a.y), length2d(b.x, b.y)
+	if la < 1e-9 or lb < 1e-9 then
+		return 0
+	end
+	local c = (a.x * b.x + a.y * b.y) / (la * lb)
+	return math.deg(math.acos(math.max(-1, math.min(1, c))))
+end
+
+-- Puts segments { node0, node1, edge } of a run in order along it, all running the same
+-- way: the way most of them already run. Returns the new list and how many had to be
+-- turned around. A run that is not a simple chain is returned as it is.
+function geometry.orientChain(segments)
+	local byNode = {}
+	for i, s in ipairs(segments) do
+		byNode[s.node0] = byNode[s.node0] or {}
+		byNode[s.node1] = byNode[s.node1] or {}
+		table.insert(byNode[s.node0], i)
+		table.insert(byNode[s.node1], i)
+	end
+	local start = nil
+	for node, list in pairs(byNode) do
+		if #list > 2 then
+			return segments, 0
+		end
+		if #list == 1 and (start == nil or node < start) then
+			start = node
+		end
+	end
+	if start == nil then
+		-- a closed loop: begin with the first segment as it runs
+		start = segments[1].node0
+	end
+
+	local function walk(from)
+		local result, turned, used = {}, 0, {}
+		local node = from
+		while true do
+			local nextIndex = nil
+			for _, i in ipairs(byNode[node]) do
+				if not used[i] then
+					nextIndex = i
+					break
+				end
+			end
+			if nextIndex == nil then
+				break
+			end
+			used[nextIndex] = true
+			local s = segments[nextIndex]
+			if s.node0 == node then
+				result[#result + 1] = s
+				node = s.node1
+			else
+				result[#result + 1] = { node0 = s.node1, node1 = s.node0, edge = geometry.reverse(s.edge), source = s }
+				turned = turned + 1
+				node = s.node0
+			end
+		end
+		return result, turned
+	end
+
+	local result, turned = walk(start)
+	if #result ~= #segments then
+		return segments, 0
+	end
+	-- on a tie the first segment as handed over decides
+	local firstTurned = false
+	for _, r in ipairs(result) do
+		if r.source == segments[1] then
+			firstTurned = true
+		end
+	end
+	if turned * 2 > #segments or (turned * 2 == #segments and firstTurned) then
+		-- most ran the other way: walk from the other end
+		local other = result[#result].node1
+		result, turned = walk(other)
+	end
+	return result, turned
+end
+
+-- Problems in a plan of edges { entity, node0, node1, edge } the game would refuse or
+-- crash on: a track bending at a node it runs through (crossings are two tracks
+-- running straight through, other nodes with two edges one), or a very short edge.
+function geometry.checkPlan(plan, tolerance)
+	tolerance = tolerance or 1.0
+	local problems = {}
+	local byNode = {}
+	for _, e in ipairs(plan) do
+		if horizontalDistance(e.edge.p0, e.edge.p1) < 0.5 then
+			problems[#problems + 1] = string.format("edge %d is only %.2f m long", e.entity, horizontalDistance(e.edge.p0, e.edge.p1))
+		end
+		byNode[e.node0] = byNode[e.node0] or {}
+		byNode[e.node1] = byNode[e.node1] or {}
+		-- directions leaving the node
+		table.insert(byNode[e.node0], e.edge.t0)
+		table.insert(byNode[e.node1], { x = -e.edge.t1.x, y = -e.edge.t1.y, z = -e.edge.t1.z })
+	end
+	for node, dirs in pairs(byNode) do
+		if #dirs == 2 then
+			local bend = 180 - angleBetween(dirs[1], dirs[2])
+			if bend > tolerance then
+				problems[#problems + 1] = string.format("track bends %.1f deg at node %d", bend, node)
+			end
+		elseif #dirs == 4 then
+			local best = math.huge
+			for _, p in ipairs({ { 1, 2, 3, 4 }, { 1, 3, 2, 4 }, { 1, 4, 2, 3 } }) do
+				best = math.min(best, math.max(180 - angleBetween(dirs[p[1]], dirs[p[2]]), 180 - angleBetween(dirs[p[3]], dirs[p[4]])))
+			end
+			if best > tolerance then
+				problems[#problems + 1] = string.format("a track bends %.1f deg through the crossing at node %d", best, node)
+			end
+		end
+	end
+	return problems
 end
 
 -- Signed offsets (positive = right of build direction) of the additional tracks.

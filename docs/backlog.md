@@ -42,6 +42,27 @@ Ideas and open questions parked until the core track building is robust.
   as the native builder does. The 5 m clearance is assumed; the native build only shows
   that a node 40 m into a 94.5 m zone had to go.
 
+- **Spiral drag: flipped side and a crash.** 2026-09-30: dragging a tight, spiralling
+  turn in toward an existing 6-track curve made the preview show wild shapes, the extra
+  tracks apparently switch sides, and then the game crashed on a crossing with a track
+  bending through it (`Crossing.cpp`, preview plan with 18 of its own nodes dropped).
+  Fixed in the planner, to be confirmed in game: drawn segments are oriented
+  consistently before offsetting, merges that would stray more than 0.2 m are not made,
+  and plans with a track bending at a node are never shown or built.
+- **Combined build fallback.** The extra tracks are built with one command; if that
+  fails, they are built one by one. Once the single command proves reliable, comment the
+  fallback out (keep it in the code).
+
+- **Preview trails the primary track.** The extra tracks appear a few frames after the
+  builder's own. Planning is about 1 ms on open ground; the rest is the forced menu
+  redraw and the game evaluating our proposal before drawing it. A fixed viewer id does
+  not help (the viewer then stops updating). Idea: a light outline preview with
+  `builtin.EdgeRenderable` that follows the mouse at once, next to the full preview.
+- **Planning cost near many tracks.** Retracing a 6-track bundle made planning take
+  20-40 ms per change of the drag. Now: faster crossing search, caches, a drag check
+  without game objects, and planning only every 4th change while planning is expensive
+  (over 10 ms); open ground plans every change.
+
 ## Features
 
 - **Tell the player when a track fails.** Today only the log knows. An in-game notice,
