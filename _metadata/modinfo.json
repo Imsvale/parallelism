@@ -1,0 +1,15 @@
+{
+    "name": "Parallel Tracks",
+    "summary": "Build several parallel tracks in one drag.",
+    "description": "Adds a track count and a side option (left / center / right) to the track builder.",
+    "authors": [
+        {
+            "name": "imsvale",
+            "role": "CREATOR"
+        }
+    ],
+    "tags": [
+        "Script Mod"
+    ],
+    "url": ""
+}
