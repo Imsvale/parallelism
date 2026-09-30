@@ -5,6 +5,8 @@
 local shared = {
 	KEY_COUNT = "ptracksCount",
 	KEY_SIDE = "ptracksSide",
+	-- extra meters between neighbouring tracks, on top of the track type's own distance
+	KEY_SPACING = "ptracksSpacing",
 	-- hidden, only changed to make the menu redraw the preview
 	KEY_REDRAW = "ptracksRedraw",
 
@@ -13,6 +15,9 @@ local shared = {
 	SIDE_RIGHT = 3,
 
 	MAX_COUNT = 6,
+
+	SPACING_STEP = 0.5,
+	MAX_SPACING = 20,
 
 	-- dev switch: false keeps the preview's planning, tooltip line and the drag check, but
 	-- does not draw the preview (no proposal viewer, no menu redraw), to measure what

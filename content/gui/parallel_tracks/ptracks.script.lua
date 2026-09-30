@@ -41,6 +41,7 @@ end
 local current = {
 	count = 1,
 	side = shared.SIDE_RIGHT,
+	spacing = 0,
 }
 
 -- gui state: player builds waiting to be applied before their parallel tracks are built
@@ -144,7 +145,7 @@ local function checkPlayerProposal(param)
 	if #drawn == 0 then
 		return nil
 	end
-	local signature = planner.signatureOf(drawn, current.count, current.side, current.resName)
+	local signature = planner.signatureOf(drawn, current.count, current.side, current.spacing, current.resName)
 	if signature == lastCheck.signature then
 		return lastCheck.result
 	end
@@ -158,7 +159,7 @@ local function checkPlayerProposal(param)
 	for __, d in ipairs(drawn) do
 		d.template = current.resName
 	end
-	local distance = planner.getTrackDistance(current.resName)
+	local distance = planner.getTrackDistance(current.resName) + current.spacing
 	-- only the verdict is needed here, not the game objects of a proposal
 	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, shared.PERF_MEASURES)
 	if started then
@@ -392,7 +393,7 @@ end
 local function runJob(job)
 	local ok, err = pcall(function()
 		local comp = planner.getEdgeComp(job.drawn[1].entity)
-		job.offsets = geometry.offsets(job.count, job.side, planner.getTrackDistance(comp.roadTemplate))
+		job.offsets = geometry.offsets(job.count, job.side, planner.getTrackDistance(comp.roadTemplate) + job.spacing)
 		buildCombined(job)
 	end)
 	if not ok then
@@ -416,7 +417,7 @@ local function onPlayerBuild(param)
 		return
 	end
 
-	local job = { drawn = drawn, count = current.count, side = current.side, frames = 0 }
+	local job = { drawn = drawn, count = current.count, side = current.side, spacing = current.spacing, frames = 0 }
 	if planner.isApplied(drawn) then
 		shared.log("  player build already in the world")
 		runJob(job)
@@ -467,10 +468,12 @@ return {
 	guiHandleEvent = function(_userParams, _state, _guiState, _src, id, name, param)
 		if name == shared.EVENT_SET_PARAMS then
 			current.resName = param.resName
-			if param.count ~= current.count or param.side ~= current.side then
+			if param.count ~= current.count or param.side ~= current.side or param.spacing ~= current.spacing then
 				current.count = param.count
 				current.side = param.side
-				shared.log("params: count = " .. tostring(current.count) .. ", side = " .. tostring(current.side))
+				current.spacing = param.spacing or 0
+				shared.log("params: count = " .. tostring(current.count) .. ", side = " .. tostring(current.side)
+					.. ", spacing = " .. tostring(current.spacing))
 			end
 		elseif name == "builder.proposalCreate" and id == "trackBuilder" then
 			perf.requests = perf.requests + 1

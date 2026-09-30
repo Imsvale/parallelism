@@ -20,6 +20,7 @@ local preview = {
 	version = 0,
 	count = 1,
 	side = shared.SIDE_RIGHT,
+	spacing = 0,
 	signature = nil,
 	proposals = {},
 	-- per track, filled in by the preview components once the game has evaluated them
@@ -39,7 +40,7 @@ end
 
 -- identifies a drawn proposal, to plan again only when the drag changed
 local function signatureOf(drawn)
-	return planner.signatureOf(drawn, preview.count, preview.side, preview.resName)
+	return planner.signatureOf(drawn, preview.count, preview.side, preview.spacing, preview.resName)
 end
 
 local previewDebounce = planner.newDebounce(planner.PLAN_EVERY, planner.CHEAP_PLAN_MS)
@@ -66,7 +67,7 @@ local function updatePreview(proposal)
 	end
 	-- all extra tracks in one proposal: an action takes only one proposal viewer
 	local proposals = {}
-	local distance = planner.getTrackDistance(preview.resName)
+	local distance = planner.getTrackDistance(preview.resName) + preview.spacing
 	local started = planner.clockMs()
 	local planned, stats = planner.makeProposal(drawn, geometry.offsets(preview.count, preview.side, distance))
 	-- the cost decides whether the next changes are all planned; slow ones are logged
@@ -227,6 +228,18 @@ end
 -- descriptor rendered right after it gets the preview components
 local injectPreview = false
 
+-- extra spacing between neighbouring tracks, in meters
+local spacingNumbers = {}
+for i = 0, shared.MAX_SPACING / shared.SPACING_STEP do
+	spacingNumbers[#spacingNumbers + 1] = i * shared.SPACING_STEP
+end
+
+-- the slider's value is the number itself, as with the base game's height slider
+local function spacingOf(params)
+	local value = tonumber(params[shared.KEY_SPACING]) or 0
+	return math.max(0, math.min(shared.MAX_SPACING, value))
+end
+
 local function makeParams()
 	local countValues = {}
 	for i = 1, shared.MAX_COUNT do
@@ -264,6 +277,35 @@ local function makeParams()
 			yearFrom = 0,
 			yearTo = 0,
 			location = api.type["enum"].ScriptParamLocation.Toolbar,
+			checkEnabledFn = function(params)
+				if params["mode"] ~= 1 then
+					return "Disabled"
+				end
+				return (params[shared.KEY_COUNT] or 1) > 1 and "Enabled" or "Disabled"
+			end,
+		},
+		{
+			group = "parallelTracks",
+			key = shared.KEY_SPACING,
+			name = _("Extra Spacing"),
+			tooltip = _("Additional distance between neighbouring tracks, on top of the usual track distance."),
+			numbers = spacingNumbers,
+			defaultIndex = 1,
+			resetOnCategoryChange = false,
+			resetOnMenuClose = false,
+			uiType = api.type["enum"].ScriptParamType.Slider,
+			yearFrom = 0,
+			yearTo = 0,
+			location = api.type["enum"].ScriptParamLocation.Toolbar,
+			-- in meters, as the base game's height slider steps (precise: half meters)
+			stepValueFn = function(value, direction, precise)
+				local step = precise and shared.SPACING_STEP or 1
+				local newValue = math.floor((value + direction * step) / step + 0.5) * step
+				return math.max(0, math.min(shared.MAX_SPACING, newValue))
+			end,
+			formatValueFn = function(value)
+				return string.format("+%.1f m", value)
+			end,
 			checkEnabledFn = function(params)
 				if params["mode"] ~= 1 then
 					return "Disabled"
@@ -331,7 +373,8 @@ function patch.install()
 			count = params["mode"] == 1 and params[shared.KEY_COUNT] or 1
 			local side = params[shared.KEY_SIDE] or shared.SIDE_RIGHT
 			-- the game script runs on another lua state, this event is the way across
-			api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_SET_PARAMS, { count = count, side = side, resName = definition.resName })
+			api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_SET_PARAMS,
+				{ count = count, side = side, spacing = spacingOf(params), resName = definition.resName })
 		end
 
 		local result = getActionParams(definition, params, ...)
@@ -343,9 +386,12 @@ function patch.install()
 			-- (repository, isGamepadMode, refParams, entity, notifications, refSublistParams)
 			paramRefs = { select(6, ...), select(3, ...) }
 			local side = params[shared.KEY_SIDE] or shared.SIDE_RIGHT
-			if preview.count ~= count or preview.side ~= side or preview.resName ~= definition.resName then
+			local spacing = spacingOf(params)
+			if preview.count ~= count or preview.side ~= side or preview.spacing ~= spacing or preview.resName ~= definition.resName then
+				shared.log("menu spacing param = " .. tostring(params[shared.KEY_SPACING]))
 				preview.count = count
 				preview.side = side
+				preview.spacing = spacing
 				preview.resName = definition.resName
 				clearPreview()
 			end
