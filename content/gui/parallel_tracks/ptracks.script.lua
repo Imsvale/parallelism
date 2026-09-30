@@ -20,6 +20,10 @@ local PENDING_MAX_FRAMES = 300
 -- dev aid: log the whole proposal of every track build, also with a track count of 1
 local DEBUG_DUMP = true
 
+-- dev aid: skip the combined build and go straight to the one-by-one fallback, to see
+-- its notification
+local FORCE_FALLBACK = false
+
 -- engine state: once per loaded script, saves made before an event was added still get it
 local subscribed = false
 
@@ -303,6 +307,21 @@ local function sendBuild(label, proposal, stats, onDone)
 	end)
 end
 
+-- Shows the player a message in the game's notifications.
+local function notify(description)
+	local notification = {
+		type = "imsvale_parallel_tracks::/gui/parallel_tracks/ptracks_notification.script",
+		params = { title = _("Parallel Tracks"), description = description },
+		autoDismissDuration = 60000,
+	}
+	local ok, err = pcall(function()
+		api.cmd.sendCommand(api.cmd.makeScriptingSendEventCmd("", "Notifications", "add", notification))
+	end)
+	if not ok then
+		shared.log("notification failed: " .. tostring(err))
+	end
+end
+
 -- Fallback: builds the track at offsets[index], then the next one once that is in the
 -- world. One command per track, planned from the world as it is at that moment, so a
 -- track that cannot be built does not take the others with it.
@@ -318,6 +337,9 @@ end
 buildTrack = function(job, index)
 	local offset = job.offsets[index]
 	if offset == nil then
+		local total = #job.offsets
+		notify(string.format("The parallel tracks could not be built together, so they were built one by one: %d of %d built.",
+			job.built, total))
 		return
 	end
 	shared.log("track at offset " .. offset .. ":")
@@ -326,7 +348,10 @@ buildTrack = function(job, index)
 		buildNext(job, index + 1)
 		return
 	end
-	sendBuild("track at offset " .. offset, proposal, stats, function()
+	sendBuild("track at offset " .. offset, proposal, stats, function(success)
+		if success then
+			job.built = job.built + 1
+		end
 		buildNext(job, index + 1)
 	end)
 end
@@ -344,11 +369,19 @@ local function buildCombined(job)
 		-- never hand the game a plan like this, it can crash on it
 		shared.log("  not built: the plan has " .. #stats.problems .. " problems")
 		shared.log("  plan: " .. planner.planToString(stats.plan))
+		notify("The parallel tracks were not built: they cannot be laid out safely here.")
+		return
+	end
+	if FORCE_FALLBACK then
+		shared.log("FORCE_FALLBACK: building the tracks one by one")
+		job.built = 0
+		buildNext(job, 1)
 		return
 	end
 	sendBuild("all tracks", proposal, stats, function(success)
 		if not success then
 			shared.log("combined build failed, building the tracks one by one")
+			job.built = 0
 			buildNext(job, 1)
 		end
 	end)

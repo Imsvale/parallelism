@@ -69,8 +69,10 @@ Ideas and open questions parked until the core track building is robust.
 
 ## Features
 
-- **Tell the player when a track fails.** Today only the log knows. An in-game notice,
-  e.g. "2 of 3 extra tracks built, one would cross too close to a switch".
+- **Tell the player when a track fails.** Refused drags get a builder error message. A
+  build that fails after the drag was accepted (combined build falls back to one by one,
+  or a plan with problems at apply) adds an in-game notification of the mod's own type
+  (`ptracks_notification`). Set `FORCE_FALLBACK` in `ptracks.script.lua` to see it.
 - **Explain predictable failures before sending.** Some failures can be spotted while
   planning, e.g. two crossings 4 m apart on the new track (a piece shorter than the game
   allows), or a crossing next to a switch or crossing node that cannot be moved.
