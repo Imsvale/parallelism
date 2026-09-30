@@ -56,8 +56,12 @@ Ideas and open questions parked until the core track building is robust.
 - **Preview trails the primary track.** The extra tracks appear a few frames after the
   builder's own. Planning is about 1 ms on open ground; the rest is the forced menu
   redraw and the game evaluating our proposal before drawing it. A fixed viewer id does
-  not help (the viewer then stops updating). Idea: a light outline preview with
-  `builtin.EdgeRenderable` that follows the mouse at once, next to the full preview.
+  not help (the viewer then stops updating). The builder draws its own track natively
+  and only then hands its proposal to Lua, so ours can never be in the same frame.
+  Parked idea: a light outline preview with `builtin.EdgeRenderable` that follows the
+  mouse more closely, next to the full preview. Not wanted for now: the exact track
+  preview is worth more than the speed. A real fix needs parallel tracks in the base
+  game's builder.
 - **Planning cost near many tracks.** Retracing a 6-track bundle made planning take
   20-40 ms per change of the drag. Now: faster crossing search, caches, a drag check
   without game objects, and planning only every 4th change while planning is expensive
