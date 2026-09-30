@@ -21,6 +21,8 @@ local preview = {
 	count = 1,
 	side = shared.SIDE_RIGHT,
 	spacing = 0,
+	reverse = false,
+	builder = shared.TRACK_BUILDER,
 	signature = nil,
 	proposals = {},
 	-- per track, filled in by the preview components once the game has evaluated them
@@ -40,13 +42,13 @@ end
 
 -- identifies a drawn proposal, to plan again only when the drag changed
 local function signatureOf(drawn)
-	return planner.signatureOf(drawn, preview.count, preview.side, preview.spacing, preview.resName)
+	return planner.signatureOf(drawn, preview.count, preview.side, preview.spacing, preview.reverse, preview.resName)
 end
 
 local previewDebounce = planner.newDebounce(planner.PLAN_EVERY, planner.CHEAP_PLAN_MS)
 
 local function updatePreview(proposal)
-	local drawn = planner.collectDrawnSegments(proposal.proposal)
+	local drawn = planner.collectDrawnSegments(proposal.proposal, shared.roadTypeOf(preview.builder))
 	if #drawn == 0 then
 		clearPreview()
 		return
@@ -69,7 +71,8 @@ local function updatePreview(proposal)
 	local proposals = {}
 	local distance = planner.getTrackDistance(preview.resName) + preview.spacing
 	local started = planner.clockMs()
-	local planned, stats = planner.makeProposal(drawn, geometry.offsets(preview.count, preview.side, distance))
+	local planned, stats = planner.makeProposal(drawn, geometry.offsets(preview.count, preview.side, distance), nil, false,
+		{ reverse = preview.reverse })
 	-- the cost decides whether the next changes are all planned; slow ones are logged
 	if started then
 		local took = planner.clockMs() - started
@@ -113,13 +116,13 @@ local function previewSummary()
 			failed = failed + 1
 		end
 	end
-	local text = "Parallel tracks: " .. (preview.count - 1) .. " more"
+	local text = "Parallel " .. shared.nounOf(preview.builder) .. ": " .. (preview.count - 1) .. " more"
 	if known == #preview.proposals and known > 0 then
 		text = text .. ", " .. api.util.formatMoney(total)
 	end
 	if (preview.shallow or 0) > 0 then
 		-- the game script refuses the drag for this, see checkPlayerProposal
-		text = text .. string.format(" (would cross a track at less than %.0f degrees)", planner.MIN_CROSSING_ANGLE)
+		text = text .. string.format(" (would cross at less than %.0f degrees)", planner.MIN_CROSSING_ANGLE)
 	elseif preview.tooTight then
 		text = text .. string.format(" (would curve tighter than %.0f m)", preview.tooTight)
 	elseif (preview.problems or 0) > 0 then
@@ -240,18 +243,44 @@ local function spacingOf(params)
 	return math.max(0, math.min(shared.MAX_SPACING, value))
 end
 
-local function makeParams()
+local function hasParam(params, key)
+	for __, p in ipairs(params) do
+		if p.key == key then
+			return true
+		end
+	end
+	return false
+end
+
+-- true if the builder's toolbar is set to drawing (not replacing or upgrading)
+local function isDrawing(builder, params)
+	if builder == shared.STREET_BUILDER then
+		return params["mode_street"] ~= 3
+	end
+	return params["mode"] == 1
+end
+
+local function makeParams(builder)
 	local countValues = {}
 	for i = 1, shared.MAX_COUNT do
 		countValues[i] = tostring(i)
 	end
+	local streets = builder == shared.STREET_BUILDER
 
-	return {
+	-- the options for the extra tracks only matter with some
+	local function withExtras(params)
+		if not isDrawing(builder, params) then
+			return "Disabled"
+		end
+		return (params[shared.KEY_COUNT] or 1) > 1 and "Enabled" or "Disabled"
+	end
+
+	local result = {
 		{
 			group = "parallelTracks",
 			key = shared.KEY_COUNT,
-			name = _("Tracks"),
-			tooltip = _("Number of parallel tracks to build."),
+			name = streets and _("Roads") or _("Tracks"),
+			tooltip = streets and _("Number of parallel roads to build.") or _("Number of parallel tracks to build."),
 			values = countValues,
 			defaultIndex = 1,
 			resetOnCategoryChange = false,
@@ -261,34 +290,32 @@ local function makeParams()
 			yearTo = 0,
 			location = api.type["enum"].ScriptParamLocation.Toolbar,
 			checkEnabledFn = function(params)
-				return params["mode"] == 1 and "Enabled" or "Disabled"
+				return isDrawing(builder, params) and "Enabled" or "Disabled"
 			end,
 		},
 		{
 			group = "parallelTracks",
 			key = shared.KEY_SIDE,
 			name = _("Side"),
-			tooltip = _("Where to put the additional tracks, seen in build direction."),
+			tooltip = streets and _("Where to put the additional roads, seen in build direction.")
+				or _("Where to put the additional tracks, seen in build direction."),
 			values = { _("Left"), _("Center"), _("Right") },
-			defaultIndex = shared.SIDE_RIGHT,
+			-- a split highway's other carriageway goes left where traffic keeps right
+			defaultIndex = streets and shared.SIDE_LEFT or shared.SIDE_RIGHT,
 			resetOnCategoryChange = false,
 			resetOnMenuClose = false,
 			uiType = api.type["enum"].ScriptParamType.Button,
 			yearFrom = 0,
 			yearTo = 0,
 			location = api.type["enum"].ScriptParamLocation.Toolbar,
-			checkEnabledFn = function(params)
-				if params["mode"] ~= 1 then
-					return "Disabled"
-				end
-				return (params[shared.KEY_COUNT] or 1) > 1 and "Enabled" or "Disabled"
-			end,
+			checkEnabledFn = withExtras,
 		},
 		{
 			group = "parallelTracks",
 			key = shared.KEY_SPACING,
 			name = _("Extra Spacing"),
-			tooltip = _("Additional distance between neighbouring tracks, on top of the usual track distance."),
+			tooltip = streets and _("Additional distance between neighbouring roads, e.g. a median.")
+				or _("Additional distance between neighbouring tracks, on top of the usual track distance."),
 			numbers = spacingNumbers,
 			defaultIndex = 1,
 			resetOnCategoryChange = false,
@@ -306,41 +333,58 @@ local function makeParams()
 			formatValueFn = function(value)
 				return string.format("+%.1f m", value)
 			end,
-			checkEnabledFn = function(params)
-				if params["mode"] ~= 1 then
-					return "Disabled"
-				end
-				return (params[shared.KEY_COUNT] or 1) > 1 and "Enabled" or "Disabled"
-			end,
+			checkEnabledFn = withExtras,
 		},
-		{
-			-- never shown: the preview changes its value to have the menu redraw the builder
+	}
+	if streets then
+		result[#result + 1] = {
 			group = "parallelTracks",
-			key = shared.KEY_REDRAW,
-			name = "",
-			values = { "" },
-			numbers = { 0 },
-			defaultIndex = 1,
-			resetOnCategoryChange = true,
-			resetOnMenuClose = true,
+			key = shared.KEY_DIRECTION,
+			name = _("Direction"),
+			tooltip = _("Whether the additional roads run the same way as the drawn one, or against it (the other carriageway of a split highway)."),
+			values = { _("Same"), _("Opposite") },
+			defaultIndex = shared.DIRECTION_OPPOSITE,
+			resetOnCategoryChange = false,
+			resetOnMenuClose = false,
 			uiType = api.type["enum"].ScriptParamType.Button,
 			yearFrom = 0,
 			yearTo = 0,
 			location = api.type["enum"].ScriptParamLocation.Toolbar,
-			checkEnabledFn = function(_params)
-				return "Hidden"
-			end,
-		},
+			checkEnabledFn = withExtras,
+		}
+	end
+	result[#result + 1] = {
+		-- never shown: the preview changes its value to have the menu redraw the builder
+		group = "parallelTracks",
+		key = shared.KEY_REDRAW,
+		name = "",
+		values = { "" },
+		numbers = { 0 },
+		defaultIndex = 1,
+		resetOnCategoryChange = true,
+		resetOnMenuClose = true,
+		uiType = api.type["enum"].ScriptParamType.Button,
+		yearFrom = 0,
+		yearTo = 0,
+		location = api.type["enum"].ScriptParamLocation.Toolbar,
+		checkEnabledFn = function(_params)
+			return "Hidden"
+		end,
 	}
+	return result
 end
 
-local function hasParam(params, key)
-	for __, p in ipairs(params) do
-		if p.key == key then
-			return true
+-- appends the mod's params to each definition of a builder's menu
+local function addParams(definitions, builder)
+	for __, definition in ipairs(definitions) do
+		definition.params = definition.params or {}
+		if not hasParam(definition.params, shared.KEY_COUNT) then
+			for __, p in ipairs(makeParams(builder)) do
+				definition.params[#definition.params + 1] = p
+			end
 		end
 	end
-	return false
+	return definitions
 end
 
 function patch.install()
@@ -352,29 +396,36 @@ function patch.install()
 
 	local getTrackDefinitions = construction_react_util.getTrackDefinitions
 	construction_react_util.getTrackDefinitions = function(...)
-		local definitions = getTrackDefinitions(...)
-		for __, definition in ipairs(definitions) do
-			definition.params = definition.params or {}
-			if not hasParam(definition.params, shared.KEY_COUNT) then
-				for __, p in ipairs(makeParams()) do
-					definition.params[#definition.params + 1] = p
-				end
-			end
-		end
-		return definitions
+		return addParams(getTrackDefinitions(...), shared.TRACK_BUILDER)
+	end
+
+	local getStreetDefinitions = construction_react_util.getStreetDefinitions
+	construction_react_util.getStreetDefinitions = function(...)
+		return addParams(getStreetDefinitions(...), shared.STREET_BUILDER)
 	end
 
 	local getActionParams = construction_react_util.getActionParams
 	construction_react_util.getActionParams = function(definition, params, ...)
-		local isTrackBuilder = definition and definition.action == "ACTION_TRACK_BUILDER_UPGRADER" and params
+		local builder = nil
+		if definition and params then
+			if definition.action == "ACTION_TRACK_BUILDER_UPGRADER" then
+				builder = shared.TRACK_BUILDER
+			elseif definition.action == "ACTION_STREET_BUILDER_UPGRADER" then
+				builder = shared.STREET_BUILDER
+			end
+		end
 		local count = 1
-		if isTrackBuilder then
-			-- the replace mode keeps the count value but must not build anything extra
-			count = params["mode"] == 1 and params[shared.KEY_COUNT] or 1
-			local side = params[shared.KEY_SIDE] or shared.SIDE_RIGHT
+		local side, spacing, reverse
+		if builder then
+			-- the replace / upgrade mode keeps the count value but must not build anything extra
+			count = isDrawing(builder, params) and params[shared.KEY_COUNT] or 1
+			side = params[shared.KEY_SIDE] or shared.SIDE_RIGHT
+			spacing = spacingOf(params)
+			reverse = builder == shared.STREET_BUILDER and params[shared.KEY_DIRECTION] == shared.DIRECTION_OPPOSITE
 			-- the game script runs on another lua state, this event is the way across
-			api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_SET_PARAMS,
-				{ count = count, side = side, spacing = spacingOf(params), resName = definition.resName })
+			api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_SET_PARAMS, {
+				builder = builder, count = count, side = side, spacing = spacing, reverse = reverse, resName = definition.resName,
+			})
 		end
 
 		local result = getActionParams(definition, params, ...)
@@ -382,16 +433,17 @@ function patch.install()
 		-- the builder calls this with its live proposal on every change of the drag, the
 		-- returned strings go into its tooltip
 		local actionParams = result and result.constructionActionParams
-		if isTrackBuilder and count > 1 and actionParams and actionParams.getProposalStringsFn then
+		if builder and count > 1 and actionParams and actionParams.getProposalStringsFn then
 			-- (repository, isGamepadMode, refParams, entity, notifications, refSublistParams)
 			paramRefs = { select(6, ...), select(3, ...) }
-			local side = params[shared.KEY_SIDE] or shared.SIDE_RIGHT
-			local spacing = spacingOf(params)
-			if preview.count ~= count or preview.side ~= side or preview.spacing ~= spacing or preview.resName ~= definition.resName then
+			if preview.builder ~= builder or preview.count ~= count or preview.side ~= side or preview.spacing ~= spacing
+				or preview.reverse ~= reverse or preview.resName ~= definition.resName then
 				shared.log("menu spacing param = " .. tostring(params[shared.KEY_SPACING]))
+				preview.builder = builder
 				preview.count = count
 				preview.side = side
 				preview.spacing = spacing
+				preview.reverse = reverse
 				preview.resName = definition.resName
 				clearPreview()
 			end
@@ -402,10 +454,10 @@ function patch.install()
 				shared.log("redraw param = " .. redrawValue .. ", preview version = " .. preview.version)
 			end
 			-- the builder clears when the drag is cancelled (and after building)
-			local trackEdgeBuilder = actionParams.trackEdgeBuilder
-			if trackEdgeBuilder and trackEdgeBuilder.onClearFn then
-				local onClear = trackEdgeBuilder.onClearFn
-				trackEdgeBuilder.onClearFn = function(...)
+			local edgeBuilder = actionParams.trackEdgeBuilder or actionParams.streetEdgeBuilder
+			if edgeBuilder and edgeBuilder.onClearFn then
+				local onClear = edgeBuilder.onClearFn
+				edgeBuilder.onClearFn = function(...)
 					onClear(...)
 					local ok, err = pcall(function()
 						clearPreview()

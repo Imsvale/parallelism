@@ -42,6 +42,9 @@ local current = {
 	count = 1,
 	side = shared.SIDE_RIGHT,
 	spacing = 0,
+	reverse = false,
+	-- the builder the values are for: shared.TRACK_BUILDER or shared.STREET_BUILDER
+	builder = shared.TRACK_BUILDER,
 }
 
 -- gui state: player builds waiting to be applied before their parallel tracks are built
@@ -141,11 +144,11 @@ local function logPerf()
 end
 
 local function checkPlayerProposal(param)
-	local drawn = planner.collectDrawnSegments(param[1].proposal)
+	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
 	if #drawn == 0 then
 		return nil
 	end
-	local signature = planner.signatureOf(drawn, current.count, current.side, current.spacing, current.resName)
+	local signature = planner.signatureOf(drawn, current.count, current.side, current.spacing, current.reverse, current.resName)
 	if signature == lastCheck.signature then
 		return lastCheck.result
 	end
@@ -161,7 +164,8 @@ local function checkPlayerProposal(param)
 	end
 	local distance = planner.getTrackDistance(current.resName) + current.spacing
 	-- only the verdict is needed here, not the game objects of a proposal
-	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, shared.PERF_MEASURES)
+	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, shared.PERF_MEASURES,
+		{ reverse = current.reverse })
 	if started then
 		local took = planner.clockMs() - started
 		checkDebounce.planned(signature, took)
@@ -173,12 +177,13 @@ local function checkPlayerProposal(param)
 		end
 	end
 	local message = nil
+	local noun = shared.nounOf(current.builder)
 	if stats.shallow > 0 then
-		message = string.format("Parallel tracks would cross a track at less than %.0f degrees", planner.MIN_CROSSING_ANGLE)
+		message = string.format("Parallel %s would cross at less than %.0f degrees", noun, planner.MIN_CROSSING_ANGLE)
 	elseif stats.tooTight then
-		message = string.format("Parallel tracks would curve tighter than %.0f m", stats.minAllowedRadius)
+		message = string.format("Parallel %s would curve tighter than %.0f m", noun, stats.minAllowedRadius)
 	elseif #stats.problems > 0 then
-		message = "Parallel tracks cannot be laid out here"
+		message = "Parallel " .. noun .. " cannot be laid out here"
 	end
 	if message ~= lastRefusal then
 		lastRefusal = message
@@ -339,12 +344,13 @@ buildTrack = function(job, index)
 	local offset = job.offsets[index]
 	if offset == nil then
 		local total = #job.offsets
-		notify(string.format("The parallel tracks could not be built together, so they were built one by one: %d of %d built.",
-			job.built, total))
+		local noun = shared.nounOf(job.builder)
+		notify(string.format("The parallel %s could not be built together, so they were built one by one: %d of %d built.",
+			noun, job.built, total))
 		return
 	end
 	shared.log("track at offset " .. offset .. ":")
-	local proposal, stats = planner.makeProposal(readDrawn(job), offset, shared.log)
+	local proposal, stats = planner.makeProposal(readDrawn(job), offset, shared.log, false, { reverse = job.reverse })
 	if stats.edges == 0 or #stats.problems > 0 then
 		buildNext(job, index + 1)
 		return
@@ -362,7 +368,7 @@ end
 -- falls back to building the tracks one by one, and the log tells how often that is.
 local function buildCombined(job)
 	shared.log("tracks at offsets " .. table.concat(job.offsets, ", ") .. ":")
-	local proposal, stats = planner.makeProposal(readDrawn(job), job.offsets, shared.log)
+	local proposal, stats = planner.makeProposal(readDrawn(job), job.offsets, shared.log, false, { reverse = job.reverse })
 	if stats.edges == 0 then
 		return
 	end
@@ -370,7 +376,7 @@ local function buildCombined(job)
 		-- never hand the game a plan like this, it can crash on it
 		shared.log("  not built: the plan has " .. #stats.problems .. " problems")
 		shared.log("  plan: " .. planner.planToString(stats.plan))
-		notify("The parallel tracks were not built: they cannot be laid out safely here.")
+		notify("The parallel " .. shared.nounOf(job.builder) .. " were not built: they cannot be laid out safely here.")
 		return
 	end
 	if FORCE_FALLBACK then
@@ -403,7 +409,7 @@ end
 
 local function onPlayerBuild(param)
 	local streetProposal = param[1].proposal
-	local drawn = planner.collectDrawnSegments(streetProposal)
+	local drawn = planner.collectDrawnSegments(streetProposal, shared.roadTypeOf(current.builder))
 	local drawnRadius = math.huge
 	for __, d in ipairs(drawn) do
 		drawnRadius = math.min(drawnRadius, geometry.radius(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1))
@@ -417,7 +423,8 @@ local function onPlayerBuild(param)
 		return
 	end
 
-	local job = { drawn = drawn, count = current.count, side = current.side, spacing = current.spacing, frames = 0 }
+	local job = { drawn = drawn, count = current.count, side = current.side, spacing = current.spacing,
+		reverse = current.reverse, builder = current.builder, frames = 0 }
 	if planner.isApplied(drawn) then
 		shared.log("  player build already in the world")
 		runJob(job)
@@ -468,14 +475,19 @@ return {
 	guiHandleEvent = function(_userParams, _state, _guiState, _src, id, name, param)
 		if name == shared.EVENT_SET_PARAMS then
 			current.resName = param.resName
-			if param.count ~= current.count or param.side ~= current.side or param.spacing ~= current.spacing then
+			local builder = param.builder or shared.TRACK_BUILDER
+			local reverse = param.reverse or false
+			if param.count ~= current.count or param.side ~= current.side or param.spacing ~= current.spacing
+				or reverse ~= current.reverse or builder ~= current.builder then
 				current.count = param.count
 				current.side = param.side
 				current.spacing = param.spacing or 0
-				shared.log("params: count = " .. tostring(current.count) .. ", side = " .. tostring(current.side)
-					.. ", spacing = " .. tostring(current.spacing))
+				current.reverse = reverse
+				current.builder = builder
+				shared.log("params: " .. builder .. ", count = " .. tostring(current.count) .. ", side = " .. tostring(current.side)
+					.. ", spacing = " .. tostring(current.spacing) .. ", reverse = " .. tostring(current.reverse))
 			end
-		elseif name == "builder.proposalCreate" and id == "trackBuilder" then
+		elseif name == "builder.proposalCreate" and id == current.builder then
 			perf.requests = perf.requests + 1
 			logPerf()
 			if MEASURE_CROSSINGS then
@@ -496,7 +508,7 @@ return {
 					return result
 				end
 			end
-		elseif name == "builder.proposalApply" and id == "trackBuilder" then
+		elseif name == "builder.proposalApply" and id == current.builder then
 			if DEBUG_DUMP then
 				local ok, err = pcall(dumpProposal, id, param)
 				if not ok then

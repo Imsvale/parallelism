@@ -86,8 +86,19 @@ Ideas and open questions parked until the core track building is robust.
 - **Faster building.** The extra tracks appear one after the other, each waiting for the
   previous build command to finish. Planning all of them in one proposal would be
   faster, but has to handle edges that several tracks split.
-- **Split highways.** The same machinery for streets: physically separate one-way roads
-  in opposite directions. Other street types are less interesting.
+- **Split highways.** First version 2026-10-01, untested in game: the street builder
+  gets the same params (Roads, Side, Extra Spacing) plus Direction (Same / Opposite,
+  default Opposite; Side defaults to Left for roads). Highway templates are one-way
+  (all lanes `forward`), so the other carriageway is the same template with its edges
+  reversed. Roads lie a road width apart (sum of the template's lane widths, 18 m for
+  the medium highway) plus the spacing. Roads anchor on and cross roads (junctions);
+  no switch zones, no radius limit beyond "not inside out". Open: whether roads that
+  touch edge to edge collide, the crossing angle and piece length rules for roads,
+  roads crossing tracks (level crossings are not planned, neither are tracks crossing
+  roads today), and whether side-specific edge decorations (barriers) need flipping on
+  reversed edges.
+- **Extra spacing.** Slider 0-20 m in 0.5 m steps (1 m without the precision key),
+  added to the track distance or road width. Untested in game.
 - **Undo.** To be started here, where it can be built in context, and moved to its own
   mod later.
 

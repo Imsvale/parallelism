@@ -40,6 +40,9 @@ local MAX_SWITCH_ZONE = 150.0
 local MAX_MERGE_DEVIATION = 0.2
 -- smallest curve radius for extra tracks if the track template does not say
 local DEFAULT_MIN_RADIUS = 40.0
+-- for extra roads only a road turned inside out on the inside of a bend is refused, the
+-- street builder has no radius limit of its own (not measured)
+local DEFAULT_MIN_RADIUS_STREET = 1.0
 
 local function plain(v)
 	return { x = v.x, y = v.y, z = v.z }
@@ -58,8 +61,21 @@ local function toEdge(comp)
 	}
 end
 
-local function isTrack(comp)
-	return comp.roadType == api.type["enum"].RoadType.TRACK
+-- The kind of edge being planned (track or street, api.type.enum.RoadType), set for
+-- the time a plan is made. Extra roads anchor on, cross and rebuild roads, extra
+-- tracks tracks; edges of the other kind are left alone.
+local planRoadType = nil
+
+local function trackRoadType()
+	return api.type["enum"].RoadType.TRACK
+end
+
+local function isStreet(roadType)
+	return roadType == api.type["enum"].RoadType.STREET
+end
+
+local function isPlanned(comp)
+	return comp.roadType == (planRoadType or trackRoadType())
 end
 
 -- While a plan is made, edge components read from the world are kept: reading one
@@ -175,8 +191,20 @@ local function switchZone(radius)
 	return math.min(MAX_SWITCH_ZONE, math.sqrt(2 * radius * DEFAULT_TRACK_DISTANCE))
 end
 
+-- Distance between the centre lines of neighbouring tracks or roads. Tracks have it in
+-- their template; roads lie side by side, a road's width apart (the sum of its lanes,
+-- sidewalks and verges included).
 local function getTrackDistance(roadTemplate)
 	local template = getTemplate(roadTemplate)
+	if template and isStreet(template.roadType) then
+		local width = 0
+		for __, lc in ipairs(template.laneConfigs or {}) do
+			width = width + math.abs(lc.width or 0)
+		end
+		if width > 0 then
+			return width
+		end
+	end
 	local distance = template and template.trackDistance
 	if distance and distance > 0 then
 		return distance
@@ -193,8 +221,9 @@ end
 
 -- The segments the player has drawn, as { entity, segmentType, comp, edge }. The proposal also
 -- re-adds the pieces of every existing track or street that got split by the new
--- track, those are left out.
-local function collectDrawnSegments(streetProposal)
+-- track, those are left out. roadType: what the builder draws (default: track).
+local function collectDrawnSegments(streetProposal, roadType)
+	roadType = roadType or trackRoadType()
 	local removed = {}
 	for __, segment in ipairs(streetProposal.removedSegments) do
 		removed[#removed + 1] = toEdge(segment.comp)
@@ -202,7 +231,7 @@ local function collectDrawnSegments(streetProposal)
 
 	local drawn = {}
 	for __, segment in ipairs(streetProposal.addedSegments) do
-		if isTrack(segment.comp) then
+		if segment.comp.roadType == roadType then
 			local edge = toEdge(segment.comp)
 			if not geometry.liesOnAny(edge, removed, REMNANT_TOLERANCE) then
 				drawn[#drawn + 1] = { entity = segment.entity, segmentType = segment.type, comp = segment.comp, edge = edge }
@@ -257,7 +286,7 @@ local function findEdgeAt(position)
 	local candidates = api.engine.util.octree.findEntitiesInCircle(center, EDGE_SEARCH_RADIUS, api.type.ComponentType.BASE_EDGE)
 	for __, entity in ipairs(candidates) do
 		local comp = getEdgeComp(entity)
-		if comp and isTrack(comp) then
+		if comp and isPlanned(comp) then
 			local edge = toEdge(comp)
 			local u, distance = geometry.closestParameter(position, edge)
 			local point = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, u)
@@ -285,12 +314,17 @@ end
 -- tables first: nodes, offset edges, cuts where offset edges cross existing tracks
 -- and splits of existing edges. Returns the proposal and stats for the log; with
 -- planOnly just nil and the stats, e.g. to check a drag before it is built.
-local function makeProposal(drawn, offsets, log, planOnly)
+-- options.reverse: the extra edges run against the drawn ones (the other carriageway of
+-- a split highway: a one-way road's lanes run along its edge).
+local function makeProposal(drawn, offsets, log, planOnly, options)
 	if type(offsets) == "number" then
 		offsets = { offsets }
 	end
+	options = options or {}
 	log = log or function() end
 	compCache = shared.PERF_MEASURES and {} or nil
+	planRoadType = drawn[1] and drawn[1].comp.roadType or trackRoadType()
+	local streets = isStreet(planRoadType)
 	geometry.fastIntersections = shared.PERF_MEASURES
 	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0 }
 	local function lap(name, since)
@@ -435,9 +469,10 @@ local function makeProposal(drawn, offsets, log, planOnly)
 					cuts = {},
 				}
 				-- a switch reaches as far along the base track as its branch takes to clear it
+				-- (a road branching off makes a junction, which has no such zone)
 				for __, node in ipairs({ node0, node1 }) do
 					local cut = anchorCuts[node.entity]
-					if cut then
+					if cut and not streets then
 						cut.zone = switchZone(geometry.radius(edge.p0, edge.p1, t0, t1))
 						log(string.format("  switch at node %d keeps the base track clear for %.1f m", node.entity, cut.zone))
 					end
@@ -450,7 +485,7 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		for __, oe in ipairs(offsetEdges) do
 			for __, entity in ipairs(findEdgesNear(oe.edge)) do
 				local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
-				if comp and isTrack(comp) then
+				if comp and isPlanned(comp) then
 					-- one edge table per existing edge and plan, so its sampled polyline is
 					-- reused for every offset edge it is tested against
 					local other = shared.PERF_MEASURES and worldEdges[entity] or nil
@@ -567,6 +602,11 @@ local function makeProposal(drawn, offsets, log, planOnly)
 			end
 			nodesToAdd = kept
 		end
+		if options.reverse then
+			for i, oe in ipairs(offsetEdges) do
+				offsetEdges[i] = reversed(oe)
+			end
+		end
 		-- the cut parameters refer to the edges as they were, find them again
 		for __, oe in ipairs(offsetEdges) do
 			for __, cut in ipairs(oe.cuts) do
@@ -611,6 +651,12 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		segment.comp.roadTemplate = templateOf(props)
 		segment.comp.roadStyle = styleOf(props)
 		segment.comp.roadType = props.comp.roadType
+		-- e.g. the barriers of a highway; not in every proposal, so optional
+		pcall(function()
+			if props.comp.edgeDecorations ~= nil then
+				segment.comp.edgeDecorations = props.comp.edgeDecorations
+			end
+		end)
 		if props.playerOwned then
 			-- not set by the base game's scripted track builder, so optional here
 			pcall(function()
@@ -670,7 +716,7 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		local own = part.endEdge[which]
 		local other = segments[1] == own and segments[2] or segments[1]
 		local otherComp = getEdgeComp(other)
-		if splits[other] or drawnEntities[other] or otherComp == nil or not isTrack(otherComp)
+		if splits[other] or drawnEntities[other] or otherComp == nil or not isPlanned(otherComp)
 			or otherComp.roadTemplate ~= part.comp.roadTemplate or otherComp.type ~= part.comp.type
 			or (otherComp.objects and #otherComp.objects > 0) then
 			log(prefix .. ", its other edge " .. other .. " cannot be rebuilt, not moved")
@@ -779,11 +825,11 @@ local function makeProposal(drawn, offsets, log, planOnly)
 	-- turn inside out. The game allows down to the template's minCurveRadius for tracks
 	-- laid along others (seen in game: 45 m built where dragging needs 55 m).
 	local template = getTemplate(templateOf({ comp = drawn[1].comp, template = drawn[1].template }))
-	local minRadius = template and template.minCurveRadius or DEFAULT_MIN_RADIUS
+	local minRadius = template and template.minCurveRadius or (streets and DEFAULT_MIN_RADIUS_STREET or DEFAULT_MIN_RADIUS)
 	stats.tooTight = stats.minRadius < minRadius
 	if stats.tooTight then
-		table.insert(stats.problems, 1, string.format("a parallel track would curve at %.1f m radius, the track type needs %.0f m",
-			stats.minRadius, minRadius))
+		table.insert(stats.problems, 1, string.format("a parallel %s would curve at %.1f m radius, the type needs %.0f m",
+			streets and "road" or "track", stats.minRadius, minRadius))
 		log("  plan problem: " .. stats.problems[1])
 	end
 	stats.minAllowedRadius = minRadius
@@ -808,6 +854,7 @@ local function makeProposal(drawn, offsets, log, planOnly)
 		proposal.streetProposal.nodesToRemove = nodesToRemove
 	end
 	compCache = nil
+	planRoadType = nil
 	local finished = clockMs()
 	if finished and timing.start then
 		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f, crossings %.0f, merges %.0f, emit %.0f, check %.0f",

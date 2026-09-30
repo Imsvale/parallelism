@@ -7,6 +7,15 @@ local shared = {
 	KEY_SIDE = "ptracksSide",
 	-- extra meters between neighbouring tracks, on top of the track type's own distance
 	KEY_SPACING = "ptracksSpacing",
+	-- roads only: whether the extra roads run the same way as the drawn one or against
+	-- it (the other carriageway of a split highway)
+	KEY_DIRECTION = "ptracksDirection",
+	DIRECTION_SAME = 1,
+	DIRECTION_OPPOSITE = 2,
+
+	-- the builders the mod works with, by their id in the builder events
+	TRACK_BUILDER = "trackBuilder",
+	STREET_BUILDER = "streetBuilder",
 	-- hidden, only changed to make the menu redraw the preview
 	KEY_REDRAW = "ptracksRedraw",
 
@@ -36,6 +45,19 @@ local shared = {
 
 function shared.log(msg)
 	log.message("[ptracks] " .. tostring(msg))
+end
+
+-- what the builder draws, for collectDrawnSegments
+function shared.roadTypeOf(builder)
+	if builder == shared.STREET_BUILDER then
+		return api.type["enum"].RoadType.STREET
+	end
+	return api.type["enum"].RoadType.TRACK
+end
+
+-- "tracks" or "roads", for messages to the player
+function shared.nounOf(builder)
+	return builder == shared.STREET_BUILDER and "roads" or "tracks"
 end
 
 function shared.vecToString(v)
