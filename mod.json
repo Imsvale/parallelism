@@ -15,7 +15,7 @@
                 "No",
                 "Yes"
             ],
-            "numbers": [0, 1],
+            "numbers": [0.0, 1.0],
             "defaultIndex": 0
         }
     ]
