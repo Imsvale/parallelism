@@ -507,6 +507,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- node0, node1, edge }, and the corner nodes, where a kink is meant
 	local rebuilt = {}
 	local corners = {}
+	-- loose ends moved to a corner: they are removed, nothing may use them
+	local movedAway = {}
 	timing.firstTrack = clockMs()
 	for __, offset in ipairs(offsets) do
 		timing.trackStart = clockMs()
@@ -557,7 +559,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			-- the old road's parallel, ending where it would without the kink; never a node
 			-- of the drawn road, which the builder holds while dragging
 			local loose = findExistingNode(geometry.offsetPoint(position, oldDir, offset))
-			local looseSegments = loose and not drawnNodes[loose.entity] and getNode2Segments()[loose.entity]
+			local looseSegments = loose and not drawnNodes[loose.entity] and not reusedNodes[loose.entity]
+				and getNode2Segments()[loose.entity]
 			if not looseSegments or #looseSegments ~= 1 then
 				return nil
 			end
@@ -604,6 +607,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				edge = { p0 = q0, p1 = q1, t0 = t0, t1 = t1 },
 			}
 			corners[node.entity] = true
+			movedAway[loose.entity] = true
 			-- the rebuilt edge is not crossed, split or moved by the rest of the plan
 			drawnEntities[parEntity] = true
 			log(string.format("  node %d: kinks %.1f deg, parallel end %d moved %.2f m to the corner ", entity, kink, loose.entity,
@@ -622,6 +626,12 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					node = tryCorner(entity, position, tangent, atStart)
 				end
 				node = node or findExistingNode(newPosition)
+				if node and movedAway[node.entity] then
+					-- a very short drag: its other end lies on the loose end just moved away
+					stats.usesRemoved = node.entity
+					log("  node " .. entity .. ": existing node " .. node.entity .. " is moved to a corner, not reused")
+					node = nil
+				end
 				if node and corners[node.entity] then
 					-- the corner, made above
 				elseif node then
@@ -1077,6 +1087,23 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- edges running through each other.
 	if stats.shortPiece then
 		table.insert(stats.problems, 1, stats.shortPiece)
+	end
+	-- The plan must not build on a node it removes: the game asserts on that
+	-- (ProposalStreetGraph::IsNodeLocked, seen on a very short drag at a corner).
+	do
+		local removedSet = {}
+		for __, n in ipairs(nodesToRemove) do
+			removedSet[n] = true
+		end
+		for __, p in ipairs(stats.plan) do
+			if removedSet[p.node0] or removedSet[p.node1] then
+				stats.usesRemoved = removedSet[p.node0] and p.node0 or p.node1
+				break
+			end
+		end
+	end
+	if stats.usesRemoved then
+		table.insert(stats.problems, 1, string.format("the plan uses node %d, which it removes", stats.usesRemoved))
 	end
 	if stats.sharpCorner then
 		table.insert(stats.problems, 1, string.format("the road turns %.0f deg at the end of a parallel, more than %.0f", stats.sharpCorner, MITER_MAX_ANGLE))
