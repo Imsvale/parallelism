@@ -180,6 +180,8 @@ local function checkPlayerProposal(param)
 	local noun = shared.nounOf(current.builder)
 	if stats.selfCrossing then
 		message = "Parallel " .. noun .. " would cross each other"
+	elseif stats.shortPiece then
+		message = "Parallel " .. noun .. " would leave a piece too short to build"
 	elseif stats.shallow > 0 then
 		message = string.format("Parallel %s would cross at less than %.0f degrees", noun, planner.MIN_CROSSING_ANGLE)
 	elseif stats.tooTight then

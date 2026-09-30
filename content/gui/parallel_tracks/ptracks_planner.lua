@@ -28,6 +28,11 @@ local EDGE_SNAP_DISTANCE = 0.25
 local EDGE_END_DISTANCE = 0.1
 -- a split closer than this to a node of the split edge moves that node instead
 local MIN_PIECE_LENGTH = 5.0
+-- an end of an offset track continues a loose end within this share of the distance
+-- between neighbouring tracks (below half, so never the neighbour's)
+local LOOSE_END_SHARE = 0.4
+-- shortfall of a piece against MIN_PIECE_LENGTH that is still let through
+local PIECE_TOLERANCE = 0.25
 -- crossings flatter than this (degrees) are not built: measured in game, the builder
 -- refuses crossings under 6.0 degrees (and a very flat one once crashed the game)
 local MIN_CROSSING_ANGLE = 6.05
@@ -274,6 +279,40 @@ local function findExistingNode(position)
 	return nil
 end
 
+-- Which edges meet at each node, fetched once per plan when first needed (the whole
+-- map comes over into lua).
+local node2segmentsCache = nil
+
+local function getNode2Segments()
+	if node2segmentsCache == nil then
+		node2segmentsCache = api.engine.system.streetSystem.getNode2SegmentMap()
+	end
+	return node2segmentsCache
+end
+
+-- The loose end (a node with a single edge of the planned kind) nearest to the
+-- position within radius, e.g. where the parallel of the previous drag stops. A drag
+-- continuing that one at a slight angle puts the offset end next to it rather than on
+-- it; branching off a metre from the end would leave a stub the game cannot handle.
+local function findLooseEnd(position, radius)
+	local center = api.type.Vec2f.new(position.x, position.y)
+	local best, bestDistance = nil, math.huge
+	for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(center, radius, api.type.ComponentType.BASE_NODE)) do
+		local comp = api.engine.getComponent(entity, api.type.ComponentType.BASE_NODE)
+		if comp and math.abs(comp.position.z - position.z) < NODE_SNAP_HEIGHT then
+			local distance = geometry.horizontalDistance(plain(comp.position), position)
+			local segments = getNode2Segments()[entity]
+			if distance < radius and distance < bestDistance and segments and #segments == 1 then
+				local edge = getEdgeComp(segments[1])
+				if edge and isPlanned(edge) then
+					best, bestDistance = { entity = entity, position = plain(comp.position) }, distance
+				end
+			end
+		end
+	end
+	return best, bestDistance
+end
+
 local function isAwayFromEnds(edge, point)
 	return geometry.horizontalDistance(point, edge.p0) > EDGE_END_DISTANCE
 		and geometry.horizontalDistance(point, edge.p1) > EDGE_END_DISTANCE
@@ -359,8 +398,15 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	options = options or {}
 	log = log or function() end
 	compCache = shared.PERF_MEASURES and {} or nil
+	node2segmentsCache = nil
 	planRoadType = drawn[1] and drawn[1].comp.roadType or trackRoadType()
 	local streets = isStreet(planRoadType)
+	-- the distance between neighbouring tracks: the nearest offset is one step out
+	local step = math.huge
+	for __, offset in ipairs(offsets) do
+		step = math.min(step, math.abs(offset))
+	end
+	local looseEndRadius = math.min(MIN_PIECE_LENGTH * 1.5, LOOSE_END_SHARE * step)
 	geometry.fastIntersections = shared.PERF_MEASURES
 	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0 }
 	local function lap(name, since)
@@ -459,6 +505,17 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					reusedNodes[node.entity] = true
 					log("  node " .. entity .. ": existing node " .. node.entity .. " " .. shared.vecToString(node.position))
 				elseif useCount[entity] == 1 then
+					-- an end of the run next to the loose end of a previous parallel: continue it
+					local looseEnd, distance = findLooseEnd(newPosition, looseEndRadius)
+					if looseEnd then
+						node = looseEnd
+						stats.reused = stats.reused + 1
+						reusedNodes[node.entity] = true
+						log(string.format("  node %d: continues loose end %d, %.2f m off ", entity, node.entity, distance)
+							.. shared.vecToString(node.position))
+					end
+				end
+				if node == nil and useCount[entity] == 1 then
 					-- an end of the run lying on an existing track: branch off it
 					local edgeEntity, u, point = findEdgeAt(newPosition)
 					if edgeEntity then
@@ -714,6 +771,15 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		chain[#chain + 1] = node1
 		for i, piece in ipairs(geometry.splitMany(edge, us)) do
 			addSegment(chain[i], chain[i + 1], piece, props)
+			-- a piece next to a crossing or branch that could not be made long enough: the
+			-- game refuses it at best, and crashed on it for roads
+			if #chain > 2 then
+				local length = geometry.arcLength({ p0 = chain[i].position, p1 = chain[i + 1].position, t0 = piece.t0, t1 = piece.t1 })
+				if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
+					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
+						length, shared.vecToString(chain[i].position), MIN_PIECE_LENGTH)
+				end
+			end
 		end
 	end
 
@@ -743,7 +809,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			log(prefix .. ", which this track uses, not moved")
 			return
 		end
-		node2segments = node2segments or api.engine.system.streetSystem.getNode2SegmentMap()
+		node2segments = node2segments or getNode2Segments()
 		local segments = node2segments[endNode.entity]
 		if segments == nil or #segments ~= 2 then
 			log(prefix .. ", which has " .. (segments and #segments or 0) .. " edges, not moved")
@@ -862,6 +928,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- A drag turning in on itself makes the extra edges cross the drawn ones or each
 	-- other. Those crossings are not planned (no shared node), so the game would get two
 	-- edges running through each other.
+	if stats.shortPiece then
+		table.insert(stats.problems, 1, stats.shortPiece)
+	end
 	local selfCrossing = findSelfCrossing(drawn, tracks)
 	if selfCrossing then
 		stats.selfCrossing = true
@@ -900,6 +969,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		proposal.streetProposal.nodesToRemove = nodesToRemove
 	end
 	compCache = nil
+	node2segmentsCache = nil
 	planRoadType = nil
 	local finished = clockMs()
 	if finished and timing.start then

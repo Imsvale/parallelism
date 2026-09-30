@@ -96,7 +96,7 @@ local function updatePreview(proposal)
 		preview.loggedPlan = planned
 		shared.log("preview planned: " .. planned)
 		-- dev aid: a plan with crossings in full, the game's crashes so far came with those
-		if stats.crossings > 0 and #stats.problems == 0 then
+		if (stats.crossings > 0 or stats.anchored > 0) and #stats.problems == 0 then
 			shared.log("  preview plan: " .. planner.planToString(stats.plan))
 			for __, e in ipairs(stats.removedEdges or {}) do
 				shared.log("  preview removes edge " .. planner.describeEntity(e))
@@ -107,6 +107,7 @@ local function updatePreview(proposal)
 		end
 	end
 	preview.selfCrossing = stats.selfCrossing
+	preview.shortPiece = stats.shortPiece ~= nil
 	preview.shallow = stats.shallow
 	preview.signature = signature
 	preview.proposals = proposals
@@ -133,6 +134,8 @@ local function previewSummary()
 	end
 	if preview.selfCrossing then
 		text = text .. " (would cross each other)"
+	elseif preview.shortPiece then
+		text = text .. " (would leave a piece too short to build)"
 	elseif (preview.shallow or 0) > 0 then
 		-- the game script refuses the drag for this, see checkPlayerProposal
 		text = text .. string.format(" (would cross at less than %.0f degrees)", planner.MIN_CROSSING_ANGLE)
