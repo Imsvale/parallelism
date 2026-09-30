@@ -39,6 +39,10 @@ local PIECE_TOLERANCE = 0.25
 -- the two parallels meet, and the new parallel starts there.
 local MITER_MIN_ANGLE = 1.0
 local MITER_MAX_ANGLE = 100.0
+-- dev switch: extra roads crossing or branching onto roads. Every plan with such a
+-- junction crashed the game so far (map_util.h "it != map.end()", three times, while
+-- evaluating the preview), road plans without one did not. Off: such drags are refused.
+local ROAD_JUNCTIONS = false
 -- crossings flatter than this (degrees) are not built: measured in game, the builder
 -- refuses crossings under 6.0 degrees (and a very flat one once crashed the game)
 local MIN_CROSSING_ANGLE = 6.05
@@ -407,6 +411,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	node2segmentsCache = nil
 	planRoadType = drawn[1] and drawn[1].comp.roadType or trackRoadType()
 	local streets = isStreet(planRoadType)
+	local noJunctions = streets and not ROAD_JUNCTIONS
 	-- the distance between neighbouring tracks: the nearest offset is one step out
 	local step = math.huge
 	for __, offset in ipairs(offsets) do
@@ -422,7 +427,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		end
 		return t
 	end
-	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {}, problems = {} }
+	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, junctions = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {}, problems = {} }
 
 	-- Right and left are taken from each segment's own direction, so all segments of the
 	-- run must run the same way. The builder does not always hand them over like that.
@@ -610,6 +615,11 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					stats.reused = stats.reused + 1
 					reusedNodes[node.entity] = true
 					log("  node " .. entity .. ": existing node " .. node.entity .. " " .. shared.vecToString(node.position))
+					local segments = getNode2Segments()[node.entity]
+					if noJunctions and segments and #segments >= 2 then
+						-- joining a road in the middle, not at its end
+						stats.junctions = stats.junctions + 1
+					end
 				elseif useCount[entity] == 1 then
 					-- an end of the run next to the loose end of a previous parallel: continue it
 					local looseEnd, distance = findLooseEnd(newPosition, looseEndRadius)
@@ -624,7 +634,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				if node == nil and useCount[entity] == 1 then
 					-- an end of the run lying on an existing track: branch off it
 					local edgeEntity, u, point = findEdgeAt(newPosition)
-					if edgeEntity then
+					if edgeEntity and noJunctions then
+						stats.junctions = stats.junctions + 1
+						log("  node " .. entity .. ": would branch off edge " .. edgeEntity .. ", road junctions are off")
+					elseif edgeEntity then
 						node = newNode(point)
 						anchorCuts[node.entity] = addSplit(edgeEntity, u, node)
 						stats.anchored = stats.anchored + 1
@@ -696,7 +709,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						local angle = geometry.crossingAngle(oe.edge, x.ua, other, x.ub)
 						if math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
 							and isAwayFromEnds(oe.edge, x.pointA) and isAwayFromEnds(other, x.pointB) then
-							if angle < MIN_CROSSING_ANGLE then
+							if noJunctions then
+								stats.junctions = stats.junctions + 1
+								log(string.format("  would cross edge %d at %.1f deg, road junctions are off", entity, angle))
+							elseif angle < MIN_CROSSING_ANGLE then
 								-- the game crashes building the geometry of a crossing this
 								-- shallow, better let the build fail on the collision
 								stats.shallow = stats.shallow + 1
@@ -1044,6 +1060,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- edges running through each other.
 	if stats.shortPiece then
 		table.insert(stats.problems, 1, stats.shortPiece)
+	end
+	if stats.junctions > 0 then
+		table.insert(stats.problems, 1, string.format("a parallel road would make %d junction(s), road junctions are off", stats.junctions))
 	end
 	local selfCrossing = findSelfCrossing(drawn, tracks)
 	if selfCrossing then

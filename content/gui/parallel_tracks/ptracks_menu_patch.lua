@@ -108,6 +108,7 @@ local function updatePreview(proposal)
 	end
 	preview.selfCrossing = stats.selfCrossing
 	preview.shortPiece = stats.shortPiece ~= nil
+	preview.junctions = stats.junctions > 0
 	preview.shallow = stats.shallow
 	preview.signature = signature
 	preview.proposals = proposals
@@ -132,7 +133,9 @@ local function previewSummary()
 	if known == #preview.proposals and known > 0 then
 		text = text .. ", " .. api.util.formatMoney(total)
 	end
-	if preview.selfCrossing then
+	if preview.junctions then
+		text = text .. " (would make a junction, not supported yet)"
+	elseif preview.selfCrossing then
 		text = text .. " (would cross each other)"
 	elseif preview.shortPiece then
 		text = text .. " (would leave a piece too short to build)"

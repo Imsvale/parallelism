@@ -178,7 +178,9 @@ local function checkPlayerProposal(param)
 	end
 	local message = nil
 	local noun = shared.nounOf(current.builder)
-	if stats.selfCrossing then
+	if stats.junctions > 0 then
+		message = "Parallel " .. noun .. " would make a junction (not supported yet)"
+	elseif stats.selfCrossing then
 		message = "Parallel " .. noun .. " would cross each other"
 	elseif stats.shortPiece then
 		message = "Parallel " .. noun .. " would leave a piece too short to build"

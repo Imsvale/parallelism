@@ -105,6 +105,15 @@ Ideas and open questions parked until the core track building is robust.
   before this; pieces under 5 m next to a crossing or branch are now refused anyway.
   Open: kinks where the drag starts at a junction (not a road end), and the settings'
   alternative curve mode, if it exists.
+- **Road junctions crash the game.** Three crashes (`map_util.h` "it != map.end()",
+  while the game evaluated the preview) all came from plans where an extra road crossed
+  or branched onto a road; the last one was a plain 44 degree crossing of one-way roads
+  with long pieces. Track crossings never did this. Suspect: the builder's own road
+  proposals carry node configs (lane connections) for junction nodes, ours carry none
+  (`SimpleStreetProposal.nodeConfigsToAdd` exists but nothing in the base game fills
+  it). `ROAD_JUNCTIONS = false` in the planner refuses such drags for now. To find
+  out: with it on, try a two-way road crossing, then one-way; and try filling
+  nodeConfigsToAdd.
 - **Extra spacing.** Slider 0-20 m in 0.5 m steps (1 m without the precision key),
   added to the track distance or road width. Untested in game.
 - **Undo.** To be started here, where it can be built in context, and moved to its own
