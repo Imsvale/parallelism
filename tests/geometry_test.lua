@@ -185,5 +185,21 @@ local badCrossing = {
 local problems = geometry.checkPlan(badCrossing)
 check("bent crossing is a problem", #problems == 1, problems[1])
 
+-- miter: a path along +x turning left 90 degrees at the origin. Left (offset -16, the
+-- inside) the corner is behind both offset points: the old parallel gets shorter, the
+-- new one starts later. Right (the outside) the corner lies ahead of the old one and
+-- before the new one.
+local east, north = v(1, 0, 0), v(0, 1, 0)
+local inside, alongOld, alongNew = geometry.miter(v(0, 0), east, north, -16)
+check("inside corner", near(inside, v(-16, 16), 1e-6) and math.abs(alongOld + 16) < 1e-6 and math.abs(alongNew - 16) < 1e-6,
+	fmt(inside) .. string.format(" %.2f %.2f", alongOld, alongNew))
+local outside, outOld, outNew = geometry.miter(v(0, 0), east, north, 16)
+check("outside corner", near(outside, v(16, -16), 1e-6) and math.abs(outOld - 16) < 1e-6 and math.abs(outNew + 16) < 1e-6,
+	fmt(outside) .. string.format(" %.2f %.2f", outOld, outNew))
+check("no corner without a kink", geometry.miter(v(0, 0), east, v(2, 0, 0), 16) == nil)
+local gentle, gOld = geometry.miter(v(0, 0), east, v(math.cos(math.rad(10)), math.sin(math.rad(10)), 0), -16)
+check("10 degree kink moves the corner 16 * tan(5 deg)", math.abs(gOld + 16 * math.tan(math.rad(5))) < 1e-6,
+	string.format("%.3f", gOld))
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

@@ -29,6 +29,46 @@ function geometry.offsetPoint(p, t, offset)
 	return { x = p.x + r.x * offset, y = p.y + r.y * offset, z = p.z }
 end
 
+-- Where the horizontal lines p + t * a and q + s * b meet: t, s; nil if parallel.
+function geometry.lineIntersection(p, a, q, b)
+	local cross = a.x * b.y - a.y * b.x
+	local la, lb = length2d(a.x, a.y), length2d(b.x, b.y)
+	if la < 1e-9 or lb < 1e-9 or math.abs(cross) < 1e-9 * la * lb then
+		return nil
+	end
+	local dx, dy = q.x - p.x, q.y - p.y
+	return (dx * b.y - dy * b.x) / cross, (dx * a.y - dy * a.x) / cross
+end
+
+-- Angle in degrees between the horizontal directions a and b (0 = same way).
+function geometry.angleBetween(a, b)
+	local la, lb = length2d(a.x, a.y), length2d(b.x, b.y)
+	if la < 1e-9 or lb < 1e-9 then
+		return 0
+	end
+	local c = (a.x * b.x + a.y * b.y) / (la * lb)
+	return math.deg(math.acos(math.max(-1, math.min(1, c))))
+end
+
+-- The corner of the offset of a path that kinks at p: the old direction a arrives,
+-- the new direction b leaves. Returns the corner, and how far it lies along a from the
+-- old offset point and along b from the new one (negative: behind it, the inside of
+-- the bend). nil for no kink or a reversal.
+function geometry.miter(p, a, b, offset)
+	local pa = geometry.offsetPoint(p, a, offset)
+	local pb = geometry.offsetPoint(p, b, offset)
+	if pa == nil or pb == nil then
+		return nil
+	end
+	local t, s = geometry.lineIntersection(pa, a, pb, b)
+	if t == nil then
+		return nil
+	end
+	local la, lb = length2d(a.x, a.y), length2d(b.x, b.y)
+	local corner = { x = pa.x + a.x * t, y = pa.y + a.y * t, z = p.z }
+	return corner, t * la, s * lb
+end
+
 -- Tangents of the edge between the offset end points q0 / q1. Scaling the horizontal
 -- part by the chord ratio is exact for straights and circular arcs. The vertical part
 -- is kept, so the offset edge has the same height profile.
@@ -430,14 +470,7 @@ function geometry.mergeDeviation(a, b, merged)
 	return worst
 end
 
-local function angleBetween(a, b)
-	local la, lb = length2d(a.x, a.y), length2d(b.x, b.y)
-	if la < 1e-9 or lb < 1e-9 then
-		return 0
-	end
-	local c = (a.x * b.x + a.y * b.y) / (la * lb)
-	return math.deg(math.acos(math.max(-1, math.min(1, c))))
-end
+local angleBetween = geometry.angleBetween
 
 -- Puts segments { node0, node1, edge } of a run in order along it, all running the same
 -- way: the way most of them already run. Returns the new list and how many had to be
@@ -514,7 +547,9 @@ end
 -- Problems in a plan of edges { entity, node0, node1, edge } the game would refuse or
 -- crash on: a track bending at a node it runs through (crossings are two tracks
 -- running straight through, other nodes with two edges one), or a very short edge.
-function geometry.checkPlan(plan, tolerance)
+-- corners: nodes (set) where two edges meet at an angle on purpose, e.g. the corner of
+-- a road parallel to a road that kinks there.
+function geometry.checkPlan(plan, tolerance, corners)
 	tolerance = tolerance or 1.0
 	local problems = {}
 	local byNode = {}
@@ -529,7 +564,7 @@ function geometry.checkPlan(plan, tolerance)
 		table.insert(byNode[e.node1], { x = -e.edge.t1.x, y = -e.edge.t1.y, z = -e.edge.t1.z })
 	end
 	for node, dirs in pairs(byNode) do
-		if #dirs == 2 then
+		if #dirs == 2 and not (corners and corners[node]) then
 			local bend = 180 - angleBetween(dirs[1], dirs[2])
 			if bend > tolerance then
 				problems[#problems + 1] = string.format("track bends %.1f deg at node %d", bend, node)

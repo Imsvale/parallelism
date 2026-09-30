@@ -33,6 +33,12 @@ local MIN_PIECE_LENGTH = 5.0
 local LOOSE_END_SHARE = 0.4
 -- shortfall of a piece against MIN_PIECE_LENGTH that is still let through
 local PIECE_TOLERANCE = 0.25
+-- A drag starting (or ending) at the end of an existing road at an angle to it, which
+-- the road builder allows in both its modes, kinks there. Between these angles
+-- (degrees) the parallel of the old road is cut back or extended to the corner where
+-- the two parallels meet, and the new parallel starts there.
+local MITER_MIN_ANGLE = 1.0
+local MITER_MAX_ANGLE = 100.0
 -- crossings flatter than this (degrees) are not built: measured in game, the builder
 -- refuses crossings under 6.0 degrees (and a very flat one once crashed the game)
 local MIN_CROSSING_ANGLE = 6.05
@@ -485,6 +491,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	local worldEdges = {}
 	-- the offset edges of each planned track
 	local tracks = {}
+	-- existing parallels whose loose end moves to a corner: { entity, comp, looseNode,
+	-- node0, node1, edge }, and the corner nodes, where a kink is meant
+	local rebuilt = {}
+	local corners = {}
 	timing.firstTrack = clockMs()
 	for __, offset in ipairs(offsets) do
 		timing.trackStart = clockMs()
@@ -492,15 +502,111 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		local nodes = {}
 		-- new nodes in the middle of the offset track, which may be dropped
 		local movable = {}
-		local function getNode(entity, position, tangent)
+
+		-- The drawn run starts (atStart) or ends at the end of an existing road and kinks
+		-- there. If the parallel of that road ends where it should, move its end to the
+		-- corner of the two parallels and return the corner node; else nil.
+		local function tryCorner(entity, position, tangent, atStart)
+			-- tracks cannot kink, the track builder always continues a track smoothly
+			if not streets then
+				return nil
+			end
+			local segments = getNode2Segments()[entity]
+			if segments == nil then
+				return nil
+			end
+			local old = nil
+			for __, s in ipairs(segments) do
+				if not drawnEntities[s] then
+					local comp = getEdgeComp(s)
+					if comp and isPlanned(comp) then
+						if old then
+							return nil -- a junction, not the end of a road
+						end
+						old = comp
+					end
+				end
+			end
+			if old == nil then
+				return nil
+			end
+			local oldEdge = toEdge(old)
+			-- the old road's direction at the node, the way the run goes
+			local oldDir
+			if atStart then
+				oldDir = old.node1 == entity and oldEdge.t1 or { x = -oldEdge.t0.x, y = -oldEdge.t0.y, z = -oldEdge.t0.z }
+			else
+				oldDir = old.node0 == entity and oldEdge.t0 or { x = -oldEdge.t1.x, y = -oldEdge.t1.y, z = -oldEdge.t1.z }
+			end
+			local kink = geometry.angleBetween(oldDir, tangent)
+			if kink < MITER_MIN_ANGLE or kink > MITER_MAX_ANGLE then
+				return nil
+			end
+			local arriving, leaving = oldDir, tangent
+			if not atStart then
+				arriving, leaving = tangent, oldDir
+			end
+			local corner = geometry.miter(position, arriving, leaving, offset)
+			if corner == nil then
+				return nil
+			end
+			-- the old road's parallel, ending where it would without the kink
+			local loose = findExistingNode(geometry.offsetPoint(position, oldDir, offset))
+			local looseSegments = loose and getNode2Segments()[loose.entity]
+			if looseSegments == nil or #looseSegments ~= 1 then
+				return nil
+			end
+			local parEntity = looseSegments[1]
+			local par = getEdgeComp(parEntity)
+			if par == nil or not isPlanned(par) or drawnEntities[parEntity] or splits[parEntity]
+				or (par.objects and #par.objects > 0) then
+				return nil
+			end
+			local parEdge = toEdge(par)
+			corner.z = loose.position.z
+			local q0, q1 = parEdge.p0, parEdge.p1
+			local looseAtEnd = par.node1 == loose.entity
+			if looseAtEnd then
+				q1 = corner
+			else
+				q0 = corner
+			end
+			if geometry.horizontalDistance(q0, q1) < MIN_PIECE_LENGTH then
+				return nil
+			end
+			local t0, t1 = geometry.offsetTangents(parEdge.p0, parEdge.p1, parEdge.t0, parEdge.t1, q0, q1)
+			local node = newNode(corner)
+			local far = { entity = looseAtEnd and par.node0 or par.node1, position = looseAtEnd and parEdge.p0 or parEdge.p1 }
+			rebuilt[#rebuilt + 1] = {
+				entity = parEntity,
+				comp = par,
+				looseNode = loose.entity,
+				node0 = looseAtEnd and far or node,
+				node1 = looseAtEnd and node or far,
+				edge = { p0 = q0, p1 = q1, t0 = t0, t1 = t1 },
+			}
+			corners[node.entity] = true
+			-- the rebuilt edge is not crossed, split or moved by the rest of the plan
+			drawnEntities[parEntity] = true
+			log(string.format("  node %d: kinks %.1f deg, parallel end %d moved %.2f m to the corner ", entity, kink, loose.entity,
+				geometry.horizontalDistance(loose.position, corner)) .. shared.vecToString(corner))
+			return node
+		end
+
+		local function getNode(entity, position, tangent, atStart)
 			local node = nodes[entity]
 			if node == nil then
 				local newPosition = geometry.offsetPoint(position, tangent, offset)
 				if newPosition == nil then
 					return nil
 				end
-				node = findExistingNode(newPosition)
-				if node then
+				if useCount[entity] == 1 then
+					node = tryCorner(entity, position, tangent, atStart)
+				end
+				node = node or findExistingNode(newPosition)
+				if node and corners[node.entity] then
+					-- the corner, made above
+				elseif node then
 					stats.reused = stats.reused + 1
 					reusedNodes[node.entity] = true
 					log("  node " .. entity .. ": existing node " .. node.entity .. " " .. shared.vecToString(node.position))
@@ -540,8 +646,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		-- offset edges: { node0, node1, edge, props, cuts }
 		local offsetEdges = {}
 		for __, d in ipairs(drawn) do
-			local node0 = getNode(d.node0, d.edge.p0, d.edge.t0)
-			local node1 = getNode(d.node1, d.edge.p1, d.edge.t1)
+			local node0 = getNode(d.node0, d.edge.p0, d.edge.t0, true)
+			local node1 = getNode(d.node1, d.edge.p1, d.edge.t1, false)
 			if node0 and node1 then
 				local t0, t1 = geometry.offsetTangents(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1, node0.position, node1.position)
 				local edge = { p0 = node0.position, p1 = node1.position, t0 = t0, t1 = t1 }
@@ -912,6 +1018,14 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		end
 	end
 
+	-- existing parallels ending at a corner now: the edge again with its loose end moved
+	for __, r in ipairs(rebuilt) do
+		addSegment(r.node0, r.node1, r.edge, { comp = r.comp, segmentType = segmentType, playerOwned = getPlayerOwned(r.entity) })
+		edgesToRemove[#edgesToRemove + 1] = r.entity
+		nodesToRemove[#nodesToRemove + 1] = r.looseNode
+		stats.moved = stats.moved + 1
+	end
+
 	for __, offsetEdges in ipairs(tracks) do
 		for __, oe in ipairs(offsetEdges) do
 			addCut(oe.edge, oe.node0, oe.node1, oe.cuts, oe.props)
@@ -924,7 +1038,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	stats.removedEdges = edgesToRemove
 	stats.removedNodes = nodesToRemove
 	local checkStart = clockMs()
-	stats.problems = geometry.checkPlan(stats.plan)
+	stats.problems = geometry.checkPlan(stats.plan, nil, corners)
 	-- A drag turning in on itself makes the extra edges cross the drawn ones or each
 	-- other. Those crossings are not planned (no shared node), so the game would get two
 	-- edges running through each other.
