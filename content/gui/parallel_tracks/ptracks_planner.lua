@@ -485,9 +485,14 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	local anchorCuts = {}
 
 	local drawnEntities = {}
+	-- nodes of the drawn road: the builder holds them while dragging, the plan must not
+	-- remove them (the game asserted in ProposalStreetGraph::IsNodeLocked)
+	local drawnNodes = {}
 	local useCount = {}
 	for __, d in ipairs(drawn) do
 		drawnEntities[d.entity] = true
+		drawnNodes[d.node0] = true
+		drawnNodes[d.node1] = true
 		useCount[d.node0] = (useCount[d.node0] or 0) + 1
 		useCount[d.node1] = (useCount[d.node1] or 0) + 1
 	end
@@ -544,7 +549,25 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				oldDir = old.node0 == entity and oldEdge.t0 or { x = -oldEdge.t1.x, y = -oldEdge.t1.y, z = -oldEdge.t1.z }
 			end
 			local kink = geometry.angleBetween(oldDir, tangent)
-			if kink < MITER_MIN_ANGLE or kink > MITER_MAX_ANGLE then
+			if kink < MITER_MIN_ANGLE then
+				return nil
+			end
+			-- the old road's parallel, ending where it would without the kink; never a node
+			-- of the drawn road, which the builder holds while dragging
+			local loose = findExistingNode(geometry.offsetPoint(position, oldDir, offset))
+			local looseSegments = loose and not drawnNodes[loose.entity] and getNode2Segments()[loose.entity]
+			if not looseSegments or #looseSegments ~= 1 then
+				return nil
+			end
+			local parEntity = looseSegments[1]
+			local par = getEdgeComp(parEntity)
+			if par == nil or not isPlanned(par) or drawnEntities[parEntity] or splits[parEntity]
+				or (par.objects and #par.objects > 0) then
+				return nil
+			end
+			if kink > MITER_MAX_ANGLE then
+				-- the corner would lie far off: rather refuse than leave the parallel detached
+				stats.sharpCorner = kink
 				return nil
 			end
 			local arriving, leaving = oldDir, tangent
@@ -553,18 +576,6 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			end
 			local corner = geometry.miter(position, arriving, leaving, offset)
 			if corner == nil then
-				return nil
-			end
-			-- the old road's parallel, ending where it would without the kink
-			local loose = findExistingNode(geometry.offsetPoint(position, oldDir, offset))
-			local looseSegments = loose and getNode2Segments()[loose.entity]
-			if looseSegments == nil or #looseSegments ~= 1 then
-				return nil
-			end
-			local parEntity = looseSegments[1]
-			local par = getEdgeComp(parEntity)
-			if par == nil or not isPlanned(par) or drawnEntities[parEntity] or splits[parEntity]
-				or (par.objects and #par.objects > 0) then
 				return nil
 			end
 			local parEdge = toEdge(par)
@@ -927,6 +938,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		end
 		local prefix = string.format("  cut %.2f m from node %d", nearest, endNode.entity)
 
+		if drawnNodes[endNode.entity] then
+			log(prefix .. ", a node of the drawn road, not moved")
+			return
+		end
 		if reusedNodes[endNode.entity] then
 			log(prefix .. ", which this track uses, not moved")
 			return
@@ -1060,6 +1075,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- edges running through each other.
 	if stats.shortPiece then
 		table.insert(stats.problems, 1, stats.shortPiece)
+	end
+	if stats.sharpCorner then
+		table.insert(stats.problems, 1, string.format("the road turns %.0f deg at the end of a parallel, more than %.0f", stats.sharpCorner, MITER_MAX_ANGLE))
 	end
 	if stats.junctions > 0 then
 		table.insert(stats.problems, 1, string.format("a parallel road would make %d junction(s), road junctions are off", stats.junctions))
