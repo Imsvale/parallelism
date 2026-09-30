@@ -103,9 +103,13 @@ Ideas and open questions parked until the core track building is robust.
   corner where both parallels meet (miter), between 1 and 100 degrees. Two crashes in
   the game's street code (`map_util.h` "it != map.end()") came from the stubs left
   before this; pieces under 5 m next to a crossing or branch are now refused anyway.
-  Confirmed 2026-10-01: a loop of corners from 10 to 100 degrees, both turn directions,
-  all joined, no crash. The limit is now 135 degrees (untested above 100); sharper is
-  refused ("would turn too sharply").
+  Confirmed 2026-10-01: a spiral of right turns (extra road Left, so on the outside)
+  from 10 to 135 degrees, all joined, no crash; sharper is refused ("would turn too
+  sharply"). Left turns with the extra road on the inside (the old parallel cut back)
+  are untested. Around 120 degrees the preview is red at the corner: the game reports a
+  non-critical Collision, because the preview is judged before the drawn road exists
+  (the old main road still ends there); the build goes through. Possible fix: put the
+  drawn segments into the preview proposal too, so it is judged as built.
   Open:
   - Starting a drag from the extra road's end instead of the main road's: the new
     pair pivots around the other road, so its extra road lands beside or into the old

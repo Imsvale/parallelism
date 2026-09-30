@@ -35,6 +35,7 @@ local function clearPreview()
 		preview.proposals = {}
 		preview.costs = {}
 		preview.failed = {}
+		preview.warning = nil
 		preview.signature = nil
 		preview.version = preview.version + 1
 	end
@@ -115,6 +116,7 @@ local function updatePreview(proposal)
 	preview.proposals = proposals
 	preview.costs = {}
 	preview.failed = {}
+	preview.warning = nil
 	preview.version = preview.version + 1
 end
 
@@ -151,6 +153,8 @@ local function previewSummary()
 		text = text .. " (cannot be laid out here)"
 	elseif failed > 0 then
 		text = text .. " (cannot be built)"
+	elseif preview.warning then
+		text = text .. " (game notes: " .. preview.warning .. ")"
 	end
 	return text
 end
@@ -166,7 +170,10 @@ local function makeViewer(index)
 			if version == preview.version then
 				local errorState = proposalData.errorState
 				preview.costs[index] = proposalData.costs
-				preview.failed[index] = errorState.critical or #errorState.messages > 0
+				-- only a critical error stops the build; a plain message (e.g. Collision next to
+				-- a dead end the drawn road is about to continue) did not, in game
+				preview.failed[index] = errorState.critical
+				preview.warning = (not errorState.critical and #errorState.messages > 0) and tostring(errorState.messages[1]) or nil
 				-- dev aid: what the game says about the preview, when that changes
 				local messages = {}
 				for __, m in ipairs(errorState.messages) do
