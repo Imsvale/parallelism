@@ -307,6 +307,42 @@ local function findEdgesNear(edge)
 	return api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(cx, cy), radius, api.type.ComponentType.BASE_EDGE)
 end
 
+-- The first crossing of a planned edge with a drawn edge or another planned edge, as a
+-- problem text, or nil. Edges meeting at their ends (a chain) do not count, nor edges
+-- passing over each other at different heights.
+local function findSelfCrossing(drawn, tracks)
+	local function crossing(a, b)
+		for __, x in ipairs(geometry.intersections(a, b)) do
+			if math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
+				and isAwayFromEnds(a, x.pointA) and isAwayFromEnds(b, x.pointB) then
+				return x
+			end
+		end
+		return nil
+	end
+	local planned = {}
+	for __, offsetEdges in ipairs(tracks) do
+		for __, oe in ipairs(offsetEdges) do
+			planned[#planned + 1] = oe.edge
+		end
+	end
+	for i, edge in ipairs(planned) do
+		for __, d in ipairs(drawn) do
+			local x = crossing(edge, d.edge)
+			if x then
+				return "a parallel edge would cross the drawn one at " .. shared.vecToString(x.pointA)
+			end
+		end
+		for j = i + 1, #planned do
+			local x = crossing(edge, planned[j])
+			if x then
+				return "two parallel edges would cross each other at " .. shared.vecToString(x.pointA)
+			end
+		end
+	end
+	return nil
+end
+
 --------------------------------------------------------------------------------
 -- building one offset track
 
@@ -819,8 +855,18 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 
 	-- A plan with a track bending at one of its nodes must not reach the game: at a
 	-- crossing that crashes it. Callers check stats.problems.
+	stats.removedEdges = edgesToRemove
+	stats.removedNodes = nodesToRemove
 	local checkStart = clockMs()
 	stats.problems = geometry.checkPlan(stats.plan)
+	-- A drag turning in on itself makes the extra edges cross the drawn ones or each
+	-- other. Those crossings are not planned (no shared node), so the game would get two
+	-- edges running through each other.
+	local selfCrossing = findSelfCrossing(drawn, tracks)
+	if selfCrossing then
+		stats.selfCrossing = true
+		table.insert(stats.problems, 1, selfCrossing)
+	end
 	-- The tracks on the inside of a bend are tighter than the drawn one, on a hairpin they
 	-- turn inside out. The game allows down to the template's minCurveRadius for tracks
 	-- laid along others (seen in game: 45 m built where dragging needs 55 m).

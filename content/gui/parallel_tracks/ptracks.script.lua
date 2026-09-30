@@ -178,7 +178,9 @@ local function checkPlayerProposal(param)
 	end
 	local message = nil
 	local noun = shared.nounOf(current.builder)
-	if stats.shallow > 0 then
+	if stats.selfCrossing then
+		message = "Parallel " .. noun .. " would cross each other"
+	elseif stats.shallow > 0 then
 		message = string.format("Parallel %s would cross at less than %.0f degrees", noun, planner.MIN_CROSSING_ANGLE)
 	elseif stats.tooTight then
 		message = string.format("Parallel %s would curve tighter than %.0f m", noun, stats.minAllowedRadius)

@@ -4,5 +4,19 @@
     "severityAdd": "None",
     "severityRemove": "None",
     "visible": true,
-    "cosmetic": false
+    "cosmetic": false,
+    "params": [
+        {
+            "key": "moreRoads",
+            "name": "More than 2 parallel roads",
+            "tooltip": "Offer up to 6 parallel roads in the road builder instead of 2 (a split highway).",
+            "uiType": "Button",
+            "values": [
+                "No",
+                "Yes"
+            ],
+            "numbers": [0, 1],
+            "defaultIndex": 0
+        }
+    ]
 }

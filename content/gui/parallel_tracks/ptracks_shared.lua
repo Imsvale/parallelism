@@ -24,6 +24,8 @@ local shared = {
 	SIDE_RIGHT = 3,
 
 	MAX_COUNT = 6,
+	-- roads: a split highway needs 2; more only with the mod option "moreRoads"
+	MAX_ROADS = 2,
 
 	SPACING_STEP = 0.5,
 	MAX_SPACING = 20,
@@ -53,6 +55,27 @@ function shared.roadTypeOf(builder)
 		return api.type["enum"].RoadType.STREET
 	end
 	return api.type["enum"].RoadType.TRACK
+end
+
+-- The mod's option from the game's mod settings, nil if it cannot be read.
+function shared.modParam(key)
+	local ok, value = pcall(function()
+		return api.engine.config.getModParams()["imsvale_parallel_tracks"][key]
+	end)
+	return ok and value or nil
+end
+
+-- the most tracks or roads (the drawn one included) a builder offers
+function shared.maxCount(builder)
+	if builder == shared.STREET_BUILDER then
+		local moreRoads = shared.modParam("moreRoads")
+		if not shared.loggedModParams then
+			shared.loggedModParams = true
+			shared.log("mod option moreRoads = " .. tostring(moreRoads))
+		end
+		return moreRoads == 1 and shared.MAX_COUNT or shared.MAX_ROADS
+	end
+	return shared.MAX_COUNT
 end
 
 -- "tracks" or "roads", for messages to the player

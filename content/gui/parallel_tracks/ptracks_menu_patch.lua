@@ -95,7 +95,18 @@ local function updatePreview(proposal)
 	if planned ~= preview.loggedPlan then
 		preview.loggedPlan = planned
 		shared.log("preview planned: " .. planned)
+		-- dev aid: a plan with crossings in full, the game's crashes so far came with those
+		if stats.crossings > 0 and #stats.problems == 0 then
+			shared.log("  preview plan: " .. planner.planToString(stats.plan))
+			for __, e in ipairs(stats.removedEdges or {}) do
+				shared.log("  preview removes edge " .. planner.describeEntity(e))
+			end
+			for __, n in ipairs(stats.removedNodes or {}) do
+				shared.log("  preview removes node " .. planner.describeEntity(n))
+			end
+		end
 	end
+	preview.selfCrossing = stats.selfCrossing
 	preview.shallow = stats.shallow
 	preview.signature = signature
 	preview.proposals = proposals
@@ -120,7 +131,9 @@ local function previewSummary()
 	if known == #preview.proposals and known > 0 then
 		text = text .. ", " .. api.util.formatMoney(total)
 	end
-	if (preview.shallow or 0) > 0 then
+	if preview.selfCrossing then
+		text = text .. " (would cross each other)"
+	elseif (preview.shallow or 0) > 0 then
 		-- the game script refuses the drag for this, see checkPlayerProposal
 		text = text .. string.format(" (would cross at less than %.0f degrees)", planner.MIN_CROSSING_ANGLE)
 	elseif preview.tooTight then
@@ -262,7 +275,7 @@ end
 
 local function makeParams(builder)
 	local countValues = {}
-	for i = 1, shared.MAX_COUNT do
+	for i = 1, shared.maxCount(builder) do
 		countValues[i] = tostring(i)
 	end
 	local streets = builder == shared.STREET_BUILDER
