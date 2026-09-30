@@ -38,7 +38,9 @@ local PIECE_TOLERANCE = 0.25
 -- (degrees) the parallel of the old road is cut back or extended to the corner where
 -- the two parallels meet, and the new parallel starts there.
 local MITER_MIN_ANGLE = 1.0
-local MITER_MAX_ANGLE = 100.0
+-- (the corner lies offset * tan(kink / 2) along the roads: 21 m at 105 degrees for a
+-- 16 m road, 39 m at 135; an inside corner that eats a whole edge is refused anyway)
+local MITER_MAX_ANGLE = 135.0
 -- dev switch: extra roads crossing or branching onto roads. Every plan with such a
 -- junction crashed the game so far (map_util.h "it != map.end()", three times, while
 -- evaluating the preview), road plans without one did not. Off: such drags are refused.
