@@ -37,6 +37,7 @@ local function ensureSubscriptions(state)
 	state:subscribeToEvent("builder.proposalApply")
 	state:subscribeToEvent("builder.proposalCreate")
 	state:subscribeToEvent(shared.EVENT_SET_PARAMS)
+	state:subscribeToEvent(shared.EVENT_PREVIEW_VERDICT)
 end
 
 -- gui state: toolbar values, pushed by the menu patch
@@ -175,12 +176,28 @@ local function logPerf()
 	end
 end
 
+-- the game's verdict on the menu's preview, pushed by the menu patch
+local previewVerdict = {}
+
 local function checkPlayerProposal(param)
 	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
 	if #drawn == 0 then
 		return nil
 	end
 	local signature = planner.signatureOf(drawn, current.count, current.side, current.spacing, current.reverse, current.resName)
+	-- the game judged the preview of this very drag and would not build it: refuse the
+	-- drag rather than build part of it (the verdict arrives a little after the preview)
+	if previewVerdict.signature == signature and previewVerdict.critical then
+		local message = "Parallel " .. shared.nounOf(current.builder) .. " cannot be built here"
+			.. (previewVerdict.message and (" (" .. previewVerdict.message .. ")") or "")
+		if message ~= lastRefusal then
+			lastRefusal = message
+			shared.log("check: " .. message)
+		end
+		local errorMessages = {}
+		errorMessages[message] = true
+		return { errorMessages = errorMessages, skipRender = false }
+	end
 	if signature == lastCheck.signature then
 		return lastCheck.result
 	end
@@ -528,6 +545,11 @@ return {
 				shared.log("params: " .. builder .. ", count = " .. tostring(current.count) .. ", side = " .. tostring(current.side)
 					.. ", spacing = " .. tostring(current.spacing) .. ", reverse = " .. tostring(current.reverse))
 			end
+		elseif name == shared.EVENT_PREVIEW_VERDICT then
+			if param.critical ~= previewVerdict.critical then
+				shared.log("preview verdict for the drag check: critical " .. tostring(param.critical) .. ", " .. tostring(param.message))
+			end
+			previewVerdict = { signature = param.signature, critical = param.critical, message = param.message }
 		elseif name == "builder.proposalCreate" and id == current.builder then
 			perf.requests = perf.requests + 1
 			logPerf()

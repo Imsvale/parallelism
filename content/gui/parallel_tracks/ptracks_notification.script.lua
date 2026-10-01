@@ -1,9 +1,7 @@
 -- Notification type for the mod's messages to the player. The game script adds one with
 -- params = { title = ..., description = ... }, both ready to show.
 
-local data = {}
-
-data.useDataState = function(params)
+local function useDataState(params)
 	return {
 		title = params.title or _("Parallel Tracks"),
 		description = params.description or "",
@@ -11,4 +9,10 @@ data.useDataState = function(params)
 	}
 end
 
-return data
+-- a .script.lua hands its functions over through data() (the game asked for it:
+-- "function data() not defined")
+function data()
+	return {
+		useDataState = useDataState,
+	}
+end

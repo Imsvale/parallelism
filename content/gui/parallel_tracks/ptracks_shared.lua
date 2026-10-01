@@ -54,6 +54,8 @@ local shared = {
 	-- gui script event the menu uses to hand the toolbar values to the game script
 	EVENT_ID = "ptracks",
 	EVENT_SET_PARAMS = "ptracks.setParams",
+	-- the game's verdict on the preview, for the drag check: { signature, critical, message }
+	EVENT_PREVIEW_VERDICT = "ptracks.previewVerdict",
 }
 
 function shared.log(msg)

@@ -185,6 +185,14 @@ local function makeViewer(index)
 				-- only a critical error stops the build; a plain message (e.g. Collision next to
 				-- a dead end the drawn road is about to continue) did not, in game
 				preview.failed[index] = errorState.critical
+				-- the drag check (game script) refuses a drag the game would not build
+				pcall(function()
+					api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_PREVIEW_VERDICT, {
+						signature = preview.signature,
+						critical = errorState.critical and true or false,
+						message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil,
+					})
+				end)
 				preview.warning = (not errorState.critical and #errorState.messages > 0) and tostring(errorState.messages[1]) or nil
 				-- dev aid: what the game says about the preview, when that changes
 				local messages = {}
