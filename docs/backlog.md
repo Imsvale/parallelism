@@ -93,7 +93,13 @@ Ideas and open questions parked until the core track building is robust.
 - **Planning cost near many tracks.** Retracing a 6-track bundle made planning take
   20-40 ms per change of the drag. Now: faster crossing search, caches, a drag check
   without game objects, and planning only every 4th change while planning is expensive
-  (over 10 ms); open ground plans every change.
+  (over 10 ms); open ground plans every change. 2026-10-01: the drag check (game
+  script) plans every change again: the builder asks only when the drag changes, so a
+  skipped position could be the one the drag stopped at, and the answer for an earlier
+  one stuck (a false refusal). The preview keeps the debounce (its tooltip is asked
+  continuously, so it catches up). Open: the preview's lua costs ~8 ms per tooltip
+  call even while the drag holds still over a 6-track crossing (855 ms per 100 calls),
+  most likely collecting the drawn segments against many removed ones every call.
 
 ## Features
 
