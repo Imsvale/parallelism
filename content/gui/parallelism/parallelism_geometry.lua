@@ -686,12 +686,13 @@ function geometry.checkPlan(plan, tolerance, corners)
 end
 
 -- Signed offsets (positive = right of build direction) of the additional tracks.
--- side: 1 = left, 2 = center, 3 = right. With center the drawn track stays in the
--- middle; for an even count the odd one out goes to the right.
+-- side: 1 = left, 2 = center-left, 3 = center-right, 4 = right. With a center side the
+-- drawn track stays in the middle; for an even count the odd one out goes to the left
+-- (center-left) or the right (center-right).
 function geometry.offsets(count, side, distance)
 	local result = {}
-	if side == 2 then
-		local right = math.floor(count / 2)
+	if side == 2 or side == 3 then
+		local right = side == 3 and math.floor(count / 2) or count - 1 - math.floor(count / 2)
 		local left = count - 1 - right
 		for i = 1, right do
 			result[#result + 1] = i * distance

@@ -450,6 +450,24 @@ local function hasParam(params, key)
 	return false
 end
 
+-- The sides the Side buttons offer, in button order. With at most 2 in all there is no
+-- middle, so only left and right.
+local function sideChoices(builder)
+	if shared.maxCount(builder) <= 2 then
+		return { shared.SIDE_LEFT, shared.SIDE_RIGHT }
+	end
+	return { shared.SIDE_LEFT, shared.SIDE_CENTER_LEFT, shared.SIDE_CENTER_RIGHT, shared.SIDE_RIGHT }
+end
+
+local function sideIndex(builder, side)
+	for i, s in ipairs(sideChoices(builder)) do
+		if s == side then
+			return i
+		end
+	end
+	return 1
+end
+
 -- true if the builder's toolbar is set to drawing (not replacing or upgrading)
 local function isDrawing(builder, params)
 	if builder == shared.STREET_BUILDER then
@@ -464,6 +482,25 @@ local function makeParams(builder, resName)
 		countValues[i] = tostring(i)
 	end
 	local streets = builder == shared.STREET_BUILDER
+	local sideLabels = {
+		[shared.SIDE_LEFT] = "L",
+		[shared.SIDE_CENTER_LEFT] = "CL",
+		[shared.SIDE_CENTER_RIGHT] = "CR",
+		[shared.SIDE_RIGHT] = "R",
+	}
+	local sideTooltips = {
+		[shared.SIDE_LEFT] = streets and _("Parallel roads on the left side") or _("Parallel tracks on the left side"),
+		[shared.SIDE_CENTER_LEFT] = streets and _("Uneven split puts the extra road on the left")
+			or _("Uneven split puts the extra track on the left"),
+		[shared.SIDE_CENTER_RIGHT] = streets and _("Uneven split puts the extra road on the right")
+			or _("Uneven split puts the extra track on the right"),
+		[shared.SIDE_RIGHT] = streets and _("Parallel roads on the right side") or _("Parallel tracks on the right side"),
+	}
+	local sideValues, sideValueTooltips = {}, {}
+	for i, side in ipairs(sideChoices(builder)) do
+		sideValues[i] = sideLabels[side]
+		sideValueTooltips[i] = sideTooltips[side]
+	end
 	local spacing = spacingNumbers(builder, resName)
 	local spacingLow, spacingHigh, spacingDefault = spacingRange(builder, resName)
 
@@ -499,9 +536,10 @@ local function makeParams(builder, resName)
 			name = _("Side"),
 			tooltip = streets and _("Where to put the additional roads, seen in build direction.")
 				or _("Where to put the additional tracks, seen in build direction."),
-			values = { _("Left"), _("Center"), _("Right") },
+			values = sideValues,
+			tooltips = sideValueTooltips,
 			-- a split highway's other carriageway goes left where traffic keeps right
-			defaultIndex = streets and shared.SIDE_LEFT or shared.SIDE_RIGHT,
+			defaultIndex = sideIndex(builder, streets and shared.SIDE_LEFT or shared.SIDE_RIGHT),
 			resetOnCategoryChange = false,
 			resetOnMenuClose = false,
 			uiType = api.type["enum"].ScriptParamType.Button,
@@ -637,7 +675,7 @@ function patch.install()
 		if builder then
 			-- the replace / upgrade mode keeps the count value but must not build anything extra
 			count = isDrawing(builder, params) and params[shared.KEY_COUNT] or 1
-			side = params[shared.KEY_SIDE] or shared.SIDE_RIGHT
+			side = sideChoices(builder)[params[shared.KEY_SIDE] or 0] or shared.SIDE_RIGHT
 			spacing = spacingOf(params, builder, definition.resName)
 			reverse = builder == shared.STREET_BUILDER and params[shared.KEY_DIRECTION] == shared.DIRECTION_OPPOSITE
 			-- the game script runs on another lua state, this event is the way across

@@ -89,10 +89,14 @@ check("anchor lies on R", distance < 0.05, string.format("u = %.3f, distance %.3
 local function list(t)
 	return table.concat(t, ", ")
 end
-check("offsets right", list(geometry.offsets(3, 3, 5)) == "5, 10", list(geometry.offsets(3, 3, 5)))
+check("offsets right", list(geometry.offsets(3, 4, 5)) == "5, 10", list(geometry.offsets(3, 4, 5)))
 check("offsets left", list(geometry.offsets(3, 1, 5)) == "-5, -10", list(geometry.offsets(3, 1, 5)))
 check("offsets center odd", list(geometry.offsets(3, 2, 5)) == "5, -5", list(geometry.offsets(3, 2, 5)))
-check("offsets center even", list(geometry.offsets(4, 2, 5)) == "5, -5, 10", list(geometry.offsets(4, 2, 5)))
+check("offsets center-right odd", list(geometry.offsets(3, 3, 5)) == "5, -5", list(geometry.offsets(3, 3, 5)))
+check("offsets center-left even", list(geometry.offsets(4, 2, 5)) == "5, -5, -10", list(geometry.offsets(4, 2, 5)))
+check("offsets center-right even", list(geometry.offsets(4, 3, 5)) == "5, -5, 10", list(geometry.offsets(4, 3, 5)))
+check("offsets center-left two", list(geometry.offsets(2, 2, 5)) == "-5", list(geometry.offsets(2, 2, 5)))
+check("offsets center-right two", list(geometry.offsets(2, 3, 5)) == "5", list(geometry.offsets(2, 3, 5)))
 
 -- Branching off L, the builder removed L's edges 595-572 and 572-570, moved the split
 -- node 2 m to 419 and re-added 595-419 and 419-570. The second spans both removed

@@ -19,9 +19,12 @@ local shared = {
 	-- hidden, only changed to make the menu redraw the preview
 	KEY_REDRAW = "parallelismRedraw",
 
+	-- the drawn track at the edge, or in the middle with the odd one out of an uneven
+	-- split on the left / right
 	SIDE_LEFT = 1,
-	SIDE_CENTER = 2,
-	SIDE_RIGHT = 3,
+	SIDE_CENTER_LEFT = 2,
+	SIDE_CENTER_RIGHT = 3,
+	SIDE_RIGHT = 4,
 
 	MAX_COUNT = 6,
 	-- roads: a split highway needs 2; more only with the mod option "moreRoads"

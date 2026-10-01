@@ -128,6 +128,18 @@ Ideas and open questions parked until the core track building is robust.
 
 ## Features
 
+- **Not yet looked into: terrain, ballast, catenary, fields, bridges.** All testing so
+  far has been on a flat map. To check, comparing against native builds:
+  - the edge `distance` field (`BaseEdge.distance`, the template's `trackDistance` on
+    native tracks): whether new edges need it set for neighbouring tracks to share
+    their ballast bed and catenary;
+  - the build `Context` flags (`checkTerrainAlignment`, `gatherFields`,
+    `extendProposalRedoPillars`, `cleanupStreetGraph`, `gatherBuildings`,
+    `refundableEntities`): only `player` is set now, and the mod builds the drawn track
+    itself too, so terrain levelling, cleared fields and bridge pillars must come out
+    as with the native builder;
+  - slopes, bridges and tunnels along and across the bundle.
+- **Translations.** The strings are English only.
 - **Tell the player when a track fails.** Refused drags get a builder error message. A
   build that fails after the drag was accepted (combined build falls back to one by one,
   or a plan with problems at apply) adds an in-game notification of the mod's own type
