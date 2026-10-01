@@ -48,6 +48,7 @@ local function clearPreview()
 		preview.costs = {}
 		preview.failed = {}
 		preview.warning = nil
+		preview.gameMessage = nil
 		preview.signature = nil
 		preview.version = preview.version + 1
 	end
@@ -146,6 +147,7 @@ local function updatePreview(proposal)
 	preview.costs = {}
 	preview.failed = {}
 	preview.warning = nil
+	preview.gameMessage = nil
 	preview.version = preview.version + 1
 end
 
@@ -183,7 +185,7 @@ local function previewSummary()
 	elseif (preview.problems or 0) > 0 then
 		text = text .. " (cannot be laid out here)"
 	elseif failed > 0 then
-		text = text .. " (cannot be built)"
+		text = text .. " (cannot be built" .. (preview.gameMessage and (": " .. preview.gameMessage) or "") .. ")"
 	elseif preview.warning then
 		text = text .. " (game notes: " .. preview.warning .. ")"
 	end
@@ -270,9 +272,14 @@ local function makeViewer(index)
 			if version == preview.version then
 				local errorState = proposalData.errorState
 				preview.costs[index] = proposalData.costs
-				-- only a critical error stops the build; a plain message (e.g. Collision next to
-				-- a dead end the drawn road is about to continue) did not, in game
-				preview.failed[index] = errorState.critical
+				-- Any message stops the build, critical or not (seen in game: a single track
+				-- with "Too Much Curvature" did not build). The one exception: Collision for
+				-- roads, which the preview reports next to a road end the drawn road is about to
+				-- continue (judged before the drawn road exists) and which builds. Same rule as
+				-- the drag check in the game script.
+				local message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil
+				local roadEndArtifact = message == "Collision" and preview.builder == shared.STREET_BUILDER
+				preview.failed[index] = errorState.critical or (message ~= nil and not roadEndArtifact)
 				-- the drag check (game script) refuses a drag the game would not build
 				pcall(function()
 					api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_PREVIEW_VERDICT, {
@@ -281,7 +288,8 @@ local function makeViewer(index)
 						message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil,
 					})
 				end)
-				preview.warning = (not errorState.critical and #errorState.messages > 0) and tostring(errorState.messages[1]) or nil
+				preview.warning = (not preview.failed[index] and message) or nil
+				preview.gameMessage = message
 				-- dev aid: what the game says about the preview, when that changes
 				local messages = {}
 				for __, m in ipairs(errorState.messages) do
