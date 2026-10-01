@@ -345,7 +345,7 @@ local function makeViewer(index)
 		entityForRefundableContext = api.engine.util.getPlayer(),
 		-- the version must be in the id: with one id for the whole drag the viewer does
 		-- not pick up a changed proposal (tried in game)
-		proposalId = "imsvale_parallel_tracks_preview," .. index .. "," .. version,
+		proposalId = "imsvale_parallelism_preview," .. index .. "," .. version,
 	}
 end
 

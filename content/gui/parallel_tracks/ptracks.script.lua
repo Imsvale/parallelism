@@ -3,7 +3,7 @@
 -- the cache makes the requires below load the current files.
 if type(_ug_loadedModules) == "table" then
 	for path in pairs(_ug_loadedModules) do
-		if type(path) == "string" and path:find("imsvale_parallel_tracks", 1, true) then
+		if type(path) == "string" and path:find("imsvale_parallelism", 1, true) then
 			_ug_loadedModules[path] = nil
 		end
 	end
@@ -385,7 +385,7 @@ end
 -- Shows the player a message in the game's notifications.
 local function notify(description)
 	local notification = {
-		type = "imsvale_parallel_tracks::/gui/parallel_tracks/ptracks_notification.script",
+		type = "imsvale_parallelism::/gui/parallel_tracks/ptracks_notification.script",
 		params = { title = _("Parallel Tracks"), description = description },
 		autoDismissDuration = 60000,
 	}

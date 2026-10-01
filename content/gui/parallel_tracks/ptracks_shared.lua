@@ -85,7 +85,7 @@ end
 -- The mod's option from the game's mod settings, nil if it cannot be read.
 function shared.modParam(key)
 	local ok, value = pcall(function()
-		return api.engine.config.getModParams()["imsvale_parallel_tracks"][key]
+		return api.engine.config.getModParams()["imsvale_parallelism"][key]
 	end)
 	return ok and value or nil
 end
