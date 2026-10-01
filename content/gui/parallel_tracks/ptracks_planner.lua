@@ -15,6 +15,8 @@ end
 
 -- an added segment within this distance of a removed one is a leftover of splitting it
 local REMNANT_TOLERANCE = 0.25
+-- ...and within this for a piece that branches off the drawn chain (see collectDrawnSegments)
+local REMNANT_LOOSE_TOLERANCE = 1.0
 local DEFAULT_TRACK_DISTANCE = 5.0
 -- an existing node this close to where a new one would go is used instead
 local NODE_SNAP_DISTANCE = 0.5
@@ -313,6 +315,49 @@ local function collectDrawnSegments(streetProposal, roadType)
 			local edge = toEdge(segment.comp)
 			if not geometry.liesOnAny(edge, removed, REMNANT_TOLERANCE) then
 				drawn[#drawn + 1] = { entity = segment.entity, segmentType = segment.type, comp = segment.comp, edge = edge }
+			end
+		end
+	end
+
+	-- The builder also reshapes existing track next to its crossings (merges edges into
+	-- a re-fitted curve, moves nodes); such a piece can stray further than
+	-- REMNANT_TOLERANCE and was taken for drawn (seen in game: the extra tracks branched
+	-- off at the crossing and crossed each other). The drawn track is one chain that runs
+	-- straight through its nodes, so where three or more pieces meet, the pair that goes
+	-- straight through is drawn and the others are remnants if they run along a removed
+	-- edge more loosely.
+	local changed = true
+	while changed do
+		changed = false
+		local atNode = {}
+		for i, d in ipairs(drawn) do
+			for __, e in ipairs({ { d.comp.node0, d.edge.t0 }, { d.comp.node1, { x = -d.edge.t1.x, y = -d.edge.t1.y, z = 0 } } }) do
+				atNode[e[1]] = atNode[e[1]] or {}
+				table.insert(atNode[e[1]], { index = i, dir = e[2] })
+			end
+		end
+		for __, list in pairs(atNode) do
+			if #list >= 3 then
+				local bestI, bestJ, best = nil, nil, -1
+				for i = 1, #list do
+					for j = i + 1, #list do
+						local through = 180 - geometry.angleBetween(list[i].dir, list[j].dir)
+						if best < 0 or through < best then
+							bestI, bestJ, best = i, j, through
+						end
+					end
+				end
+				for k = #list, 1, -1 do
+					local d = drawn[list[k].index]
+					if k ~= bestI and k ~= bestJ and geometry.liesOnAny(d.edge, removed, REMNANT_LOOSE_TOLERANCE) then
+						table.remove(drawn, list[k].index)
+						changed = true
+						break
+					end
+				end
+				if changed then
+					break
+				end
 			end
 		end
 	end
