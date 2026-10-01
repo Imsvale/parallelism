@@ -145,12 +145,14 @@ end
 
 -- makes ptracksDump available to the console of the lua state this is loaded on
 function dump.install()
-	ptracksDump = function(...)
+	-- rawset: the game logs an error for globals made by assignment (base/init.lua);
+	-- this one is meant, for the console
+	rawset(_G, "ptracksDump", function(...)
 		local ok, err = pcall(dump.around, ...)
 		if not ok then
 			shared.log("dump failed: " .. tostring(err))
 		end
-	end
+	end)
 end
 
 return dump
