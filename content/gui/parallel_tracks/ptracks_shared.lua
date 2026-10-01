@@ -29,6 +29,10 @@ local shared = {
 
 	SPACING_STEP = 0.5,
 	MAX_SPACING = 20,
+	-- Roads side by side: the road builder snaps a second road a road width plus this
+	-- much away (measured 2026-10-01: 20 m between two 16 m one-way roads). Extra
+	-- Spacing goes down to minus this for roads, edge to edge.
+	ROAD_GAP = 4,
 
 	-- dev switch: false keeps the preview's planning, tooltip line and the drag check, but
 	-- does not draw the preview (no proposal viewer, no menu redraw), to measure what

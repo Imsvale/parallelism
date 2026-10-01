@@ -45,6 +45,9 @@ local MITER_MAX_ANGLE = 135.0
 -- junction crashed the game so far (map_util.h "it != map.end()", three times, while
 -- evaluating the preview), road plans without one did not. Off: such drags are refused.
 local ROAD_JUNCTIONS = false
+-- give new and touched nodes node configs (lane connections etc.) as the builder does;
+-- false: none at all, as before 2026-10-01
+local NODE_CONFIGS = true
 -- crossings flatter than this (degrees) are not built: measured in game, the builder
 -- refuses crossings under 6.0 degrees (and a very flat one once crashed the game)
 local MIN_CROSSING_ANGLE = 6.05
@@ -209,8 +212,10 @@ local function switchZone(radius)
 end
 
 -- Distance between the centre lines of neighbouring tracks or roads. Tracks have it in
--- their template; roads lie side by side, a road's width apart (the sum of its lanes,
--- sidewalks and verges included).
+-- their template; roads lie side by side as the road builder snaps them: the road's
+-- width (the sum of its lanes, sidewalks included) plus shared.ROAD_GAP.
+local loggedTrackDistance = {}
+
 local function getTrackDistance(roadTemplate)
 	local template = getTemplate(roadTemplate)
 	if template and isStreet(template.roadType) then
@@ -218,8 +223,14 @@ local function getTrackDistance(roadTemplate)
 		for __, lc in ipairs(template.laneConfigs or {}) do
 			width = width + math.abs(lc.width or 0)
 		end
+		if not loggedTrackDistance[roadTemplate] then
+			-- dev aid: whether the game fills trackDistance in for roads (unset in the files)
+			loggedTrackDistance[roadTemplate] = true
+			shared.log(string.format("road %s: width %.1f, template trackDistance %s", tostring(roadTemplate), width,
+				tostring(template.trackDistance)))
+		end
 		if width > 0 then
-			return width
+			return width + shared.ROAD_GAP
 		end
 	end
 	local distance = template and template.trackDistance
@@ -509,6 +520,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	local corners = {}
 	-- loose ends moved to a corner: they are removed, nothing may use them
 	local movedAway = {}
+	-- our node -> the drawn node it mirrors, for node configs
+	local mirrorOf = {}
 	timing.firstTrack = clockMs()
 	for __, offset in ipairs(offsets) do
 		timing.trackStart = clockMs()
@@ -673,6 +686,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						-- only mirrors a node of the drawn track, free to go if in the way
 						movable[node.entity] = true
 					end
+				end
+				if not anchorCuts[node.entity] then
+					-- gets the node config the builder made for the drawn node
+					mirrorOf[node.entity] = entity
 				end
 				nodes[entity] = node
 			end
@@ -860,6 +877,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	local edgesToAdd = {}
 	local edgesToRemove = {}
 	local nextEdgeId = -1
+	-- every edge added, with the existing edges it replaces (origins), for node configs
+	local pieces = {}
 
 	local function addSegment(node0, node1, piece, props)
 		local entity = nextEdgeId
@@ -870,6 +889,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			node1 = node1.entity,
 			edge = { p0 = node0.position, p1 = node1.position, t0 = piece.t0, t1 = piece.t1 },
 		}
+		pieces[#pieces + 1] = { entity = entity, node0 = node0.entity, node1 = node1.entity, t0 = piece.t0, t1 = piece.t1,
+			origins = props.origins }
 		-- the game objects only when a proposal is wanted, a check needs just the plan
 		if planOnly then
 			return
@@ -1051,7 +1072,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					cut.u = geometry.closestParameter(cut.node.position, part.edge)
 				end
 			end
-			addCut(part.edge, part.node0, part.node1, part.cuts, { comp = split.comp, segmentType = segmentType, playerOwned = getPlayerOwned(entity) })
+			addCut(part.edge, part.node0, part.node1, part.cuts,
+				{ comp = split.comp, segmentType = segmentType, playerOwned = getPlayerOwned(entity), origins = part.removeEdges })
 			for __, e in ipairs(part.removeEdges) do
 				edgesToRemove[#edgesToRemove + 1] = e
 			end
@@ -1063,7 +1085,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 
 	-- existing parallels ending at a corner now: the edge again with its loose end moved
 	for __, r in ipairs(rebuilt) do
-		addSegment(r.node0, r.node1, r.edge, { comp = r.comp, segmentType = segmentType, playerOwned = getPlayerOwned(r.entity) })
+		addSegment(r.node0, r.node1, r.edge,
+			{ comp = r.comp, segmentType = segmentType, playerOwned = getPlayerOwned(r.entity), origins = { r.entity } })
 		edgesToRemove[#edgesToRemove + 1] = r.entity
 		nodesToRemove[#nodesToRemove + 1] = r.looseNode
 		stats.moved = stats.moved + 1
@@ -1132,6 +1155,176 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		log("  plan problem: " .. problem)
 	end
 
+	-- Node configs (lane connections, crosswalks, traffic light preference), as the
+	-- builder makes them: our nodes copy the config of the drawn node they mirror, and
+	-- existing nodes at the ends of edges we replace get theirs rewritten to the new
+	-- pieces. Without the rewrite those configs name edges that no longer exist.
+	-- Returns the configs to add and the nodes whose config they replace.
+	local function makeNodeConfigs()
+		local function set(list)
+			local s = {}
+			for __, v in ipairs(list) do
+				s[v] = true
+			end
+			return s
+		end
+		local removedEdges, removedNodes = set(edgesToRemove), set(nodesToRemove)
+		local newNodes = {}
+		for __, n in ipairs(nodesToAdd) do
+			newNodes[n.entity] = true
+		end
+		local function neg(v)
+			return { x = -v.x, y = -v.y, z = -v.z }
+		end
+		-- the edges at each node after the build: { entity, dir (leaving the node), origins }
+		local atNode = {}
+		local function addAt(node, entry)
+			atNode[node] = atNode[node] or {}
+			table.insert(atNode[node], entry)
+		end
+		for __, p in ipairs(pieces) do
+			addAt(p.node0, { entity = p.entity, dir = p.t0, origins = p.origins })
+			addAt(p.node1, { entity = p.entity, dir = neg(p.t1), origins = p.origins })
+		end
+		-- existing edges at a node, but those left out
+		local function worldAt(node, leaveOut)
+			local result = {}
+			for __, s in ipairs(getNode2Segments()[node] or {}) do
+				if not leaveOut[s] then
+					local comp = readEdgeComp(s)
+					if comp then
+						result[#result + 1] = { entity = s, dir = comp.node0 == node and plain(comp.tangent0) or neg(plain(comp.tangent1)) }
+					end
+				end
+			end
+			return result
+		end
+		-- the edges at each drawn node: drawn ones and existing ones
+		local drawnAt = {}
+		for __, d in ipairs(drawn) do
+			drawnAt[d.node0] = drawnAt[d.node0] or {}
+			drawnAt[d.node1] = drawnAt[d.node1] or {}
+			table.insert(drawnAt[d.node0], { entity = d.entity, dir = d.edge.t0 })
+			table.insert(drawnAt[d.node1], { entity = d.entity, dir = neg(d.edge.t1) })
+		end
+		local function sourceConfig(node)
+			local given = options.nodeConfigs and options.nodeConfigs[node]
+			if given then
+				return given
+			end
+			return api.engine.getComponent(node, api.type.ComponentType.BASE_NODE_CONFIG)
+		end
+		local toAdd, toRemove, done = {}, {}, {}
+		-- A new config for node, like src with its edges replaced through map (connections
+		-- to unmapped edges dropped), traffic turned around with swap. src is only read:
+		-- the builder's proposal hands out the same object for every use.
+		local function addConfig(node, src, map, swap)
+			local nc = api.type.BaseNodeLaneConnectionAndEntity.new()
+			nc.entity = node
+			local comp = nc.comp
+			local connections = {}
+			for __, c in ipairs(src.laneConnections) do
+				local s0, s1 = map[c.segment0], map[c.segment1]
+				if s0 and s1 then
+					local l0, l1 = c.lane0, c.lane1
+					if swap then
+						s0, s1, l0, l1 = s1, s0, l1, l0
+					end
+					-- c is this loop's own copy of the connection
+					c.segment0, c.lane0, c.segment1, c.lane1 = s0, l0, s1, l1
+					connections[#connections + 1] = c
+				end
+			end
+			comp.laneConnections = connections
+			local crosswalks = {}
+			for __, e in ipairs(src.crosswalks) do
+				if map[e] then
+					crosswalks[#crosswalks + 1] = map[e]
+				end
+			end
+			comp.crosswalks = crosswalks
+			comp.trafficLightPreference = src.trafficLightPreference
+			comp.doubleSlipSwitch = src.doubleSlipSwitch
+			pcall(function()
+				comp.trafficLightConfig = src.trafficLightConfig
+			end)
+			nc.comp = comp
+			if not newNodes[node] then
+				toRemove[#toRemove + 1] = node
+			end
+			toAdd[#toAdd + 1] = nc
+			done[node] = true
+		end
+
+		-- our nodes: like the drawn node they mirror, edges matched by direction
+		for node, drawnNode in pairs(mirrorOf) do
+			local exists = newNodes[node] or (node >= 0 and not removedNodes[node])
+			local src = exists and sourceConfig(drawnNode)
+			if src then
+				local from = {}
+				for __, e in ipairs(drawnAt[drawnNode] or {}) do
+					from[#from + 1] = e
+				end
+				for __, e in ipairs(worldAt(drawnNode, drawnEntities)) do
+					from[#from + 1] = e
+				end
+				local to = {}
+				for __, e in ipairs(atNode[node] or {}) do
+					to[#to + 1] = e
+				end
+				for __, e in ipairs(newNodes[node] and {} or worldAt(node, removedEdges)) do
+					to[#to + 1] = e
+				end
+				local map, used = {}, {}
+				for __, f in ipairs(from) do
+					local best, bestAngle = nil, 45
+					for i, t in ipairs(to) do
+						local angle = geometry.angleBetween(f.dir, t.dir)
+						if not used[i] and angle < bestAngle then
+							best, bestAngle = i, angle
+						end
+					end
+					if best then
+						used[best] = true
+						map[f.entity] = to[best].entity
+					end
+				end
+				addConfig(node, src, map, options.reverse)
+			end
+		end
+
+		-- existing nodes at the ends of replaced edges: the new piece instead of the old edge
+		for __, p in ipairs(pieces) do
+			if p.origins then
+				for __, node in ipairs({ p.node0, p.node1 }) do
+					if node >= 0 and not removedNodes[node] and not done[node] then
+						local cfg = api.engine.getComponent(node, api.type.ComponentType.BASE_NODE_CONFIG)
+						if cfg then
+							local map = {}
+							for __, s in ipairs(getNode2Segments()[node] or {}) do
+								map[s] = s
+								if removedEdges[s] then
+									map[s] = nil
+									for __, e in ipairs(atNode[node] or {}) do
+										for __, o in ipairs(e.origins or {}) do
+											if o == s then
+												map[s] = e.entity
+											end
+										end
+									end
+								end
+							end
+							addConfig(node, cfg, map, false)
+						else
+							done[node] = true
+						end
+					end
+				end
+			end
+		end
+		return toAdd, toRemove
+	end
+
 	local proposal = nil
 	if not planOnly then
 		local nodeAndEntities = {}
@@ -1147,6 +1340,17 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		proposal.streetProposal.edgesToAdd = edgesToAdd
 		proposal.streetProposal.edgesToRemove = edgesToRemove
 		proposal.streetProposal.nodesToRemove = nodesToRemove
+		if NODE_CONFIGS then
+			local ok, err = pcall(function()
+				local toAdd, toRemove = makeNodeConfigs()
+				proposal.streetProposal.nodeConfigsToAdd = toAdd
+				proposal.streetProposal.nodeConfigsToRemove = toRemove
+				stats.nodeConfigs = #toAdd
+			end)
+			if not ok then
+				shared.log("node configs left out: " .. tostring(err))
+			end
+		end
 		-- An edge without lane configs crashes the game (lane_config_util.cpp, seen for
 		-- tracks and for roads in curved mode). Read them back from what the game gets.
 		local ok, err = pcall(function()

@@ -138,6 +138,22 @@ Ideas and open questions parked until the core track building is robust.
   them there (adding a straight extension, clearing the collision) changes what gets
   built. If not: accept it, and favour curved drags that leave the road end
   tangentially (no kink), as the track builder does.
+- **Matching the road builder (2026-10-01, dumps of a hand-built and a mod-built pair).**
+  Edges were identical (lane configs, template, style, precedence, transport network).
+  Differences found and fixed:
+  - Spacing: the builder snaps a second road a width plus 4 m away (20 m for a 16 m
+    road); we placed them edge to edge, so left turns collided at ~6 deg instead of
+    ~36. Now the default; Extra Spacing goes down to -4 m for roads.
+  - Node configs: the builder gives every node one (lane connections, crosswalks,
+    traffic light preference); ours had none, and existing nodes at the ends of edges
+    we split or rebuilt kept configs naming the removed edge. Now our nodes copy the
+    config of the drawn node they mirror (edges matched by direction, swapped for
+    reversed roads), and touched existing nodes get theirs rewritten
+    (`NODE_CONFIGS` in the planner). Prime suspect for the road junction crashes.
+- **Straight road mode: known limitation.** A straight drag leaving a pair's end at an
+  angle toward the extra road is refused by the game itself once the turn collides
+  with the extra road (now from ~36 deg with the builder's spacing). Not worked around;
+  the curved tool (smooth continuation) is the way to turn.
 - **Road junctions crash the game.** Three crashes (`map_util.h` "it != map.end()",
   while the game evaluated the preview) all came from plans where an extra road crossed
   or branched onto a road; the last one was a plain 44 degree crossing of one-way roads

@@ -79,7 +79,6 @@ local function dumpEdge(entity, log)
 		.. ", devLocked " .. tostring(try(function() return e.roadDevelopmentLocked end)))
 	log("  template " .. tostring(e.roadTemplate) .. ", style " .. tostring(e.roadStyle))
 	log("  laneConfigs " .. laneConfigs(e.laneConfigs))
-	log("  laneConfig " .. laneConfigs(try(function() return e.laneConfig end)))
 	log("  edgeDecorations " .. tostring(try(function()
 		local parts = {}
 		for _, d in ipairs(e.edgeDecorations) do
@@ -120,10 +119,15 @@ local function dumpNode(entity, node2segments, log)
 	log("  config: " .. tostring(try(function()
 		local parts = {}
 		for _, c in ipairs(config.laneConnections) do
-			parts[#parts + 1] = string.format("%s.%s->%s.%s", tostring(c.segment0), tostring(c.lane0), tostring(c.segment1), tostring(c.lane1))
+			parts[#parts + 1] = string.format("%s.%s->%s.%s%s%s", tostring(c.segment0), tostring(c.lane0), tostring(c.segment1), tostring(c.lane1),
+				c.withRoad and " road" or "", c.withTram and " tram" or "")
 		end
-		return #parts .. " lane connections [" .. table.concat(parts, ", ") .. "], crosswalks "
-			.. tostring(#config.crosswalks) .. ", trafficLightPreference " .. tostring(config.trafficLightPreference)
+		local crosswalks = {}
+		for _, e in ipairs(config.crosswalks) do
+			crosswalks[#crosswalks + 1] = tostring(e)
+		end
+		return #parts .. " lane connections [" .. table.concat(parts, ", ") .. "], crosswalks ["
+			.. table.concat(crosswalks, ", ") .. "], trafficLightPreference " .. tostring(config.trafficLightPreference)
 			.. ", doubleSlip " .. tostring(config.doubleSlipSwitch)
 			.. ", userModified " .. tostring(config.userModifiedLaneConnections)
 	end)))

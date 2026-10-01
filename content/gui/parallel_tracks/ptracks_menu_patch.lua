@@ -76,8 +76,16 @@ local function updatePreview(proposal)
 	local proposals = {}
 	local distance = planner.getTrackDistance(preview.resName) + preview.spacing
 	local started = planner.clockMs()
+	-- the node configs the builder made for the drawn nodes, which ours copy (while
+	-- dragging the drawn nodes are not in the world yet)
+	local nodeConfigs = {}
+	pcall(function()
+		for __, nc in ipairs(proposal.proposal.nodeConfigsToAdd) do
+			nodeConfigs[nc.entity] = nc.comp
+		end
+	end)
 	local planned, stats = planner.makeProposal(drawn, geometry.offsets(preview.count, preview.side, distance), nil, false,
-		{ reverse = preview.reverse })
+		{ reverse = preview.reverse, nodeConfigs = nodeConfigs })
 	-- the cost decides whether the next changes are all planned; slow ones are logged
 	if started then
 		local took = planner.clockMs() - started
@@ -274,16 +282,25 @@ end
 -- descriptor rendered right after it gets the preview components
 local injectPreview = false
 
--- extra spacing between neighbouring tracks, in meters
-local spacingNumbers = {}
-for i = 0, shared.MAX_SPACING / shared.SPACING_STEP do
-	spacingNumbers[#spacingNumbers + 1] = i * shared.SPACING_STEP
+-- extra spacing between neighbouring tracks or roads, in meters, on top of the
+-- builder's own distance; roads can go down to edge to edge
+local function minSpacing(builder)
+	return builder == shared.STREET_BUILDER and -shared.ROAD_GAP or 0
+end
+
+local function spacingNumbers(builder)
+	local numbers = {}
+	local from = minSpacing(builder) / shared.SPACING_STEP
+	for i = from, shared.MAX_SPACING / shared.SPACING_STEP do
+		numbers[#numbers + 1] = i * shared.SPACING_STEP
+	end
+	return numbers
 end
 
 -- the slider's value is the number itself, as with the base game's height slider
-local function spacingOf(params)
+local function spacingOf(params, builder)
 	local value = tonumber(params[shared.KEY_SPACING]) or 0
-	return math.max(0, math.min(shared.MAX_SPACING, value))
+	return math.max(minSpacing(builder), math.min(shared.MAX_SPACING, value))
 end
 
 local function hasParam(params, key)
@@ -309,6 +326,7 @@ local function makeParams(builder)
 		countValues[i] = tostring(i)
 	end
 	local streets = builder == shared.STREET_BUILDER
+	local spacing = spacingNumbers(builder)
 
 	-- the options for the extra tracks only matter with some
 	local function withExtras(params)
@@ -357,10 +375,11 @@ local function makeParams(builder)
 			group = "parallelTracks",
 			key = shared.KEY_SPACING,
 			name = _("Extra Spacing"),
-			tooltip = streets and _("Additional distance between neighbouring roads, e.g. a median.")
+			tooltip = streets and _("Additional distance between neighbouring roads, on top of the gap the road builder leaves (e.g. a median); down to -4 m for roads edge to edge.")
 				or _("Additional distance between neighbouring tracks, on top of the usual track distance."),
-			numbers = spacingNumbers,
-			defaultIndex = 1,
+			numbers = spacing,
+			-- the slider's 0
+			defaultIndex = math.floor(-minSpacing(builder) / shared.SPACING_STEP + 0.5) + 1,
 			resetOnCategoryChange = false,
 			resetOnMenuClose = false,
 			uiType = api.type["enum"].ScriptParamType.Slider,
@@ -371,10 +390,10 @@ local function makeParams(builder)
 			stepValueFn = function(value, direction, precise)
 				local step = precise and shared.SPACING_STEP or 1
 				local newValue = math.floor((value + direction * step) / step + 0.5) * step
-				return math.max(0, math.min(shared.MAX_SPACING, newValue))
+				return math.max(minSpacing(builder), math.min(shared.MAX_SPACING, newValue))
 			end,
 			formatValueFn = function(value)
-				return string.format("+%.1f m", value)
+				return string.format("%+.1f m", value)
 			end,
 			checkEnabledFn = withExtras,
 		},
@@ -463,7 +482,7 @@ function patch.install()
 			-- the replace / upgrade mode keeps the count value but must not build anything extra
 			count = isDrawing(builder, params) and params[shared.KEY_COUNT] or 1
 			side = params[shared.KEY_SIDE] or shared.SIDE_RIGHT
-			spacing = spacingOf(params)
+			spacing = spacingOf(params, builder)
 			reverse = builder == shared.STREET_BUILDER and params[shared.KEY_DIRECTION] == shared.DIRECTION_OPPOSITE
 			-- the game script runs on another lua state, this event is the way across
 			api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_SET_PARAMS, {

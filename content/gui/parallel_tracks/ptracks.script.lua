@@ -326,7 +326,8 @@ local function describeStats(stats)
 	return stats.edges .. " edges, min radius " .. planner.formatRadius(stats.minRadius)
 		.. ", " .. stats.reused .. " existing nodes, " .. stats.anchored .. " anchored, "
 		.. stats.crossings .. " crossings, " .. stats.shallow .. " too shallow, " .. stats.moved .. " nodes moved, "
-		.. stats.dropped .. " own nodes dropped, " .. stats.skipped .. " splits skipped"
+		.. stats.dropped .. " own nodes dropped, " .. stats.skipped .. " splits skipped, "
+		.. tostring(stats.nodeConfigs or 0) .. " node configs"
 end
 
 -- Sends one build and logs how it went; onDone(success) runs after it.
