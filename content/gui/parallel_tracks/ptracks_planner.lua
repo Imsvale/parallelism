@@ -1091,6 +1091,17 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 								tooClose = true
 							end
 						end
+						-- a crossing at the far end of the edge counts too: since nodes slide
+						-- onto crossings, edges often end at one (seen in game: an own node
+						-- kept 0.96 m from a crossing, the game refused the piece)
+						local far = oe.node0.entity == entity and oe.node1 or oe.node0
+						if cutNodes[far.entity] or crossingAtNode[far.entity] then
+							local d = geometry.horizontalDistance(far.position, position)
+							nearest = math.min(nearest, d)
+							if d < MIN_PIECE_LENGTH then
+								tooClose = true
+							end
+						end
 					end
 					local slid = false
 					if tooClose
