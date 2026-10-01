@@ -338,6 +338,9 @@ local function makeViewer(index)
 						for entity in pairs(collision.autoRemovalEntity2models) do
 							shared.log("  preview would auto-remove " .. planner.describeEntity(entity))
 						end
+						for __, entity in ipairs(collision.buildingEntities) do
+							shared.log("  preview building entity " .. planner.describeEntity(entity))
+						end
 					end)
 				end
 			end

@@ -2268,7 +2268,25 @@ local function describeEntity(entity)
 			parts[#parts + 1] = "construction " .. tostring(construction.fileName)
 			return
 		end
-		parts[#parts + 1] = "(not an edge, node or construction)"
+		local building = api.engine.getComponent(entity, api.type.ComponentType.TOWN_BUILDING)
+		if building then
+			parts[#parts + 1] = "town building of construction " .. tostring(building.construction)
+				.. ", town " .. tostring(building.town)
+			return
+		end
+		-- dev aid: which components it has, to tell what it is
+		local names = {}
+		for name, id in pairs(api.type.ComponentType) do
+			local found = false
+			pcall(function()
+				found = type(id) == "number" and api.engine.getComponent(entity, id) ~= nil
+			end)
+			if found then
+				names[#names + 1] = name
+			end
+		end
+		table.sort(names)
+		parts[#parts + 1] = "(not an edge, node or construction; components " .. table.concat(names, ", ") .. ")"
 	end)
 	if not ok then
 		parts[#parts + 1] = "(lookup failed)"

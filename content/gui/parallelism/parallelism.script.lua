@@ -302,6 +302,28 @@ local function dumpProposal(id, param)
 	end
 	shared.log("  edgeObjectsToAdd " .. #street.edgeObjectsToAdd
 		.. ", parallel strips + " .. #data.parallelProposal.toAdd .. " / - " .. #data.parallelProposal.toRemove)
+	-- buildings in the way: how the builder's own proposal bulldozes them
+	local ok, err = pcall(function()
+		for __, entity in ipairs(proposal.toRemove) do
+			shared.log("  - construction " .. planner.describeEntity(entity))
+		end
+		local collision = data.collisionInfo
+		for __, e in ipairs(collision.collisionEntities) do
+			shared.log("  collides with " .. planner.describeEntity(e.entity))
+		end
+		for entity in pairs(collision.autoRemovalEntity2models) do
+			shared.log("  auto-removes " .. planner.describeEntity(entity))
+		end
+		for __, entity in ipairs(collision.buildingEntities) do
+			shared.log("  building entity " .. planner.describeEntity(entity))
+		end
+		for __, entity in ipairs(collision.removableModules) do
+			shared.log("  removable module " .. planner.describeEntity(entity))
+		end
+	end)
+	if not ok then
+		shared.log("  removals: " .. tostring(err))
+	end
 end
 
 
