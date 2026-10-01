@@ -598,6 +598,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 
 	-- existing edges to split: entity -> { comp, edge, cuts = { { u, node } } }
 	local splits = {}
+	-- every node where we cross or branch off an existing edge (its pieces need room)
+	local cutNodes = {}
 	local function addSplit(entity, u, node, angle)
 		local split = splits[entity]
 		if split == nil then
@@ -607,6 +609,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		end
 		local cut = { u = u, node = node, angle = angle }
 		split.cuts[#split.cuts + 1] = cut
+		cutNodes[node.entity] = true
 		return cut
 	end
 	-- the cuts of switches (anchors), by their node, to give them their zone once the
@@ -1275,7 +1278,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			addSegment(chain[i], chain[i + 1], piece, props)
 			-- a piece next to a crossing or branch that could not be made long enough: the
 			-- game refuses it at best, and crashed on it for roads
-			if #chain > 2 or crossingAtNode[chain[i].entity] or crossingAtNode[chain[i + 1].entity] then
+			-- (also an edge with no cut of its own that ends at a crossing: own nodes slide
+			-- onto crossings, then edges run crossing to crossing; seen in game: 1.35 m)
+			if #chain > 2 or cutNodes[chain[i].entity] or cutNodes[chain[i + 1].entity] then
 				local length = geometry.arcLength({ p0 = chain[i].position, p1 = chain[i + 1].position, t0 = piece.t0, t1 = piece.t1 })
 				if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
 					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
