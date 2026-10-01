@@ -240,6 +240,30 @@ local function getTrackDistance(roadTemplate)
 	return DEFAULT_TRACK_DISTANCE
 end
 
+-- The width of a road (its lanes, sidewalks included); nil for a track.
+local function roadWidth(roadTemplate)
+	local template = getTemplate(roadTemplate)
+	if not (template and isStreet(template.roadType)) then
+		return nil
+	end
+	local width = 0
+	for __, lc in ipairs(template.laneConfigs or {}) do
+		width = width + math.abs(lc.width or 0)
+	end
+	return width > 0 and width or nil
+end
+
+-- Distance between the centre lines of neighbours for the Spacing value: for roads the
+-- gap between them (default shared.ROAD_GAP), for tracks the distance between their
+-- centres (default and minimum the template's).
+local function parallelDistance(roadTemplate, spacing)
+	local width = roadWidth(roadTemplate)
+	if width then
+		return width + math.max(0, spacing or shared.ROAD_GAP)
+	end
+	return math.max(getTrackDistance(roadTemplate), spacing or 0)
+end
+
 local function formatRadius(r)
 	return string.format("%.1f", r)
 end
@@ -1387,8 +1411,9 @@ end
 -- of them changed. The builder asks about the same drag many times.
 local function signatureOf(drawn, ...)
 	local parts = {}
-	for __, extra in ipairs({ ... }) do
-		parts[#parts + 1] = tostring(extra)
+	-- by count, not ipairs: a setting may be nil (e.g. spacing left at the default)
+	for i = 1, select("#", ...) do
+		parts[#parts + 1] = tostring((select(i, ...)))
 	end
 	for __, d in ipairs(drawn) do
 		local e = d.edge
@@ -1472,6 +1497,8 @@ end
 planner.toEdge = toEdge
 planner.getEdgeComp = readEdgeComp
 planner.getTrackDistance = getTrackDistance
+planner.roadWidth = roadWidth
+planner.parallelDistance = parallelDistance
 planner.formatRadius = formatRadius
 planner.collectDrawnSegments = collectDrawnSegments
 planner.isApplied = isApplied

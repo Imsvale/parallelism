@@ -143,7 +143,8 @@ Ideas and open questions parked until the core track building is robust.
   Differences found and fixed:
   - Spacing: the builder snaps a second road a width plus 4 m away (20 m for a 16 m
     road); we placed them edge to edge, so left turns collided at ~6 deg instead of
-    ~36. Now the default; Extra Spacing goes down to -4 m for roads.
+    ~36. Now the default. The slider is "Spacing": the gap for roads (default 4 m,
+    0 = edge to edge), the centre distance for tracks (default the type's own).
   - Node configs: the builder gives every node one (lane connections, crosswalks,
     traffic light preference); ours had none, and existing nodes at the ends of edges
     we split or rebuilt kept configs naming the removed edge. Now our nodes copy the

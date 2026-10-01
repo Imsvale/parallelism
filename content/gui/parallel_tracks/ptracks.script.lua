@@ -43,7 +43,7 @@ end
 local current = {
 	count = 1,
 	side = shared.SIDE_RIGHT,
-	spacing = 0,
+	spacing = nil,
 	reverse = false,
 	-- the builder the values are for: shared.TRACK_BUILDER or shared.STREET_BUILDER
 	builder = shared.TRACK_BUILDER,
@@ -194,7 +194,7 @@ local function checkPlayerProposal(param)
 	for __, d in ipairs(drawn) do
 		d.template = current.resName
 	end
-	local distance = planner.getTrackDistance(current.resName) + current.spacing
+	local distance = planner.parallelDistance(current.resName, current.spacing)
 	-- only the verdict is needed here, not the game objects of a proposal
 	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, shared.PERF_MEASURES,
 		{ reverse = current.reverse })
@@ -440,7 +440,7 @@ end
 local function runJob(job)
 	local ok, err = pcall(function()
 		local comp = planner.getEdgeComp(job.drawn[1].entity)
-		job.offsets = geometry.offsets(job.count, job.side, planner.getTrackDistance(comp.roadTemplate) + job.spacing)
+		job.offsets = geometry.offsets(job.count, job.side, planner.parallelDistance(comp.roadTemplate, job.spacing))
 		buildCombined(job)
 	end)
 	if not ok then
@@ -522,7 +522,7 @@ return {
 				or reverse ~= current.reverse or builder ~= current.builder then
 				current.count = param.count
 				current.side = param.side
-				current.spacing = param.spacing or 0
+				current.spacing = param.spacing
 				current.reverse = reverse
 				current.builder = builder
 				shared.log("params: " .. builder .. ", count = " .. tostring(current.count) .. ", side = " .. tostring(current.side)
