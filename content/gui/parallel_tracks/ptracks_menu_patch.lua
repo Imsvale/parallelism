@@ -151,6 +151,29 @@ local function updatePreview(proposal)
 	preview.version = preview.version + 1
 end
 
+-- Tooltip line with the tightest curve of the drawn track: by its ends (as an arc) and
+-- at its tightest point (what the game checks against the type's minimum radius; the
+-- builder's cubic edges bend about 0.8 % tighter mid-edge). nil for a straight drag.
+local function radiusLine(proposal, builder)
+	if not shared.SHOW_RADIUS then
+		return nil
+	end
+	local drawn = planner.collectDrawnSegments(proposal.proposal, shared.roadTypeOf(builder))
+	local byEnds, along = math.huge, math.huge
+	for __, d in ipairs(drawn) do
+		local e = d.edge
+		byEnds = math.min(byEnds, geometry.radius(e.p0, e.p1, e.t0, e.t1))
+		along = math.min(along, geometry.minRadiusAlong(e))
+	end
+	if #drawn == 0 then
+		return nil
+	end
+	if byEnds == math.huge then
+		return "Radius: straight"
+	end
+	return string.format("Radius: %.1f m (tightest %.1f m)", byEnds, along)
+end
+
 -- tooltip line for the extra tracks, with their costs once known
 local function previewSummary()
 	local total, known, failed = 0, 0, 0
@@ -696,6 +719,10 @@ function patch.install()
 					if preview.version ~= version and shared.SHOW_PREVIEW then
 						requestRedraw()
 					end
+					local radius = radiusLine(proposal, builder)
+					if radius then
+						strings[#strings + 1] = radius
+					end
 					if #preview.proposals > 0 or (preview.problems or 0) > 0 or (preview.shallow or 0) > 0 then
 						strings[#strings + 1] = previewSummary()
 					end
@@ -707,6 +734,17 @@ function patch.install()
 			end
 		else
 			clearPreview()
+			if builder and actionParams and actionParams.getProposalStringsFn and shared.SHOW_RADIUS then
+				local getProposalStrings = actionParams.getProposalStringsFn
+				actionParams.getProposalStringsFn = function(proposal, proposalData)
+					local strings = getProposalStrings(proposal, proposalData) or {}
+					local ok, line = pcall(radiusLine, proposal, builder)
+					if ok and line then
+						strings[#strings + 1] = line
+					end
+					return strings
+				end
+			end
 		end
 		return result
 	end

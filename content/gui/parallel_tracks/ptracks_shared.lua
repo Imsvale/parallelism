@@ -48,6 +48,10 @@ local shared = {
 	-- plan of the preview as lines (drawn track, new pieces, existing pieces cut and
 	-- added again, removed edges), also for plans that are refused
 	DEBUG_WIREFRAME = true,
+
+	-- dev aid: a "Radius" line in the track and road builder tooltip (tightest curve of the
+	-- drawn track), also for single tracks
+	SHOW_RADIUS = true,
 	KEY_WIREFRAME = "ptracksWireframe",
 
 	-- dev experiment, roads with 2+ only: can the mod take the drawn road over? The
