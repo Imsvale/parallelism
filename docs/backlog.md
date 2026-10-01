@@ -12,14 +12,10 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Open: tracks and roads
 
-- **Buildings in the way are not bulldozed (confirmed 2026-10-02, unresolved).** A
-  single track built by hand marks buildings in its way with yellow outlines ("will be
-  bulldozed") and removes them on build. With extra tracks or roads they show as red
-  collisions and block the build. Same for tracks and roads. Leads: a fresh `Context`
-  has `gatherBuildings` false (also `checkTerrainAlignment` and `cleanupStreetGraph`;
-  `gatherFields` is true, and fields are cleared fine); the preview is judged by
-  `builtin.ProposalViewer`, which may need the same. `refundableEntities` (refunds when
-  rebuilding recent construction) is not set either.
+- **Red flash when a drag first hits a house.** Cosmetic. The first time in a drag
+  that the extra tracks run into a town building, the preview shows red for a moment:
+  the game has to report the collision before the plan can name the house for removal.
+  Later hits of the same house in that drag do not flash.
 - **Show refused extra tracks.** When our own plan has a problem (e.g. a piece too
   short), the extra tracks are not shown at all: the game can crash evaluating such a
   plan. Showing them as a red outline (`builtin.EdgeRenderable`, drawn without the game
@@ -118,6 +114,13 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Done
 
+- **Buildings in the way (2026-10-02).** The builder's own proposal lists the
+  constructions of houses in its way for removal (`toRemove`); ours got them back as
+  collisions (red, build blocked). Now the preview collects town buildings the game
+  reports as collisions, plans again with their constructions in
+  `constructionsToRemove` (yellow outline, as native), keeps only those the tracks
+  still pass, and hands the list to the build. Tracks and roads confirmed in game.
+  Industries and other constructions stay collisions. `refundableEntities` is not set.
 - **Terrain, fields, catenary, bridges (2026-10-01/02).** Terrain needs nothing: the
   extra tracks follow the drawn one's heights; follow terrain, embankments, levelling,
   cuttings and tunnels work (revisit on an actual failure). Fields are cleared.
