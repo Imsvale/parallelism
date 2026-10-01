@@ -14,6 +14,11 @@ local geometry = require "ptracks_geometry.lua"
 
 local planner = require "ptracks_planner.lua"
 
+-- dev aid: ptracksDump() in the console, for whichever lua state the console runs on
+pcall(function()
+	require("ptracks_dump.lua").install()
+end)
+
 -- how long to wait for the player's build to show up in the world before giving up
 local PENDING_MAX_FRAMES = 300
 

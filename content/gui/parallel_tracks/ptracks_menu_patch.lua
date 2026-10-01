@@ -579,6 +579,14 @@ function patch.install()
 		return ActionDescriptor(params, ...)
 	end
 
+	-- dev aid: ptracksDump() in the console
+	local ok, err = pcall(function()
+		require("ptracks_dump.lua").install()
+	end)
+	if not ok then
+		shared.log("dump tool not installed: " .. tostring(err))
+	end
+
 	shared.log("menu patch installed")
 end
 
