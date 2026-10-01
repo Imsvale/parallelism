@@ -550,12 +550,21 @@ function patch.install()
 					params.children[#params.children + 1] = makeViewer(1)
 				end
 				if shared.SPIKE_TAKEOVER and preview.builder == shared.STREET_BUILDER then
-					-- experiment: does a script see the build click? (a builtin: recipes of
-					-- the mod's own crash the game in here)
-					params.children[#params.children + 1] = builtin.SimpleInputActions{
-						inputActions = { IA_SELECT = "IA_SELECT", IA_APPLY = "IA_APPLY" },
-						inputActionsHandler = function(action)
-							shared.log("spike: input action " .. tostring(action))
+					-- experiment: does a script see the build click? A Selector is how the base
+					-- game's own custom tools take clicks (a builtin: recipes of the mod's own
+					-- crash the game in here). Both callbacks pass the event on.
+					params.children[#params.children + 1] = builtin.Selector{
+						onSelect = function(entity)
+							shared.log("spike: selector onSelect " .. tostring(entity))
+							return false
+						end,
+						onProcessMouseEvent = function(evt)
+							-- everything but plain mouse moves
+							if evt.xrel == 0 and evt.yrel == 0 then
+								shared.log("spike: mouse event type " .. tostring(evt.type) .. ", button " .. tostring(evt.button)
+									.. ", handled " .. tostring(evt.handled))
+							end
+							return false
 						end,
 					}
 				end
