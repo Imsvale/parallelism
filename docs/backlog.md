@@ -73,6 +73,15 @@ Ideas and open questions parked until the core track building is robust.
   type. Bumps already in the world stay; plans crossing them are refused with a
   message. Observed: the native builder seems to move a row of plain nodes away from
   its crossing rather than remove it (screenshots of a bundle before/after a build).
+- **Policy: existing track keeps its shape (2026-10-01).** Crossing nodes lie exactly
+  on both tracks. Nodes near a crossing: our own ones (offsets of the drawn track's
+  nodes) are dropped or slid onto the crossing; a plain node of an existing track is
+  slid onto the crossing, the bit in between changing edge, within 5 cm of the old
+  line (a straight-to-curve transition moves a couple of meters at most). No whole-edge
+  merges on existing track for crossings any more (they drifted long stretches up to
+  0.2 m): if a slide does not fit, the drag is refused. Switches still merge to clear
+  their zone, as the native builder does. Our own nodes reuse existing ones only
+  within 5 cm (0.1 m at run ends); tracks no longer snap to loose ends at all.
 - **Show refused extra tracks.** When our own plan has a problem (e.g. a piece too
   short), the extra tracks are not shown at all: the game can crash evaluating such a
   plan. Showing them as a red outline (`builtin.EdgeRenderable`, drawn without the game

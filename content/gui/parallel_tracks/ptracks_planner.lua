@@ -64,6 +64,11 @@ local CROSSING_CLEARANCE = 1.5
 local MAX_SWITCH_ZONE = 150.0
 -- two edges are only merged into one if that one strays no more than this from them
 local MAX_MERGE_DEVIATION = 0.2
+-- Existing track may be reshaped only this much: a node slid onto a crossing (the bit
+-- in between changes edge, e.g. a straight-to-curve transition moves a few meters) or
+-- crossed pieces joined back. Whole edges are no longer merged on existing track (it
+-- drifted off long stretches), except to clear a switch's zone, as the game does.
+local EXISTING_MAX_DEVIATION = 0.05
 -- smallest curve radius for extra tracks if the track template does not say
 local DEFAULT_MIN_RADIUS = 40.0
 -- for extra roads only a road turned inside out on the inside of a bend is refused, the
@@ -1391,7 +1396,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				newOther = geometry.merge(short, otherEdge)
 				mergeA, mergeB = short, otherEdge
 			end
-			if mergeStray(mergeA, mergeB, newOther, part.comp.roadTemplate) <= MAX_MERGE_DEVIATION then
+			if mergeStray(mergeA, mergeB, newOther, part.comp.roadTemplate) <= EXISTING_MAX_DEVIATION then
 				local joint = nearestCut.node
 				part.edge = keep
 				if which == 0 then
@@ -1417,6 +1422,12 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			end
 		end
 
+		if not (nearestCut and nearestCut.zone ~= nil) then
+			-- no whole-edge merge on existing track for a crossing: the piece stays short and
+			-- the plan is refused
+			log(prefix .. ", not removed: sliding it onto the crossing would reshape the track")
+			return
+		end
 		local merged
 		if which == 0 then
 			merged = geometry.merge(otherEdge, part.edge)
@@ -1531,7 +1542,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		end
 		local deviation = which == 0 and mergeStray(otherEdge, part.edge, merged, part.comp.roadTemplate)
 			or mergeStray(part.edge, otherEdge, merged, part.comp.roadTemplate)
-		if deviation > MAX_MERGE_DEVIATION then
+		if deviation > EXISTING_MAX_DEVIATION then
 			log(string.format("  node %d between crossed edges %d and %d kept: joining would stray %.2f m", endNode.entity, own, other, deviation))
 			return false
 		end
@@ -1593,7 +1604,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			clearEnd(part, 0)
 			clearEnd(part, 1)
 			if #part.removeNodes > 0 then
-				-- The curve changed (merged, up to MAX_MERGE_DEVIATION off the old one):
+				-- The curve changed (joined or merged, a little off the old one):
 				-- move each crossing node to where our track crosses the new curve, a
 				-- node off the curve makes the short pieces next to it bend to meet it.
 				for __, cut in ipairs(part.cuts) do
