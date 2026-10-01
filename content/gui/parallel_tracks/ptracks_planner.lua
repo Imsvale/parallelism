@@ -562,6 +562,20 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		return t
 	end
 	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, junctions = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {}, problems = {} }
+	-- dev aid: why nodes were left where they are, kept even without a log (the preview
+	-- has none), for the log of a refused plan
+	stats.notes = {}
+	do
+		local userLog = log
+		log = function(msg)
+			userLog(msg)
+			local text = tostring(msg)
+			if #stats.notes < 40 and (text:find("kept", 1, true) or text:find("not removed", 1, true)
+				or text:find("not moved", 1, true) or text:find("cannot", 1, true) or text:find("could not", 1, true)) then
+				stats.notes[#stats.notes + 1] = text
+			end
+		end
+	end
 
 	-- Right and left are taken from each segment's own direction, so all segments of the
 	-- run must run the same way. The builder does not always hand them over like that.
@@ -1301,6 +1315,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
 					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
 						length, shared.vecToString(chain[i].position), MIN_PIECE_LENGTH)
+					stats.problemAt = chain[i].position
 				end
 			end
 		end
@@ -1721,6 +1736,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
 						stats.shortPiece = string.format("a piece of %.1f m next to a crossing at %s, the game needs %.0f m",
 							length, shared.vecToString(x.node0.position), MIN_PIECE_LENGTH)
+						stats.problemAt = x.node0.position
 					end
 				end
 			end

@@ -132,6 +132,8 @@ local function updatePreview(proposal)
 	-- the plan the viewer shows, logged when the game objects to it
 	preview.plan = stats.plan
 	preview.firstProblem = stats.problems[1]
+	preview.notes = stats.notes
+	preview.problemAt = stats.problemAt
 	preview.stillCalls = 0
 	preview.stillLogged = false
 	preview.shortPiece = stats.shortPiece ~= nil
@@ -222,6 +224,18 @@ local function makeWireframe()
 	end
 	local ok, result = pcall(function()
 		local edges = {}
+		-- the spot a refused plan names: a small magenta square, 3 m across
+		if preview.problemAt then
+			local p, h = preview.problemAt, 1.5
+			local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
+			for i = 1, 4 do
+				local a, b = corners[i], corners[i % 4 + 1]
+				local p0 = { x = p.x + a[1], y = p.y + a[2], z = p.z }
+				local p1 = { x = p.x + b[1], y = p.y + b[2], z = p.z }
+				local t = { x = p1.x - p0.x, y = p1.y - p0.y, z = 0 }
+				edges[#edges + 1] = makeWireframeEdge({ p0 = p0, p1 = p1, t0 = t, t1 = t }, { 1, 0, 1, 1 }, 0.4)
+			end
+		end
 		for __, w in ipairs(preview.wireframeEdges) do
 			-- removed edges a little wider, so the pieces drawn on top of them stay visible
 			edges[#edges + 1] = makeWireframeEdge(w.edge, WIREFRAME_COLORS[w.kind] or WIREFRAME_COLORS.ours, w.kind == "removed" and 0.8 or 0.4)
@@ -657,6 +671,9 @@ function patch.install()
 						if preview.firstProblem and not preview.stillLogged and preview.stillCalls >= HOLD_STILL_CALLS and preview.plan then
 							preview.stillLogged = true
 							shared.log("refused and held still: " .. tostring(preview.firstProblem))
+							for __, note in ipairs(preview.notes or {}) do
+								shared.log("  note:" .. note)
+							end
 							shared.log("  refused plan: " .. planner.planToString(preview.plan))
 						end
 					end
