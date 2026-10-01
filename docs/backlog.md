@@ -230,6 +230,14 @@ Ideas and open questions parked until the core track building is robust.
 
 ## Tidying
 
+- **Tooltip additions are out of scope.** The radius line moved to the sibling mod
+  Better Construction Tooltip (`mods/better-construction-tooltip`); `SHOW_RADIUS` here is
+  off and the code can go once that mod is settled. Anything in the builder tooltip must
+  add to it (wrap `getProposalStringsFn`, keep what is there) and be switchable, so other
+  tooltip mods are not stepped on.
+- **Curve radius override (mod settings) is an experiment.** Remove or hide before a
+  release, or move to its own mod.
+
 - Turn off the per-build proposal dump (`DEBUG_DUMP` in `ptracks.script.lua`).
 - Derive the node reuse, node move and minimum piece distances from the template's
   `trackDistance` instead of fixed meters.

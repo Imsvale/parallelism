@@ -50,8 +50,10 @@ local shared = {
 	DEBUG_WIREFRAME = true,
 
 	-- dev aid: a "Radius" line in the track and road builder tooltip (tightest curve of the
-	-- drawn track), also for single tracks
-	SHOW_RADIUS = true,
+	-- drawn track), also for single tracks. Out of scope for this mod: the sibling mod
+	-- Better Construction Tooltip (imsvale_better_construction_tooltip) has it now, so off
+	-- here to not show it twice.
+	SHOW_RADIUS = false,
 	KEY_WIREFRAME = "ptracksWireframe",
 
 	-- dev experiment, roads with 2+ only: can the mod take the drawn road over? The
