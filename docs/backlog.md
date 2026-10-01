@@ -65,6 +65,14 @@ Ideas and open questions parked until the core track building is robust.
 - **Node configs crash, fixed 2026-10-01.** Replacing the config of an existing node
   that has none (plain track nodes) crashed the game when applying the build
   (`ecs::Engine::PostRemoveComponent`). Only existing configs are removed now.
+- **Uneven bends from merges (2026-10-01).** A merged curve can stay within 0.2 m of
+  its pieces and still bend unevenly; one such bump (37.6 m in a 124 m curve) in an
+  existing track made the game refuse a later crossing of it ("Too Much Curvature" on
+  the cut pieces). Merges now also refuse to bend tighter than the type allows (and
+  than their pieces), and cut pieces of existing tracks are checked against their own
+  type. Bumps already in the world stay; plans crossing them are refused with a
+  message. Observed: the native builder seems to move a row of plain nodes away from
+  its crossing rather than remove it (screenshots of a bundle before/after a build).
 - **Show refused extra tracks.** When our own plan has a problem (e.g. a piece too
   short), the extra tracks are not shown at all: the game can crash evaluating such a
   plan. Showing them as a red outline (`builtin.EdgeRenderable`, drawn without the game
