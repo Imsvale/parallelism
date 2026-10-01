@@ -93,3 +93,16 @@ for i = 1, #plan do
 		end
 	end
 end
+
+-- the tightest bends, sampled along each edge (the game refuses some as Too Much Curvature)
+print("tightest edges (radius sampled along the edge):")
+local radii = {}
+for _, e in ipairs(plan) do
+	radii[#radii + 1] = { entity = e.entity, r = geometry.minRadiusAlong(e), ends = geometry.radius(e.p0, e.p1, e.t0, e.t1),
+		length = geometry.arcLength(e) }
+end
+table.sort(radii, function(a, b) return a.r < b.r end)
+for i = 1, math.min(8, #radii) do
+	local r = radii[i]
+	print(string.format("  edge %d: %.1f m along (%.1f m from its ends), %.1f m long", r.entity, r.r, r.ends, r.length))
+end
