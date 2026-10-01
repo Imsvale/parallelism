@@ -5,9 +5,6 @@
     "severityRemove": "None",
     "visible": true,
     "cosmetic": false,
-    "runScript": {
-        "fileName": "imsvale_parallel_tracks::/ptracks_mod.script@runFn"
-    },
     "params": [
         {
             "key": "moreRoads",
@@ -19,34 +16,6 @@
                 "Yes"
             ],
             "numbers": [0.0, 1.0],
-            "defaultIndex": 0
-        },
-        {
-            "key": "trackMinCurveRadius",
-            "name": "Experiment: track min curve radius",
-            "tooltip": "Overrides minCurveRadius of all track types (the limit when laying track along other track). Default keeps each type's own value (40 m for the base game's tracks).",
-            "uiType": "Button",
-            "values": [
-                "Default",
-                "30 m",
-                "20 m",
-                "10 m"
-            ],
-            "numbers": [0.0, 30.0, 20.0, 10.0],
-            "defaultIndex": 0
-        },
-        {
-            "key": "trackMinCurveRadiusBuild",
-            "name": "Experiment: track min drag radius",
-            "tooltip": "Overrides minCurveRadiusBuild of all track types (the limit when dragging freely). Default keeps each type's own value (55 m for the base game's tracks).",
-            "uiType": "Button",
-            "values": [
-                "Default",
-                "40 m",
-                "30 m",
-                "20 m"
-            ],
-            "numbers": [0.0, 40.0, 30.0, 20.0],
             "defaultIndex": 0
         }
     ]

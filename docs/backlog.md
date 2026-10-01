@@ -235,8 +235,8 @@ Ideas and open questions parked until the core track building is robust.
   off and the code can go once that mod is settled. Anything in the builder tooltip must
   add to it (wrap `getProposalStringsFn`, keep what is there) and be switchable, so other
   tooltip mods are not stepped on.
-- **Curve radius override (mod settings) is an experiment.** Remove or hide before a
-  release, or move to its own mod.
+- **Curve radius override** moved to the sibling mod Tighter Curves
+  (`mods/tighter-curves`, `imsvale_tighter_curves`) on 2026-10-01.
 
 - Turn off the per-build proposal dump (`DEBUG_DUMP` in `ptracks.script.lua`).
 - Derive the node reuse, node move and minimum piece distances from the template's
