@@ -541,8 +541,10 @@ end
 
 -- How far the merged curve strays from the two pieces it replaces, by sampling both.
 function geometry.mergeDeviation(a, b, merged)
-	-- the merged curve sampled once, the pieces checked against that polyline
-	local n = 32
+	-- the merged curve sampled once, the pieces checked against that polyline; about a
+	-- segment per half meter: with 32 the polyline itself cut 4.7 mm inside a 50 m edge
+	-- of a 66 m radius, more than the merges it was judging
+	local n = math.max(32, math.min(400, math.ceil(horizontalDistance(merged.p0, merged.p1) / 0.5)))
 	local line = {}
 	for i = 0, n do
 		line[i] = geometry.hermite(merged.p0, merged.p1, merged.t0, merged.t1, i / n)

@@ -237,8 +237,16 @@ local function makeWireframe()
 			end
 		end
 		for __, w in ipairs(preview.wireframeEdges) do
-			-- removed edges a little wider, so the pieces drawn on top of them stay visible
-			edges[#edges + 1] = makeWireframeEdge(w.edge, WIREFRAME_COLORS[w.kind] or WIREFRAME_COLORS.ours, w.kind == "removed" and 0.8 or 0.4)
+			-- a refused plan can hold degenerate edges (a drag just started, a track turned
+			-- inside out); drawing one of zero length crashed the game
+			-- (edge_geometry_util.h: transport::VisitEdge: len > 0)
+			local e = w.edge
+			local t0 = math.sqrt(e.t0.x * e.t0.x + e.t0.y * e.t0.y)
+			local t1 = math.sqrt(e.t1.x * e.t1.x + e.t1.y * e.t1.y)
+			if geometry.arcLength(e) >= 0.1 and t0 > 1e-3 and t1 > 1e-3 then
+				-- removed edges a little wider, so the pieces drawn on top of them stay visible
+				edges[#edges + 1] = makeWireframeEdge(e, WIREFRAME_COLORS[w.kind] or WIREFRAME_COLORS.ours, w.kind == "removed" and 0.8 or 0.4)
+			end
 		end
 		return builtin.EdgeRenderable{ edges = edges, ignoreDepth = true }
 	end)
