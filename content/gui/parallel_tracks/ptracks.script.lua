@@ -179,6 +179,10 @@ end
 -- the game's verdict on the menu's preview, pushed by the menu patch
 local previewVerdict = {}
 
+-- how many requests about the same drag count as holding it still (the builder asks
+-- many times a second)
+local HOLD_STILL_REQUESTS = 30
+
 local function checkPlayerProposal(param)
 	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
 	if #drawn == 0 then
@@ -207,6 +211,14 @@ local function checkPlayerProposal(param)
 		return { errorMessages = errorMessages, skipRender = false }
 	end
 	if signature == lastCheck.signature then
+		-- dev aid: a refused drag held still is one the player means, log its plan once
+		-- (a moving cursor passes many refused positions nobody wants built)
+		lastCheck.still = (lastCheck.still or 0) + 1
+		if lastCheck.result and not lastCheck.logged and lastCheck.still >= HOLD_STILL_REQUESTS and lastCheck.plan then
+			lastCheck.logged = true
+			shared.log("refused and held still: " .. tostring(lastCheck.problems and lastCheck.problems[1]))
+			shared.log("  refused plan: " .. planner.planToString(lastCheck.plan))
+		end
 		return lastCheck.result
 	end
 	-- while the drag moves, the answer for a recent position stands in; the position it
@@ -262,7 +274,7 @@ local function checkPlayerProposal(param)
 		errorMessages[message] = true
 		result = { errorMessages = errorMessages, skipRender = false }
 	end
-	lastCheck = { signature = signature, result = result }
+	lastCheck = { signature = signature, result = result, plan = result and stats.plan or nil, problems = stats.problems }
 	return result
 end
 
