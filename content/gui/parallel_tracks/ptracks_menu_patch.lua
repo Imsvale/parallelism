@@ -120,6 +120,8 @@ local function updatePreview(proposal)
 		end
 	end
 	preview.selfCrossing = stats.selfCrossing
+	-- the plan the viewer shows, logged when the game objects to it
+	preview.plan = stats.plan
 	preview.shortPiece = stats.shortPiece ~= nil
 	preview.junctions = stats.junctions > 0
 	preview.sharpCorner = stats.sharpCorner ~= nil
@@ -206,6 +208,10 @@ local function makeViewer(index)
 				if verdict ~= preview.loggedVerdict then
 					preview.loggedVerdict = verdict
 					shared.log("preview verdict: " .. verdict)
+					-- dev aid: the plan the game objects to, for tests/analyze_plan.lua
+					if #messages > 0 and preview.plan then
+						shared.log("  judged plan: " .. planner.planToString(preview.plan))
+					end
 					-- dev aid: what the preview collides with
 					pcall(function()
 						local collision = proposalData.collisionInfo

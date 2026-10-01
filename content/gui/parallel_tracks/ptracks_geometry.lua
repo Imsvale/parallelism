@@ -140,7 +140,8 @@ end
 -- takes the edge for a circular arc from its ends; a merged curve can bend much
 -- tighter in between (seen in game: "Too Much Curvature" with 124 m by the ends).
 function geometry.minRadiusAlong(edge, samples)
-	samples = samples or 16
+	-- about one per meter, a short sharp bend in a long edge falls between 16 samples
+	samples = samples or math.max(16, math.min(200, math.floor(length2d(edge.p1.x - edge.p0.x, edge.p1.y - edge.p0.y))))
 	local best = math.huge
 	for i = 0, samples do
 		local u = i / samples

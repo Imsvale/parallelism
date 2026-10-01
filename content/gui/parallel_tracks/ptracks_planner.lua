@@ -1223,10 +1223,102 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		end
 	end
 
+	-- Joins the neighbouring edge at one end of a part into it when that edge is crossed
+	-- too (has cuts of its own) and a cut on either is too close to the plain node between
+	-- them. A track crossed before keeps a node at every old crossing, about a crossing's
+	-- spacing apart; new crossings then land next to them on both sides (seen in game: a
+	-- whole grid refused for short pieces). Those nodes lie on one curve, so the join
+	-- restores it. Returns true if it joined one.
+	local consumed = {}
+	local function absorbNeighbour(part, which)
+		local endNode = which == 0 and part.node0 or part.node1
+		if reusedNodes[endNode.entity] or drawnNodes[endNode.entity] then
+			return false
+		end
+		local tooClose = false
+		local function check(cuts)
+			for __, cut in ipairs(cuts) do
+				if geometry.horizontalDistance(cut.node.position, endNode.position) < minPieceLength(cut) then
+					tooClose = true
+				end
+			end
+		end
+		node2segments = node2segments or getNode2Segments()
+		local segments = node2segments[endNode.entity]
+		if segments == nil or #segments ~= 2 then
+			return false
+		end
+		local own = part.endEdge[which]
+		local other = segments[1] == own and segments[2] or segments[1]
+		local split = splits[other]
+		if split == nil or consumed[other] or drawnEntities[other] then
+			return false
+		end
+		local otherComp = split.comp
+		if otherComp.roadTemplate ~= part.comp.roadTemplate or otherComp.type ~= part.comp.type
+			or (otherComp.objects and #otherComp.objects > 0) then
+			return false
+		end
+		check(part.cuts)
+		check(split.cuts)
+		if not tooClose then
+			return false
+		end
+		local otherEdge = toEdge(otherComp)
+		local merged, far
+		if which == 0 then
+			if otherComp.node1 == endNode.entity then
+				far = { entity = otherComp.node0, position = otherEdge.p0 }
+			else
+				otherEdge = geometry.reverse(otherEdge)
+				far = { entity = otherComp.node1, position = otherEdge.p0 }
+			end
+			merged = geometry.merge(otherEdge, part.edge)
+		else
+			if otherComp.node0 == endNode.entity then
+				far = { entity = otherComp.node1, position = otherEdge.p1 }
+			else
+				otherEdge = geometry.reverse(otherEdge)
+				far = { entity = otherComp.node0, position = otherEdge.p1 }
+			end
+			merged = geometry.merge(part.edge, otherEdge)
+		end
+		local deviation = which == 0 and geometry.mergeDeviation(otherEdge, part.edge, merged)
+			or geometry.mergeDeviation(part.edge, otherEdge, merged)
+		if deviation > MAX_MERGE_DEVIATION then
+			log(string.format("  node %d between crossed edges %d and %d kept: joining would stray %.2f m", endNode.entity, own, other, deviation))
+			return false
+		end
+		consumed[other] = true
+		part.edge = merged
+		if which == 0 then
+			part.node0 = far
+		else
+			part.node1 = far
+		end
+		part.endEdge[which] = other
+		part.removeEdges[#part.removeEdges + 1] = other
+		part.removeNodes[#part.removeNodes + 1] = endNode.entity
+		for __, cut in ipairs(split.cuts) do
+			part.cuts[#part.cuts + 1] = cut
+		end
+		stats.moved = stats.moved + 1
+		log(string.format("  joined crossed edges %d and %d, removing node %d next to a crossing", own, other, endNode.entity))
+		return true
+	end
+
 	local segmentType = drawn[1].segmentType
-	for entity, split in pairs(splits) do
+	local splitEntities = {}
+	for entity in pairs(splits) do
+		splitEntities[#splitEntities + 1] = entity
+	end
+	table.sort(splitEntities)
+	for __, entity in ipairs(splitEntities) do
+		local split = splits[entity]
 		local objects = split.comp.objects
-		if objects and #objects > 0 then
+		if consumed[entity] then
+			-- joined into a neighbour's part
+		elseif objects and #objects > 0 then
 			-- rebuilding the edge would lose its signals, the build will fail on the collision
 			log("  not splitting edge " .. entity .. ", it has " .. #objects .. " objects (signals?)")
 			stats.skipped = stats.skipped + 1
@@ -1241,6 +1333,14 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				removeNodes = {},
 				cuts = split.cuts,
 			}
+			consumed[entity] = true
+			for __, which in ipairs({ 0, 1 }) do
+				for __ = 1, 20 do
+					if not absorbNeighbour(part, which) then
+						break
+					end
+				end
+			end
 			clearEnd(part, 0)
 			clearEnd(part, 1)
 			if #part.removeNodes > 0 then
