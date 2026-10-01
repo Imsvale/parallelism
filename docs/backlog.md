@@ -57,9 +57,14 @@ Ideas and open questions parked until the core track building is robust.
   Faults it exposed, fixed: a crossing exactly at one of our own nodes was dropped
   (the track ran through the other one; now that node becomes the crossing node), and
   the loose-end snap took a single track's offset as the step (snapped onto the
-  neighbour's end; the planner now gets the real distance). Still open from it: an own
-  node 4.6 m from a crossing that cannot be merged away (the merge would stray 3.6 m):
-  moving the node a few metres along the track instead of merging would keep the shape.
+  neighbour's end; the planner now gets the real distance). Also from it: an own node
+  4.6 m from a crossing could not be merged away (the merge of the two whole edges
+  strayed 3.6 m, and elsewhere such merges bent too tight: Too Much Curvature). Now the
+  node slides onto the nearest crossing: only the short bit in between is merged, the
+  rest keeps its shape (whole-edge merge kept as the fallback).
+- **Node configs crash, fixed 2026-10-01.** Replacing the config of an existing node
+  that has none (plain track nodes) crashed the game when applying the build
+  (`ecs::Engine::PostRemoveComponent`). Only existing configs are removed now.
 - **Show refused extra tracks.** When our own plan has a problem (e.g. a piece too
   short), the extra tracks are not shown at all: the game can crash evaluating such a
   plan. Showing them as a red outline (`builtin.EdgeRenderable`, drawn without the game
