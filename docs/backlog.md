@@ -60,6 +60,10 @@ Ideas and open questions parked until the core track building is robust.
   neighbour's end; the planner now gets the real distance). Still open from it: an own
   node 4.6 m from a crossing that cannot be merged away (the merge would stray 3.6 m):
   moving the node a few metres along the track instead of merging would keep the shape.
+- **Show refused extra tracks.** When our own plan has a problem (e.g. a piece too
+  short), the extra tracks are not shown at all: the game can crash evaluating such a
+  plan. Showing them as a red outline (`builtin.EdgeRenderable`, drawn without the game
+  judging it) would tell the player which track is the trouble.
 - **The drag check knows the game's verdict on the preview (2026-10-01).** A drag whose
   preview the game judges critical (e.g. a grid of crossings 5 m apart: Collision) is
   refused before the click, instead of being built and failing.

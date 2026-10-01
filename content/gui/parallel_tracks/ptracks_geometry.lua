@@ -125,6 +125,36 @@ function geometry.hermiteDerivative(p0, p1, t0, t1, u)
 	}
 end
 
+local function hermiteSecondDerivative(p0, p1, t0, t1, u)
+	local d00 = 12 * u - 6
+	local d10 = 6 * u - 4
+	local d01 = -12 * u + 6
+	local d11 = 6 * u - 2
+	return {
+		x = d00 * p0.x + d10 * t0.x + d01 * p1.x + d11 * t1.x,
+		y = d00 * p0.y + d10 * t0.y + d01 * p1.y + d11 * t1.y,
+	}
+end
+
+-- The tightest horizontal radius anywhere along the edge, sampled. geometry.radius
+-- takes the edge for a circular arc from its ends; a merged curve can bend much
+-- tighter in between (seen in game: "Too Much Curvature" with 124 m by the ends).
+function geometry.minRadiusAlong(edge, samples)
+	samples = samples or 16
+	local best = math.huge
+	for i = 0, samples do
+		local u = i / samples
+		local d1 = geometry.hermiteDerivative(edge.p0, edge.p1, edge.t0, edge.t1, u)
+		local d2 = hermiteSecondDerivative(edge.p0, edge.p1, edge.t0, edge.t1, u)
+		local speed = length2d(d1.x, d1.y)
+		local cross = math.abs(d1.x * d2.y - d1.y * d2.x)
+		if speed > 1e-9 and cross > 1e-12 then
+			best = math.min(best, speed * speed * speed / cross)
+		end
+	end
+	return best
+end
+
 local function horizontalDistance(a, b)
 	return length2d(a.x - b.x, a.y - b.y)
 end

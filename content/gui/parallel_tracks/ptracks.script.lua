@@ -186,8 +186,16 @@ local function checkPlayerProposal(param)
 	end
 	local signature = planner.signatureOf(drawn, current.count, current.side, current.spacing, current.reverse, current.resName)
 	-- the game judged the preview of this very drag and would not build it: refuse the
-	-- drag rather than build part of it (the verdict arrives a little after the preview)
-	if previewVerdict.signature == signature and previewVerdict.critical then
+	-- drag rather than build part of it (the verdict arrives a little after the preview).
+	-- Not only critical errors: "Too Much Curvature" came as a plain message and the
+	-- build failed. The one message let through is Collision for roads, which the
+	-- preview reports next to a road end the drawn road is about to continue (judged
+	-- before the drawn road exists) and which builds. Messages come translated, so this
+	-- only knows the English one.
+	local blocking = previewVerdict.critical
+		or (previewVerdict.message ~= nil
+			and not (previewVerdict.message == "Collision" and current.builder == shared.STREET_BUILDER))
+	if previewVerdict.signature == signature and blocking then
 		local message = "Parallel " .. shared.nounOf(current.builder) .. " cannot be built here"
 			.. (previewVerdict.message and (" (" .. previewVerdict.message .. ")") or "")
 		if message ~= lastRefusal then

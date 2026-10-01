@@ -201,5 +201,19 @@ local gentle, gOld = geometry.miter(v(0, 0), east, v(math.cos(math.rad(10)), mat
 check("10 degree kink moves the corner 16 * tan(5 deg)", math.abs(gOld + 16 * math.tan(math.rad(5))) < 1e-6,
 	string.format("%.3f", gOld))
 
+-- minRadiusAlong: a quarter circle of 100 m is about 100 m everywhere (Hermite tangent
+-- length 4 * r * tan(theta / 4) fits an arc), a straight is unlimited, and a curve
+-- with parallel ends can still bend much tighter in between
+local r = 100
+local tl = 4 * r * math.tan(math.rad(90) / 4)
+local quarter = { p0 = v(r, 0), p1 = v(0, r), t0 = v(0, tl, 0), t1 = v(-tl, 0, 0) }
+local qr = geometry.minRadiusAlong(quarter)
+check("quarter circle radius about 100", math.abs(qr - 100) < 3, string.format("%.1f", qr))
+check("straight has no radius limit", geometry.minRadiusAlong(straight(v(0, 0), v(0, 100))) == math.huge)
+local wobbly = { p0 = v(0, 0), p1 = v(100, 0), t0 = v(100, 60, 0), t1 = v(100, 60, 0) }
+local wr = geometry.minRadiusAlong(wobbly)
+check("ends parallel but bends in between", wr < 200 and geometry.radius(wobbly.p0, wobbly.p1, wobbly.t0, wobbly.t1) == math.huge,
+	string.format("%.1f", wr))
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

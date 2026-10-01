@@ -1263,6 +1263,17 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- laid along others (seen in game: 45 m built where dragging needs 55 m).
 	local template = getTemplate(templateOf({ comp = drawn[1].comp, template = drawn[1].template }))
 	local minRadius = template and template.minCurveRadius or (streets and DEFAULT_MIN_RADIUS_STREET or DEFAULT_MIN_RADIUS)
+	-- The radius above takes each offset edge for an arc, from its ends. Merged edges
+	-- (dropped own nodes, moved nodes) can bend tighter in between, so sample the edges
+	-- we shape: our own pieces and merged existing edges, not plain cuts of existing ones.
+	for i, p in ipairs(pieces) do
+		if p.origins == nil or #p.origins > 1 then
+			local e = stats.plan[i] and stats.plan[i].edge
+			if e then
+				stats.minRadius = math.min(stats.minRadius, geometry.minRadiusAlong(e))
+			end
+		end
+	end
 	stats.tooTight = stats.minRadius < minRadius
 	if stats.tooTight then
 		table.insert(stats.problems, 1, string.format("a parallel %s would curve at %.1f m radius, the type needs %.0f m",
