@@ -186,6 +186,16 @@ local function makeViewer(index)
 				if verdict ~= preview.loggedVerdict then
 					preview.loggedVerdict = verdict
 					shared.log("preview verdict: " .. verdict)
+					-- dev aid: what the preview collides with
+					pcall(function()
+						local collision = proposalData.collisionInfo
+						for __, e in ipairs(collision.collisionEntities) do
+							shared.log("  preview collides with " .. planner.describeEntity(e.entity))
+						end
+						for entity in pairs(collision.autoRemovalEntity2models) do
+							shared.log("  preview would auto-remove " .. planner.describeEntity(entity))
+						end
+					end)
 				end
 			end
 		end,
