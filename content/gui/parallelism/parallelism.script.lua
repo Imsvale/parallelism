@@ -479,6 +479,17 @@ local function buildCombined(job)
 		notify("The parallel " .. shared.nounOf(job.builder) .. " were not built: they cannot be laid out safely here.")
 		return
 	end
+	-- the town buildings the preview showed bulldozed, those still standing (the drawn
+	-- track may have taken some) and still in the way of this plan
+	local candidates = {}
+	for i, construction in ipairs(previewVerdict.bulldozeConstructions or {}) do
+		candidates[#candidates + 1] = { construction = construction, building = previewVerdict.bulldozeBuildings[i] }
+	end
+	local bulldoze = planner.buildingsInTheWay(proposal, candidates)
+	if #bulldoze > 0 then
+		proposal.constructionsToRemove = bulldoze
+		shared.log("  bulldozes " .. #bulldoze .. " buildings: " .. table.concat(bulldoze, ", "))
+	end
 	sendBuild("all tracks", proposal, stats, function(success, message)
 		if not success then
 			if ONE_BY_ONE_DIAGNOSTIC then
@@ -592,7 +603,8 @@ return {
 			if param.critical ~= previewVerdict.critical then
 				shared.log("preview verdict for the drag check: critical " .. tostring(param.critical) .. ", " .. tostring(param.message))
 			end
-			previewVerdict = { signature = param.signature, critical = param.critical, message = param.message }
+			previewVerdict = { signature = param.signature, critical = param.critical, message = param.message,
+				bulldozeConstructions = param.bulldozeConstructions or {}, bulldozeBuildings = param.bulldozeBuildings or {} }
 		elseif name == "builder.proposalCreate" and id == current.builder then
 			perf.requests = perf.requests + 1
 			logPerf()

@@ -36,9 +36,24 @@ local preview = {
 	-- per track, filled in by the preview components once the game has evaluated them
 	costs = {},
 	failed = {},
+	-- town buildings the game reported in the way during this drag ({ construction,
+	-- building }); the plan names those it still passes for removal, as the builder does
+	-- for its own track. bulldozeVersion counts additions, to plan again after one.
+	bulldoze = {},
+	bulldozeKnown = {},
+	bulldozeVersion = 0,
+	plannedBulldozeVersion = 0,
+	bulldozeList = {},
 }
 
 local function clearPreview()
+	-- the drag is over: buildings it ran into are not in the way of the next one
+	if #preview.bulldoze > 0 then
+		preview.bulldoze = {}
+		preview.bulldozeKnown = {}
+		preview.bulldozeVersion = preview.bulldozeVersion + 1
+		preview.bulldozeList = {}
+	end
 	if preview.wireframeEdges then
 		preview.wireframeEdges = nil
 		preview.version = preview.version + 1
@@ -68,14 +83,17 @@ local function updatePreview(proposal)
 		return
 	end
 	local signature = signatureOf(drawn)
-	if signature == preview.signature then
+	if signature == preview.signature and preview.bulldozeVersion == preview.plannedBulldozeVersion then
 		return
 	end
-	-- while the drag moves the preview follows every few changes, and settles where it stops
-	if not previewDebounce.shouldPlan(signature) then
+	-- while the drag moves the preview follows every few changes, and settles where it
+	-- stops; a building newly found in the way is planned again right away
+	local planKey = signature .. "|" .. preview.bulldozeVersion
+	if not previewDebounce.shouldPlan(planKey) then
 		return
 	end
-	previewDebounce.planned(signature)
+	previewDebounce.planned(planKey)
+	preview.plannedBulldozeVersion = preview.bulldozeVersion
 	-- segments of the live proposal can come without a track type, the one selected in
 	-- the menu is what is being built
 	for __, d in ipairs(drawn) do
@@ -99,7 +117,7 @@ local function updatePreview(proposal)
 	-- the cost decides whether the next changes are all planned; slow ones are logged
 	if started then
 		local took = planner.clockMs() - started
-		previewDebounce.planned(signature, took)
+		previewDebounce.planned(planKey, took)
 		if took > 20 then
 			shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: preview plan took %.0f ms (%d drawn, %d edges, %d crossings; %s)", took, #drawn, stats.edges, stats.crossings,
 				tostring(stats.timing)))
@@ -108,6 +126,12 @@ local function updatePreview(proposal)
 	-- a plan with problems is not shown: the game can crash drawing it
 	if stats.edges > 0 and #stats.problems == 0 then
 		proposals[1] = planned
+		preview.bulldozeList = planner.buildingsInTheWay(planned, preview.bulldoze)
+		if #preview.bulldozeList > 0 then
+			planned.constructionsToRemove = preview.bulldozeList
+		end
+	else
+		preview.bulldozeList = {}
 	end
 	preview.problems = #stats.problems
 	preview.tooTight = stats.tooTight and stats.minAllowedRadius or nil
@@ -295,6 +319,24 @@ local function makeViewer(index)
 			if version == preview.version then
 				local errorState = proposalData.errorState
 				preview.costs[index] = proposalData.costs
+				-- town buildings in the way: plan again with them bulldozed, as the builder
+				-- does for its own track (it reports them for removal, ours come back as
+				-- collisions); the verdict waits for that plan
+				local foundBuildings = false
+				pcall(function()
+					for __, e in ipairs(proposalData.collisionInfo.collisionEntities) do
+						local candidate = planner.townBuildingCandidate(e.entity)
+						if candidate and not preview.bulldozeKnown[candidate.construction] then
+							preview.bulldozeKnown[candidate.construction] = true
+							preview.bulldoze[#preview.bulldoze + 1] = candidate
+							foundBuildings = true
+						end
+					end
+				end)
+				if foundBuildings then
+					preview.bulldozeVersion = preview.bulldozeVersion + 1
+					return
+				end
 				-- Any message stops the build, critical or not (seen in game: a single track
 				-- with "Too Much Curvature" did not build). The one exception: Collision for
 				-- roads, which the preview reports next to a road end the drawn road is about to
@@ -303,12 +345,27 @@ local function makeViewer(index)
 				local message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil
 				local roadEndArtifact = message == "Collision" and preview.builder == shared.STREET_BUILDER
 				preview.failed[index] = errorState.critical or (message ~= nil and not roadEndArtifact)
-				-- the drag check (game script) refuses a drag the game would not build
+				-- the drag check (game script) refuses a drag the game would not build; the
+				-- build bulldozes what the preview does (two lists: plain values cross over)
+				local bulldozeConstructions, bulldozeBuildings = {}, {}
+				local inList = {}
+				for __, c in ipairs(preview.bulldozeList) do
+					inList[c] = true
+				end
+				for __, c in ipairs(preview.bulldoze) do
+					if inList[c.construction] then
+						bulldozeConstructions[#bulldozeConstructions + 1] = c.construction
+						bulldozeBuildings[#bulldozeBuildings + 1] = c.building
+					end
+				end
 				pcall(function()
 					api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_PREVIEW_VERDICT, {
 						signature = preview.signature,
 						critical = errorState.critical and true or false,
 						message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil,
+						-- the buildings the preview bulldozes, for the build
+						bulldozeConstructions = bulldozeConstructions,
+						bulldozeBuildings = bulldozeBuildings,
 					})
 				end)
 				preview.warning = (not preview.failed[index] and message) or nil

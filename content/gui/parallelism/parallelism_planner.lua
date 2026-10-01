@@ -2293,6 +2293,83 @@ local function describeEntity(entity)
 	end
 	return table.concat(parts, " ")
 end
+-- The bounding box of an entity, nil if it has none.
+local function bboxOf(entity)
+	local bbox = nil
+	pcall(function()
+		local bv = api.engine.getComponent(entity, api.type.ComponentType.BOUNDING_VOLUME)
+		if bv then
+			bbox = { min = bv.bbox.min, max = bv.bbox.max }
+		end
+	end)
+	return bbox
+end
+
+-- Buildings in the way. The game reports a town building our tracks run into as a
+-- collision (the builder's own proposal lists the construction to bulldoze instead), so
+-- the preview collects those and the plan names them for removal. candidates: {
+-- construction, building } from the game's collision reports. Returns the constructions
+-- the proposal's edges still pass (within half their width and a little), so one hit
+-- earlier in a drag is let go when the drag moves on.
+local function buildingsInTheWay(proposal, candidates)
+	local result = {}
+	if #candidates == 0 then
+		return result
+	end
+	local edges = {}
+	for __, s in ipairs(proposal.streetProposal.edgesToAdd) do
+		local width = 0
+		pcall(function()
+			for __, lane in ipairs(s.comp.laneConfigs) do
+				width = width + lane.width
+			end
+		end)
+		edges[#edges + 1] = { edge = toEdge(s.comp), reach = width / 2 + 1.5 }
+	end
+	local function passes(bbox)
+		for __, e in ipairs(edges) do
+			local edge = e.edge
+			local chord = math.sqrt((edge.p1.x - edge.p0.x) ^ 2 + (edge.p1.y - edge.p0.y) ^ 2)
+			local n = math.max(4, math.ceil(chord / 2))
+			for i = 0, n do
+				local p = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, i / n)
+				local dx = math.max(bbox.min.x - p.x, 0, p.x - bbox.max.x)
+				local dy = math.max(bbox.min.y - p.y, 0, p.y - bbox.max.y)
+				if dx * dx + dy * dy <= e.reach * e.reach then
+					return true
+				end
+			end
+		end
+		return false
+	end
+	local seen = {}
+	for __, c in ipairs(candidates) do
+		if not seen[c.construction] and api.engine.entityExists(c.construction) then
+			seen[c.construction] = true
+			local bbox = bboxOf(c.building) or bboxOf(c.construction)
+			if bbox and passes(bbox) then
+				result[#result + 1] = c.construction
+			end
+		end
+	end
+	return result
+end
+
+-- The town building a collision report names, as a candidate for buildingsInTheWay;
+-- nil for anything else (industries, stations and the like stay in the way).
+local function townBuildingCandidate(entity)
+	local candidate = nil
+	pcall(function()
+		local building = api.engine.getComponent(entity, api.type.ComponentType.TOWN_BUILDING)
+		if building and building.construction and building.construction >= 0 then
+			candidate = { construction = building.construction, building = entity }
+		end
+	end)
+	return candidate
+end
+
+planner.buildingsInTheWay = buildingsInTheWay
+planner.townBuildingCandidate = townBuildingCandidate
 planner.toEdge = toEdge
 planner.getEdgeComp = readEdgeComp
 planner.getTrackDistance = getTrackDistance
