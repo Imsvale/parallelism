@@ -20,6 +20,8 @@ local REMNANT_LOOSE_TOLERANCE = 1.0
 local DEFAULT_TRACK_DISTANCE = 5.0
 -- an existing node this close to where a new one would go is used instead
 local NODE_SNAP_DISTANCE = 0.5
+-- ...in the middle of a run (the offset of a node of the drawn track that is not an end)
+local MID_NODE_SNAP_DISTANCE = 0.05
 -- height difference up to which nodes / crossings count as the same level
 local NODE_SNAP_HEIGHT = 1.0
 -- an existing track edge this close to the start or end of an offset track gets split
@@ -383,13 +385,13 @@ end
 
 -- A node that already exists at the position, e.g. the end of the parallel track of
 -- the previous drag. A new node on top of it would make the whole build fail.
-local function findExistingNode(position)
+local function findExistingNode(position, maxDistance)
+	maxDistance = maxDistance or NODE_SNAP_DISTANCE
 	local center = api.type.Vec2f.new(position.x, position.y)
-	local candidates = api.engine.util.octree.findEntitiesInCircle(center, NODE_SNAP_DISTANCE, api.type.ComponentType.BASE_NODE)
+	local candidates = api.engine.util.octree.findEntitiesInCircle(center, math.max(maxDistance, 0.01), api.type.ComponentType.BASE_NODE)
 	for __, entity in ipairs(candidates) do
 		local comp = api.engine.getComponent(entity, api.type.ComponentType.BASE_NODE)
-		if comp and math.abs(comp.position.x - position.x) < NODE_SNAP_DISTANCE
-			and math.abs(comp.position.y - position.y) < NODE_SNAP_DISTANCE
+		if comp and geometry.horizontalDistance(plain(comp.position), position) < maxDistance
 			and math.abs(comp.position.z - position.z) < NODE_SNAP_HEIGHT then
 			return { entity = entity, position = plain(comp.position) }
 		end
@@ -752,7 +754,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				if useCount[entity] == 1 then
 					node = tryCorner(entity, position, tangent, atStart)
 				end
-				node = node or findExistingNode(newPosition)
+				-- in the middle of the run only a node practically on the spot: a node of
+				-- another track half a meter off pulled the track onto it (seen in game: 7 m
+				-- bends in 5 m pieces at leftover nodes of an earlier crossing)
+				node = node or findExistingNode(newPosition, useCount[entity] == 2 and MID_NODE_SNAP_DISTANCE or nil)
 				if node and movedAway[node.entity] then
 					-- a very short drag: its other end lies on the loose end just moved away
 					stats.usesRemoved = node.entity
@@ -865,7 +870,35 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						local angle = geometry.crossingAngle(oe.edge, x.ua, other, x.ub)
 						-- (a crossing right at one of our own nodes, at the end of both offset
 						-- edges there, is not reported here at all; see below)
+						-- A crossing right at a plain node of the other track (two edges of one
+						-- track meet there, e.g. a leftover of an earlier crossing): cut just
+						-- inside the edge; the node is then merged away as for any cut next to
+						-- it, and the crossing placed on the merged curve. Once per node.
+						local plainNode = nil
 						if math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
+							and isAwayFromEnds(oe.edge, x.pointA) and not isAwayFromEnds(other, x.pointB) then
+							local n = geometry.horizontalDistance(x.pointB, other.p0) <= EDGE_END_DISTANCE and comp.node0 or comp.node1
+							local segments = getNode2Segments()[n]
+							if segments and #segments == 2 and not drawnNodes[n] and not reusedNodes[n]
+								and not crossingNodes["w" .. n .. ":" .. tostring(oe)] then
+								plainNode = n
+							end
+						end
+						if plainNode then
+							crossingNodes["w" .. plainNode .. ":" .. tostring(oe)] = true
+							if noJunctions then
+								stats.junctions = stats.junctions + 1
+							elseif angle < MIN_CROSSING_ANGLE then
+								stats.shallow = stats.shallow + 1
+							else
+								local node = newNode(x.pointA)
+								local u = math.max(0.001, math.min(0.999, x.ub))
+								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity }
+								addSplit(entity, u, node, angle)
+								stats.crossings = stats.crossings + 1
+								log("  crossing edge " .. entity .. string.format(" at its plain node %d, %.1f deg ", plainNode, angle) .. shared.vecToString(x.pointA))
+							end
+						elseif math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
 							and isAwayFromEnds(oe.edge, x.pointA) and isAwayFromEnds(other, x.pointB) then
 							if noJunctions then
 								stats.junctions = stats.junctions + 1
