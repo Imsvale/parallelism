@@ -241,6 +241,8 @@ local function checkPlayerProposal(param)
 		message = "Parallel " .. noun .. " would make a junction (not supported yet)"
 	elseif stats.selfCrossing then
 		message = "Parallel " .. noun .. " would cross each other"
+	elseif stats.existingBend then
+		message = "Parallel " .. noun .. " would cross a track where it bends too tightly"
 	elseif stats.shortPiece then
 		message = "Parallel " .. noun .. " would leave a piece too short to build"
 	elseif stats.shallow > 0 then

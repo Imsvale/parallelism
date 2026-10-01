@@ -200,6 +200,32 @@ local function minPieceLength(cut)
 	return math.max(MIN_PIECE_LENGTH, CROSSING_CLEARANCE / t)
 end
 
+-- The smallest radius the game allows for a track or road type.
+local function allowedRadius(templateName)
+	local template = getTemplate(templateName)
+	if template and template.minCurveRadius and template.minCurveRadius > 0 then
+		return template.minCurveRadius
+	end
+	return template and isStreet(template.roadType) and DEFAULT_MIN_RADIUS_STREET or DEFAULT_MIN_RADIUS
+end
+
+-- How far the merge of edges a and b strays from them, or math.huge if it bends tighter
+-- than the type allows and than a and b do. One curve can stay close to two and still
+-- bend unevenly; such a bump in an existing track made the game refuse later crossings
+-- of it (Too Much Curvature on the cut pieces).
+local function mergeStray(a, b, merged, templateName)
+	local deviation = geometry.mergeDeviation(a, b, merged)
+	if deviation > MAX_MERGE_DEVIATION then
+		return deviation
+	end
+	local limit = allowedRadius(templateName)
+	local radius = geometry.minRadiusAlong(merged)
+	if radius < limit and radius < 0.95 * math.min(geometry.minRadiusAlong(a), geometry.minRadiusAlong(b)) then
+		return math.huge
+	end
+	return deviation
+end
+
 -- How far along the base track a switch reaches: until the track branching off it with
 -- this radius is a track distance away. The game wants no other node on the base
 -- track within that (seen in game: the builder removed a node 40 m into such a zone,
@@ -967,7 +993,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 								mergedPart = { short, b.edge }
 								newB = merged
 							end
-							if geometry.mergeDeviation(mergedPart[1], mergedPart[2], merged) <= MAX_MERGE_DEVIATION then
+							if mergeStray(mergedPart[1], mergedPart[2], merged, templateOf(a.props)) <= MAX_MERGE_DEVIATION then
 								local joint = nearestCut.node
 								local edgeA = { node0 = a.node0, node1 = joint, edge = newA, props = a.props, cuts = {} }
 								local edgeB = { node0 = joint, node1 = b.node1, edge = newB, props = a.props, cuts = {} }
@@ -999,7 +1025,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						-- one curve cannot follow every shape two can (e.g. a long stretch of a
 						-- tight spiral): keep the node if the merged curve would stray
 						local merged = geometry.merge(a.edge, b.edge)
-						local deviation = geometry.mergeDeviation(a.edge, b.edge, merged)
+						local deviation = mergeStray(a.edge, b.edge, merged, templateOf(a.props))
 						if deviation > MAX_MERGE_DEVIATION then
 							if not keptNodes[entity] then
 								keptNodes[entity] = true
@@ -1067,7 +1093,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			edge = { p0 = node0.position, p1 = node1.position, t0 = piece.t0, t1 = piece.t1 },
 		}
 		pieces[#pieces + 1] = { entity = entity, node0 = node0.entity, node1 = node1.entity, t0 = piece.t0, t1 = piece.t1,
-			origins = props.origins }
+			origins = props.origins, template = templateOf(props) }
 		-- the game objects only when a proposal is wanted, a check needs just the plan
 		if planOnly then
 			return
@@ -1194,7 +1220,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			merged = geometry.merge(part.edge, otherEdge)
 		end
 		-- one curve cannot follow every shape two can: rather keep the node than bend the track
-		local deviation = geometry.mergeDeviation(part.edge, otherEdge, merged)
+		local deviation = mergeStray(part.edge, otherEdge, merged, part.comp.roadTemplate)
 		if deviation > MAX_MERGE_DEVIATION then
 			log(prefix .. string.format(", not removed: merging with edge %d would stray %.2f m", other, deviation))
 			return
@@ -1283,8 +1309,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			end
 			merged = geometry.merge(part.edge, otherEdge)
 		end
-		local deviation = which == 0 and geometry.mergeDeviation(otherEdge, part.edge, merged)
-			or geometry.mergeDeviation(part.edge, otherEdge, merged)
+		local deviation = which == 0 and mergeStray(otherEdge, part.edge, merged, part.comp.roadTemplate)
+			or mergeStray(part.edge, otherEdge, merged, part.comp.roadTemplate)
 		if deviation > MAX_MERGE_DEVIATION then
 			log(string.format("  node %d between crossed edges %d and %d kept: joining would stray %.2f m", endNode.entity, own, other, deviation))
 			return false
@@ -1425,12 +1451,23 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- (dropped own nodes, moved nodes) can bend tighter in between, so sample the edges
 	-- we shape: our own pieces and merged existing edges, not plain cuts of existing ones.
 	for i, p in ipairs(pieces) do
-		if p.origins == nil or #p.origins > 1 then
-			local e = stats.plan[i] and stats.plan[i].edge
-			if e then
-				stats.minRadius = math.min(stats.minRadius, geometry.minRadiusAlong(e))
+		local e = stats.plan[i] and stats.plan[i].edge
+		if e and (p.origins == nil or #p.origins > 1) then
+			stats.minRadius = math.min(stats.minRadius, geometry.minRadiusAlong(e))
+		elseif e and not stats.existingBend then
+			-- a plain cut of an existing track keeps its shape, but the game judges the
+			-- pieces again: a bend there tighter than its own type allows gets the plan
+			-- refused (Too Much Curvature)
+			local radius = geometry.minRadiusAlong(e)
+			local limit = allowedRadius(p.template)
+			if radius < limit then
+				stats.existingBend = string.format("an existing track is cut where it bends at %.1f m radius, its type needs %.0f m", radius, limit)
 			end
 		end
+	end
+	if stats.existingBend then
+		table.insert(stats.problems, 1, stats.existingBend)
+		log("  plan problem: " .. stats.existingBend)
 	end
 	stats.tooTight = stats.minRadius < minRadius
 	if stats.tooTight then

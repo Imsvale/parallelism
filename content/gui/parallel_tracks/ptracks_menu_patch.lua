@@ -123,6 +123,7 @@ local function updatePreview(proposal)
 	-- the plan the viewer shows, logged when the game objects to it
 	preview.plan = stats.plan
 	preview.shortPiece = stats.shortPiece ~= nil
+	preview.existingBend = stats.existingBend ~= nil
 	preview.junctions = stats.junctions > 0
 	preview.sharpCorner = stats.sharpCorner ~= nil
 	preview.shallow = stats.shallow
@@ -156,6 +157,8 @@ local function previewSummary()
 		text = text .. " (would make a junction, not supported yet)"
 	elseif preview.selfCrossing then
 		text = text .. " (would cross each other)"
+	elseif preview.existingBend then
+		text = text .. " (would cross a track where it bends too tightly)"
 	elseif preview.shortPiece then
 		text = text .. " (would leave a piece too short to build)"
 	elseif (preview.shallow or 0) > 0 then
