@@ -1226,6 +1226,28 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			end
 			nodesToAdd = kept
 		end
+		-- Dropping or sliding our own nodes merged our edges, which may stray from the old
+		-- curve; the crossing nodes on them were placed on the old one. Put each where our
+		-- edge now crosses the existing one, a node off the curve bends the pieces next to
+		-- it (seen in game: the crossing point drifted along the crossed track).
+		for __, oe in ipairs(offsetEdges) do
+			for __, cut in ipairs(oe.cuts) do
+				local comp = cut.entity and getEdgeComp(cut.entity)
+				if comp then
+					local other = worldEdges[cut.entity] or toEdge(comp)
+					local best = nil
+					for __, x in ipairs(geometry.intersections(oe.edge, other)) do
+						local d = geometry.horizontalDistance(x.pointA, cut.node.position)
+						if d < 1 and (best == nil or d < best.d) then
+							best = { d = d, point = x.pointA }
+						end
+					end
+					if best and best.d > 1e-4 then
+						cut.node.position = { x = best.point.x, y = best.point.y, z = cut.node.position.z }
+					end
+				end
+			end
+		end
 		if options.reverse then
 			for i, oe in ipairs(offsetEdges) do
 				offsetEdges[i] = reversed(oe)
@@ -1399,6 +1421,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				nearestCut = cut
 			end
 		end
+		local slideStray, slideNote = nil, nil
 		if nearestCut and nearestCut.zone == nil then
 			local u = geometry.closestParameter(nearestCut.node.position, part.edge)
 			local keep, short, newOther, mergeA, mergeB
@@ -1411,7 +1434,11 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				newOther = geometry.merge(short, otherEdge)
 				mergeA, mergeB = short, otherEdge
 			end
-			if mergeStray(mergeA, mergeB, newOther, part.comp.roadTemplate) <= EXISTING_MAX_DEVIATION then
+			slideStray = mergeStray(mergeA, mergeB, newOther, part.comp.roadTemplate)
+			slideNote = string.format(" (slide: bit %.2f m, strays %s, node %.3f m off the track)",
+				geometry.arcLength(short), slideStray == math.huge and "bends too tight" or string.format("%.3f m", slideStray),
+				geometry.horizontalDistance(geometry.hermite(part.edge.p0, part.edge.p1, part.edge.t0, part.edge.t1, u), nearestCut.node.position))
+			if slideStray <= EXISTING_MAX_DEVIATION then
 				local joint = nearestCut.node
 				part.edge = keep
 				if which == 0 then
@@ -1440,7 +1467,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		if not (nearestCut and nearestCut.zone ~= nil) then
 			-- no whole-edge merge on existing track for a crossing: the piece stays short and
 			-- the plan is refused
-			log(prefix .. ", not removed: sliding it onto the crossing would reshape the track")
+			log(prefix .. ", not removed: sliding it onto the crossing would reshape the track" .. (slideNote or ""))
 			return
 		end
 		local merged
@@ -1718,6 +1745,11 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					else
 						cut.u = geometry.closestParameter(cut.node.position, part.edge)
 					end
+				end
+			else
+				-- the crossing nodes may have moved onto our merged edges since they were cut
+				for __, cut in ipairs(part.cuts) do
+					cut.u = geometry.closestParameter(cut.node.position, part.edge)
 				end
 			end
 			addCut(part.edge, part.node0, part.node1, part.cuts,
