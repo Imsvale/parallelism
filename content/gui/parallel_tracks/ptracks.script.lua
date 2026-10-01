@@ -14,10 +14,7 @@ local geometry = require "ptracks_geometry.lua"
 
 local planner = require "ptracks_planner.lua"
 
--- dev aid: ptracksDump() in the console, for whichever lua state the console runs on
-pcall(function()
-	require("ptracks_dump.lua").install()
-end)
+local dump = require "ptracks_dump.lua"
 
 -- how long to wait for the player's build to show up in the world before giving up
 local PENDING_MAX_FRAMES = 300
@@ -54,6 +51,33 @@ local current = {
 
 -- gui state: whether the takeover experiment has said so in the log
 local spikeLogged = false
+
+-- dev aid: a drag starting at an existing node dumps the edges and nodes around it
+-- (ptracks_dump.lua), once per node; the console runs on a lua state of its own, so
+-- this is the way to trigger it
+local DUMP_AT_DRAG_START = true
+local lastDumpedNode = nil
+
+local function dumpAtDragStart(param)
+	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
+	if #drawn == 0 then
+		lastDumpedNode = nil
+		return
+	end
+	for __, d in ipairs(drawn) do
+		for __, node in ipairs({ d.comp.node0, d.comp.node1 }) do
+			local comp = node >= 0 and api.engine.getComponent(node, api.type.ComponentType.BASE_NODE) or nil
+			if comp then
+				if node ~= lastDumpedNode then
+					lastDumpedNode = node
+					shared.log("drag starts at existing node " .. node .. ", dumping around it")
+					dump.around(30, comp.position.x, comp.position.y)
+				end
+				return
+			end
+		end
+	end
+end
 
 -- gui state: player builds waiting to be applied before their parallel tracks are built
 local pending = {}
@@ -506,6 +530,12 @@ return {
 		elseif name == "builder.proposalCreate" and id == current.builder then
 			perf.requests = perf.requests + 1
 			logPerf()
+			if DUMP_AT_DRAG_START then
+				local ok, err = pcall(dumpAtDragStart, param)
+				if not ok then
+					shared.log("dumpAtDragStart failed: " .. tostring(err))
+				end
+			end
 			if MEASURE_CROSSINGS then
 				local started = planner.clockMs()
 				local ok, err = pcall(measureCrossings, param)
