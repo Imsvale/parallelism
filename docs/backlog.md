@@ -123,6 +123,21 @@ Ideas and open questions parked until the core track building is robust.
     game fits a curve between them. Crash seen once while wiggling a first stretch in
     it (`lane_config_util.cpp` "!laneConfigs.empty()"); lane configs of every planned
     edge are now checked before the game sees them.
+- **Left turns at a pair's end (extra road on the inside).** The road builder refuses
+  the player's own drag: its kink collides with the old extra road beside it (touching,
+  plus its turnaround loop). Our corner handling would cut it back, but only after a
+  build that never happens. Ruled out 2026-10-01:
+  - the builder object has no geometry controls (start point, pivot);
+  - the builder-event result only refuses (errorMessages); skipRender without an error
+    does nothing;
+  - catching the build click needs a Selector, which disables the native builder;
+  - staggered pair ends (direction of the next turn is unknown);
+  - a road tool of our own (too big), cutting back mid-drag (too hacky).
+  Still to try: whether the builder uses the objects it hands to `guiHandleEvent`
+  (`builder.proposalCreate` param: proposal, proposal data), i.e. whether changing
+  them there (adding a straight extension, clearing the collision) changes what gets
+  built. If not: accept it, and favour curved drags that leave the road end
+  tangentially (no kink), as the track builder does.
 - **Road junctions crash the game.** Three crashes (`map_util.h` "it != map.end()",
   while the game evaluated the preview) all came from plans where an extra road crossed
   or branched onto a road; the last one was a plain 44 degree crossing of one-way roads

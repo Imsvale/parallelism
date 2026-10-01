@@ -43,7 +43,9 @@ local shared = {
 	-- dev experiment, roads with 2+ only: can the mod take the drawn road over? The
 	-- builder is told not to draw its own preview (skipRender), and an input catcher
 	-- logs the build click (IA_SELECT / IA_APPLY). Normal building is unchanged otherwise.
-	SPIKE_TAKEOVER = true,
+	-- Result 2026-10-01: skipRender without an error changes nothing (the builder still
+	-- draws and builds its road).
+	SPIKE_TAKEOVER = false,
 
 	-- gui script event the menu uses to hand the toolbar values to the game script
 	EVENT_ID = "ptracks",
