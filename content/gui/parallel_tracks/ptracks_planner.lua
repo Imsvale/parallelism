@@ -326,6 +326,19 @@ local function findExistingNode(position)
 	return nil
 end
 
+-- The node config of a node in the world; nil for one that is not (yet): asking the
+-- game about such an entity is an error ("Invalid entity"), e.g. drawn nodes while
+-- dragging.
+local function worldNodeConfig(node)
+	if node < 0 then
+		return nil
+	end
+	local ok, cfg = pcall(function()
+		return api.engine.getComponent(node, api.type.ComponentType.BASE_NODE_CONFIG)
+	end)
+	return ok and cfg or nil
+end
+
 -- Which edges meet at each node, fetched once per plan when first needed (the whole
 -- map comes over into lua).
 local node2segmentsCache = nil
@@ -818,10 +831,57 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 								log(string.format("  crossing edge %d at %.1f deg is too shallow, not built", entity, angle))
 							else
 								local node = newNode(x.pointA)
-								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle }
+								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity }
 								addSplit(entity, x.ub, node, angle)
 								stats.crossings = stats.crossings + 1
 								log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg ", x.ub, angle) .. shared.vecToString(x.pointA))
+							end
+						end
+					end
+				end
+			end
+		end
+
+		-- An existing track running through one of our own nodes in the middle of the run:
+		-- the intersection search misses a crossing right at the end of both edges there
+		-- (seen twice in game: the track ran through the other one, Collision). Checked
+		-- here by distance; the node becomes the crossing node.
+		for __, oe in ipairs(offsetEdges) do
+			for which, node in ipairs({ oe.node0, oe.node1 }) do
+				if movable[node.entity] and not crossingAtNode[node.entity] then
+					local center = api.type.Vec2f.new(node.position.x, node.position.y)
+					for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(center, EDGE_SEARCH_RADIUS, api.type.ComponentType.BASE_EDGE)) do
+						local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
+						if comp and isPlanned(comp) and not crossingNodes[node.entity .. ":" .. entity] then
+							local other = worldEdges[entity] or toEdge(comp)
+							local u, distance = geometry.closestParameter(node.position, other)
+							local point = geometry.hermite(other.p0, other.p1, other.t0, other.t1, u)
+							-- a crossing already found near the node, with this edge
+							local found = false
+							for __, e in ipairs(offsetEdges) do
+								for __, cut in ipairs(e.cuts) do
+									if cut.entity == entity and geometry.horizontalDistance(cut.node.position, node.position) < 1 then
+										found = true
+									end
+								end
+							end
+							if not found and distance < 0.15 and isAwayFromEnds(other, point)
+								and math.abs(point.z - node.position.z) < NODE_SNAP_HEIGHT then
+								crossingNodes[node.entity .. ":" .. entity] = true
+								local angle = geometry.crossingAngle(oe.edge, which == 1 and 0 or 1, other, u)
+								if noJunctions then
+									stats.junctions = stats.junctions + 1
+								elseif angle < MIN_CROSSING_ANGLE then
+									stats.shallow = stats.shallow + 1
+								else
+									movable[node.entity] = nil
+									crossingAtNode[node.entity] = true
+									addSplit(entity, u, node, angle)
+									stats.crossings = stats.crossings + 1
+									log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg, through own node %d ", u, angle, node.entity)
+										.. shared.vecToString(node.position))
+								end
+								break
 							end
 						end
 					end
@@ -1271,7 +1331,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			if given then
 				return given
 			end
-			return api.engine.getComponent(node, api.type.ComponentType.BASE_NODE_CONFIG)
+			return worldNodeConfig(node)
 		end
 		local toAdd, toRemove, done = {}, {}, {}
 		-- A new config for node, like src with its edges replaced through map (connections
@@ -1357,7 +1417,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			if p.origins then
 				for __, node in ipairs({ p.node0, p.node1 }) do
 					if node >= 0 and not removedNodes[node] and not done[node] then
-						local cfg = api.engine.getComponent(node, api.type.ComponentType.BASE_NODE_CONFIG)
+						local cfg = worldNodeConfig(node)
 						if cfg then
 							local map = {}
 							for __, s in ipairs(getNode2Segments()[node] or {}) do
