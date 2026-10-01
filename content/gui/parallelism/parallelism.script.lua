@@ -360,18 +360,26 @@ local function sendBuild(label, proposal, stats, onDone)
 	local context = api.type.Context.new()
 	-- dev aid: what a fresh context holds, and the edge distance the mod sends (open
 	-- questions: terrain, ballast and catenary, see the backlog)
-	pcall(function()
-		local flags = {}
-		for __, key in ipairs({ "checkTerrainAlignment", "gatherFields", "gatherBuildings", "cleanupStreetGraph", "extendProposalRedoPillars" }) do
-			flags[#flags + 1] = key .. " " .. tostring(context[key])
-		end
-		local distances = {}
+	local flags = {}
+	for __, key in ipairs({ "checkTerrainAlignment", "gatherFields", "gatherBuildings", "cleanupStreetGraph", "extendProposalRedoPillars" }) do
+		local ok, value = pcall(function()
+			return context[key]
+		end)
+		flags[#flags + 1] = key .. " " .. tostring(value) .. (ok and "" or " (error)")
+	end
+	local distances = {}
+	local ok, err = pcall(function()
 		for __, segment in ipairs(proposal.streetProposal.edgesToAdd) do
 			distances[#distances + 1] = tostring(segment.comp.distance)
 		end
-		shared.log("  context: " .. table.concat(flags, ", ") .. "; edge distances " .. table.concat(distances, " "))
 	end)
+	shared.log("  context: " .. table.concat(flags, ", ") .. "; edge distances " .. table.concat(distances, " ")
+		.. (ok and "" or " (" .. tostring(err) .. ")"))
 	context.player = api.engine.util.getPlayer()
+	-- bridges: one by one, the native builder gives a bundle pillars across its whole
+	-- width, a combined build only a narrow central one; testing whether this flag
+	-- (rebuild the pillars of neighbouring bridges) is what makes the difference
+	context.extendProposalRedoPillars = true
 	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
 		local costs = ""
 		pcall(function()

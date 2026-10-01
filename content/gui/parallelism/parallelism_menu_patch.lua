@@ -482,11 +482,16 @@ local function makeParams(builder, resName)
 		countValues[i] = tostring(i)
 	end
 	local streets = builder == shared.STREET_BUILDER
-	local sideLabels = {
+	-- short labels only to fit four buttons
+	local choices = sideChoices(builder)
+	local sideLabels = #choices > 2 and {
 		[shared.SIDE_LEFT] = "L",
 		[shared.SIDE_CENTER_LEFT] = "CL",
 		[shared.SIDE_CENTER_RIGHT] = "CR",
 		[shared.SIDE_RIGHT] = "R",
+	} or {
+		[shared.SIDE_LEFT] = _("Left"),
+		[shared.SIDE_RIGHT] = _("Right"),
 	}
 	local sideTooltips = {
 		[shared.SIDE_LEFT] = streets and _("Parallel roads on the left side") or _("Parallel tracks on the left side"),
@@ -497,7 +502,7 @@ local function makeParams(builder, resName)
 		[shared.SIDE_RIGHT] = streets and _("Parallel roads on the right side") or _("Parallel tracks on the right side"),
 	}
 	local sideValues, sideValueTooltips = {}, {}
-	for i, side in ipairs(sideChoices(builder)) do
+	for i, side in ipairs(choices) do
 		sideValues[i] = sideLabels[side]
 		sideValueTooltips[i] = sideTooltips[side]
 	end

@@ -128,17 +128,21 @@ Ideas and open questions parked until the core track building is robust.
 
 ## Features
 
-- **Not yet looked into: terrain, ballast, catenary, fields, bridges.** All testing so
-  far has been on a flat map. To check, comparing against native builds:
-  - the edge `distance` field (`BaseEdge.distance`, the template's `trackDistance` on
-    native tracks): whether new edges need it set for neighbouring tracks to share
-    their ballast bed and catenary;
-  - the build `Context` flags (`checkTerrainAlignment`, `gatherFields`,
-    `extendProposalRedoPillars`, `cleanupStreetGraph`, `gatherBuildings`,
-    `refundableEntities`): only `player` is set now, and the mod builds the drawn track
-    itself too, so terrain levelling, cleared fields and bridge pillars must come out
-    as with the native builder;
-  - slopes, bridges and tunnels along and across the bundle.
+- **Terrain, catenary, fields, bridges.** Tested 2026-10-01 against native builds:
+  - Terrain: done for the basics. The extra tracks follow the drawn one's heights;
+    follow terrain, embankments, levelling, cuttings and tunnels all work. Revisit only
+    on an actual failure.
+  - Fields: destroyed by the extra tracks, as they should be.
+  - Catenary: cosmetic only, electrification works. The extra tracks had no overhead
+    wires and the masts were merged over the first two tracks only. The extra tracks
+    had edge `distance` 0, native track has the template's `trackDistance` (5). Now
+    copied from the drawn track; to confirm in game.
+  - Bridges: a bundle gets a narrow central pillar, built one by one natively it gets a
+    pillar across the whole width. Now building with `extendProposalRedoPillars`, and
+    the `distance` fix may matter here too; to confirm in game.
+  - Still to check: the other `Context` flags (`checkTerrainAlignment`, `gatherFields`,
+    `cleanupStreetGraph`, `gatherBuildings`, `refundableEntities`); the build logs
+    what a fresh context holds.
 - **Translations.** The strings are English only.
 - **Tell the player when a track fails.** Refused drags get a builder error message. A
   build that fails after the drag was accepted (combined build falls back to one by one,

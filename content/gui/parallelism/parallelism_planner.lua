@@ -1303,6 +1303,11 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		segment.comp.roadTemplate = templateOf(props)
 		segment.comp.roadStyle = styleOf(props)
 		segment.comp.roadType = props.comp.roadType
+		-- the track type's trackDistance on native track (0 on roads), wherever the track
+		-- lies; with 0 neighbouring tracks do not share catenary masts as they should
+		pcall(function()
+			segment.comp.distance = props.comp.distance
+		end)
 		-- e.g. the barriers of a highway; not in every proposal, so optional
 		pcall(function()
 			if props.comp.edgeDecorations ~= nil then
