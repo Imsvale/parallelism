@@ -358,6 +358,19 @@ local function sendBuild(label, proposal, stats, onDone)
 	-- with a player in the context the build is paid like the player's own, as the base
 	-- game does when swapping a bridge type from the entity window
 	local context = api.type.Context.new()
+	-- dev aid: what a fresh context holds, and the edge distance the mod sends (open
+	-- questions: terrain, ballast and catenary, see the backlog)
+	pcall(function()
+		local flags = {}
+		for __, key in ipairs({ "checkTerrainAlignment", "gatherFields", "gatherBuildings", "cleanupStreetGraph", "extendProposalRedoPillars" }) do
+			flags[#flags + 1] = key .. " " .. tostring(context[key])
+		end
+		local distances = {}
+		for __, segment in ipairs(proposal.streetProposal.edgesToAdd) do
+			distances[#distances + 1] = tostring(segment.comp.distance)
+		end
+		shared.log("  context: " .. table.concat(flags, ", ") .. "; edge distances " .. table.concat(distances, " "))
+	end)
 	context.player = api.engine.util.getPlayer()
 	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
 		local costs = ""
