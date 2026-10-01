@@ -3,13 +3,13 @@
 -- and it must stay free of gui requires.
 
 local shared = {
-	KEY_COUNT = "ptracksCount",
-	KEY_SIDE = "ptracksSide",
+	KEY_COUNT = "parallelismCount",
+	KEY_SIDE = "parallelismSide",
 	-- extra meters between neighbouring tracks, on top of the track type's own distance
-	KEY_SPACING = "ptracksSpacing",
+	KEY_SPACING = "parallelismSpacing",
 	-- roads only: whether the extra roads run the same way as the drawn one or against
 	-- it (the other carriageway of a split highway)
-	KEY_DIRECTION = "ptracksDirection",
+	KEY_DIRECTION = "parallelismDirection",
 	DIRECTION_SAME = 1,
 	DIRECTION_OPPOSITE = 2,
 
@@ -17,7 +17,7 @@ local shared = {
 	TRACK_BUILDER = "trackBuilder",
 	STREET_BUILDER = "streetBuilder",
 	-- hidden, only changed to make the menu redraw the preview
-	KEY_REDRAW = "ptracksRedraw",
+	KEY_REDRAW = "parallelismRedraw",
 
 	SIDE_LEFT = 1,
 	SIDE_CENTER = 2,
@@ -54,7 +54,7 @@ local shared = {
 	-- Better Construction Tooltip (imsvale_better_construction_tooltip) has it now, so off
 	-- here to not show it twice.
 	SHOW_RADIUS = false,
-	KEY_WIREFRAME = "ptracksWireframe",
+	KEY_WIREFRAME = "parallelismWireframe",
 
 	-- dev experiment, roads with 2+ only: can the mod take the drawn road over? The
 	-- builder is told not to draw its own preview (skipRender), and an input catcher
@@ -64,14 +64,14 @@ local shared = {
 	SPIKE_TAKEOVER = false,
 
 	-- gui script event the menu uses to hand the toolbar values to the game script
-	EVENT_ID = "ptracks",
-	EVENT_SET_PARAMS = "ptracks.setParams",
+	EVENT_ID = "parallelism",
+	EVENT_SET_PARAMS = "parallelism.setParams",
 	-- the game's verdict on the preview, for the drag check: { signature, critical, message }
-	EVENT_PREVIEW_VERDICT = "ptracks.previewVerdict",
+	EVENT_PREVIEW_VERDICT = "parallelism.previewVerdict",
 }
 
 function shared.log(msg)
-	log.message("[ptracks] " .. tostring(msg))
+	log.message("[parallelism] " .. tostring(msg))
 end
 
 -- what the builder draws, for collectDrawnSegments

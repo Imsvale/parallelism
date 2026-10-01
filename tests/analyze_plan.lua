@@ -1,6 +1,6 @@
 -- Checks a failed build plan from the game log for likely reasons the game refused it.
 --   lua tests/analyze_plan.lua <file>
--- The file holds the table printed after "plan: " in a "[ptracks]   plan: {...}" line.
+-- The file holds the table printed after "plan: " in a "[parallelism]   plan: {...}" line.
 
 local here = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
 package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path

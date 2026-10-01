@@ -606,11 +606,11 @@ local function addParams(definitions, builder)
 end
 
 function patch.install()
-	if construction_react_util.ptracksPatched then
+	if construction_react_util.parallelismPatched then
 		shared.log("menu patch already installed")
 		return
 	end
-	construction_react_util.ptracksPatched = true
+	construction_react_util.parallelismPatched = true
 
 	local getTrackDefinitions = construction_react_util.getTrackDefinitions
 	construction_react_util.getTrackDefinitions = function(...)
@@ -796,7 +796,7 @@ function patch.install()
 		return ActionDescriptor(params, ...)
 	end
 
-	-- dev aid: ptracksDump() in the console
+	-- dev aid: parallelismDump() in the console
 	local ok, err = pcall(function()
 		require("parallelism_dump.lua").install()
 	end)

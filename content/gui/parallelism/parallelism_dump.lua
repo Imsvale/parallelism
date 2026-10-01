@@ -9,7 +9,7 @@ local dump = {}
 
 -- to the game log, and to the console when called from there
 local function logLine(msg)
-	local line = "[ptracks] " .. tostring(msg)
+	local line = "[parallelism] " .. tostring(msg)
 	pcall(function()
 		log.message(line)
 	end)
@@ -163,11 +163,11 @@ function dump.around(radius, x, y)
 	dump.toConsole = false
 end
 
--- makes ptracksDump available to the console of the lua state this is loaded on
+-- makes parallelismDump available to the console of the lua state this is loaded on
 function dump.install()
 	-- rawset: the game logs an error for globals made by assignment (base/init.lua);
 	-- this one is meant, for the console
-	rawset(_G, "ptracksDump", function(...)
+	rawset(_G, "parallelismDump", function(...)
 		local ok, err = pcall(dump.around, ...)
 		if not ok then
 			shared.log("dump failed: " .. tostring(err))
