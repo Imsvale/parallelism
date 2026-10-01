@@ -11,6 +11,10 @@ local planner = require "ptracks_planner.lua"
 
 local patch = {}
 
+-- dev aid: tooltip calls about the same drag that count as holding it still (about a
+-- second), see where the refused plan is logged
+local HOLD_STILL_CALLS = 60
+
 -- dev experiment: a Selector in the road builder, to see the build click (it disables
 -- the builder, see where it is added)
 local SPIKE_SELECTOR = false
@@ -122,6 +126,9 @@ local function updatePreview(proposal)
 	preview.selfCrossing = stats.selfCrossing
 	-- the plan the viewer shows, logged when the game objects to it
 	preview.plan = stats.plan
+	preview.firstProblem = stats.problems[1]
+	preview.stillCalls = 0
+	preview.stillLogged = false
 	preview.shortPiece = stats.shortPiece ~= nil
 	preview.existingBend = stats.existingBend ~= nil
 	preview.junctions = stats.junctions > 0
@@ -564,6 +571,17 @@ function patch.install()
 					local started = planner.clockMs()
 					updatePreview(proposal)
 					countPreviewCall(preview.version ~= version, started)
+					-- dev aid: a refused drag held still is one the player means, log its plan
+					-- once (a moving cursor passes many refused positions nobody wants built);
+					-- the tooltip is asked many times a second, also while the drag holds still
+					if preview.version == version then
+						preview.stillCalls = (preview.stillCalls or 0) + 1
+						if preview.firstProblem and not preview.stillLogged and preview.stillCalls >= HOLD_STILL_CALLS and preview.plan then
+							preview.stillLogged = true
+							shared.log("refused and held still: " .. tostring(preview.firstProblem))
+							shared.log("  refused plan: " .. planner.planToString(preview.plan))
+						end
+					end
 					if preview.version ~= version and shared.SHOW_PREVIEW then
 						requestRedraw()
 					end

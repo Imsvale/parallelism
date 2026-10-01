@@ -162,9 +162,8 @@ end
 -- one of the extra tracks would cross another track flatter than the game allows, the
 -- whole drag is refused, with the reason, instead of building the rest around it.
 local lastRefusal = nil
--- the last drag checked and the answer, the builder asks about the same drag many times
+-- the last drag checked and the answer
 local lastCheck = { signature = nil, result = nil }
-local checkDebounce = planner.newDebounce(planner.PLAN_EVERY, planner.CHEAP_PLAN_MS)
 -- dev aid: how often the builder asks and what answering costs, logged every so often
 local perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0 }
 
@@ -178,10 +177,6 @@ end
 
 -- the game's verdict on the menu's preview, pushed by the menu patch
 local previewVerdict = {}
-
--- how many requests about the same drag count as holding it still (the builder asks
--- many times a second)
-local HOLD_STILL_REQUESTS = 30
 
 local function checkPlayerProposal(param)
 	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
@@ -211,22 +206,12 @@ local function checkPlayerProposal(param)
 		return { errorMessages = errorMessages, skipRender = false }
 	end
 	if signature == lastCheck.signature then
-		-- dev aid: a refused drag held still is one the player means, log its plan once
-		-- (a moving cursor passes many refused positions nobody wants built)
-		lastCheck.still = (lastCheck.still or 0) + 1
-		if lastCheck.result and not lastCheck.logged and lastCheck.still >= HOLD_STILL_REQUESTS and lastCheck.plan then
-			lastCheck.logged = true
-			shared.log("refused and held still: " .. tostring(lastCheck.problems and lastCheck.problems[1]))
-			shared.log("  refused plan: " .. planner.planToString(lastCheck.plan))
-		end
 		return lastCheck.result
 	end
-	-- while the drag moves, the answer for a recent position stands in; the position it
-	-- stops at is always checked
-	if not checkDebounce.shouldPlan(signature) then
-		return lastCheck.result
-	end
-	checkDebounce.planned(signature)
+	-- Every position is planned: the builder asks only when the drag changes, so an
+	-- answer reused from an earlier position (planning only every few changes while it
+	-- was expensive) could stick on the position the drag stopped at (seen in game: a
+	-- refusal the preview of that very position did not have).
 	local started = planner.clockMs()
 	for __, d in ipairs(drawn) do
 		d.template = current.resName
@@ -237,7 +222,6 @@ local function checkPlayerProposal(param)
 		{ reverse = current.reverse })
 	if started then
 		local took = planner.clockMs() - started
-		checkDebounce.planned(signature, took)
 		perf.planned = perf.planned + 1
 		perf.planMs = perf.planMs + took
 		if took > perf.worstMs then
@@ -274,7 +258,7 @@ local function checkPlayerProposal(param)
 		errorMessages[message] = true
 		result = { errorMessages = errorMessages, skipRender = false }
 	end
-	lastCheck = { signature = signature, result = result, plan = result and stats.plan or nil, problems = stats.problems }
+	lastCheck = { signature = signature, result = result }
 	return result
 end
 
