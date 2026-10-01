@@ -549,6 +549,16 @@ function patch.install()
 				if preview.proposals[1] then
 					params.children[#params.children + 1] = makeViewer(1)
 				end
+				if shared.SPIKE_TAKEOVER and preview.builder == shared.STREET_BUILDER then
+					-- experiment: does a script see the build click? (a builtin: recipes of
+					-- the mod's own crash the game in here)
+					params.children[#params.children + 1] = builtin.SimpleInputActions{
+						inputActions = { IA_SELECT = "IA_SELECT", IA_APPLY = "IA_APPLY" },
+						inputActionsHandler = function(action)
+							shared.log("spike: input action " .. tostring(action))
+						end,
+					}
+				end
 			end
 		end
 		return ActionDescriptor(params, ...)

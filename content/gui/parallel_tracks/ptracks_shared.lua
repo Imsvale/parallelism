@@ -40,6 +40,11 @@ local shared = {
 	-- search, caches for templates, components and edge geometry), to compare with them
 	PERF_MEASURES = true,
 
+	-- dev experiment, roads with 2+ only: can the mod take the drawn road over? The
+	-- builder is told not to draw its own preview (skipRender), and an input catcher
+	-- logs the build click (IA_SELECT / IA_APPLY). Normal building is unchanged otherwise.
+	SPIKE_TAKEOVER = true,
+
 	-- gui script event the menu uses to hand the toolbar values to the game script
 	EVENT_ID = "ptracks",
 	EVENT_SET_PARAMS = "ptracks.setParams",

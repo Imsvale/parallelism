@@ -47,6 +47,9 @@ local current = {
 	builder = shared.TRACK_BUILDER,
 }
 
+-- gui state: whether the takeover experiment has said so in the log
+local spikeLogged = false
+
 -- gui state: player builds waiting to be applied before their parallel tracks are built
 local pending = {}
 
@@ -512,7 +515,17 @@ return {
 				local ok, result = pcall(checkPlayerProposal, param)
 				if not ok then
 					shared.log("checkPlayerProposal failed: " .. tostring(result))
-				elseif result then
+					result = nil
+				end
+				if shared.SPIKE_TAKEOVER and current.builder == shared.STREET_BUILDER then
+					-- experiment: does the builder hide its own preview without refusing?
+					if not spikeLogged then
+						spikeLogged = true
+						shared.log("spike: returning skipRender = true for the road builder's proposal")
+					end
+					return { errorMessages = result and result.errorMessages or nil, skipRender = true }
+				end
+				if result then
 					return result
 				end
 			end
