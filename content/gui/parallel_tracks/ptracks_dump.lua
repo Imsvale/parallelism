@@ -1,11 +1,24 @@
 -- Dev aid: logs the edges and nodes around a point with all their components, to compare
 -- what the game's builder makes with what the mod makes (e.g. a road pair built by hand
--- and one built by the mod). From the console: ptracksDump() around the mouse,
--- ptracksDump(radius), or ptracksDump(radius, x, y).
-
-local shared = require "ptracks_shared.lua"
+-- and one built by the mod). Self-contained, so the console can load it:
+--   require("imsvale_parallel_tracks::/gui/parallel_tracks/ptracks_dump.lua").around()
+-- around the mouse, or .around(radius) / .around(radius, x, y). The mod also calls it
+-- when a drag starts at an existing node.
 
 local dump = {}
+
+-- to the game log, and to the console when called from there
+local function logLine(msg)
+	local line = "[ptracks] " .. tostring(msg)
+	pcall(function()
+		log.message(line)
+	end)
+	if dump.toConsole then
+		print(line)
+	end
+end
+
+local shared = { log = logLine }
 
 local function try(fn)
 	local ok, result = pcall(fn)
@@ -123,6 +136,8 @@ end
 function dump.around(radius, x, y)
 	radius = radius or 30
 	if x == nil then
+		-- no position given: called by hand, so answer in the console too
+		dump.toConsole = true
 		local p = api.gui.mouse.getTerrainPosition()
 		x, y = p.x, p.y
 	end
@@ -141,6 +156,7 @@ function dump.around(radius, x, y)
 		dumpNode(entity, node2segments, log)
 	end
 	log("dump done: " .. #edges .. " edges, " .. #nodes .. " nodes")
+	dump.toConsole = false
 end
 
 -- makes ptracksDump available to the console of the lua state this is loaded on
