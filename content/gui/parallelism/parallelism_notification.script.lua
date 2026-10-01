@@ -3,7 +3,7 @@
 
 local function useDataState(params)
 	return {
-		title = params.title or _("Parallel Tracks"),
+		title = params.title or _("Parallelism"),
 		description = params.description or "",
 		icon = "::game_mechanics/notifications/gui/icons/relation_track_plus.tga",
 	}

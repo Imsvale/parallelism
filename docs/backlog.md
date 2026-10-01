@@ -59,7 +59,7 @@ Ideas and open questions parked until the core track building is robust.
   and plans with a track bending at a node are never shown or built.
 - **Combined build fallback: now a diagnostic only (2026-10-01).** In play the extra
   tracks are built in one command or not at all; a failure notifies the player. The
-  one-by-one builder runs only with `ONE_BY_ONE_DIAGNOSTIC` in `ptracks.script.lua`: it
+  one-by-one builder runs only with `ONE_BY_ONE_DIAGNOSTIC` in `parallelism.script.lua`: it
   builds part of a drag, but shows which track fails and why. It did that once: 6
   tracks across a curving 6-track bundle, 3 of 5 built, the other 2 buildable by hand.
   Faults it exposed, fixed: a crossing exactly at one of our own nodes was dropped
@@ -131,7 +131,7 @@ Ideas and open questions parked until the core track building is robust.
 - **Tell the player when a track fails.** Refused drags get a builder error message. A
   build that fails after the drag was accepted (combined build falls back to one by one,
   or a plan with problems at apply) adds an in-game notification of the mod's own type
-  (`ptracks_notification`). Set `FORCE_FALLBACK` in `ptracks.script.lua` to see it.
+  (`parallelism_notification`). Set `FORCE_FALLBACK` in `parallelism.script.lua` to see it.
 - **Explain predictable failures before sending.** Some failures can be spotted while
   planning, e.g. two crossings 4 m apart on the new track (a piece shorter than the game
   allows), or a crossing next to a switch or crossing node that cannot be moved.
@@ -140,7 +140,7 @@ Ideas and open questions parked until the core track building is robust.
   of the drag (menu Lua state, reachable through the `getActionParams` wrapper; the
   strings it returns go into the builder's tooltip). `builtin.ProposalViewer` renders
   any proposal and reports its costs and errors through `onCreateProposalData`. First
-  version written: planning moved to `ptracks_planner.lua`, one viewer per extra track
+  version written: planning moved to `parallelism_planner.lua`, one viewer per extra track
   injected into the builder's `builtin.ActionDescriptor`, cost in the tooltip.
 - **Faster building.** The extra tracks appear one after the other, each waiting for the
   previous build command to finish. Planning all of them in one proposal would be
@@ -238,8 +238,8 @@ Ideas and open questions parked until the core track building is robust.
 - **Curve radius override** moved to the sibling mod Tighter Curves
   (`mods/tighter-curves`, `imsvale_tighter_curves`) on 2026-10-01.
 
-- Turn off the per-build proposal dump (`DEBUG_DUMP` in `ptracks.script.lua`).
+- Turn off the per-build proposal dump (`DEBUG_DUMP` in `parallelism.script.lua`).
 - Derive the node reuse, node move and minimum piece distances from the template's
   `trackDistance` instead of fixed meters.
-- The module cache clearing at the top of `ptracks.script.lua` is a dev aid; decide
+- The module cache clearing at the top of `parallelism.script.lua` is a dev aid; decide
   whether it stays in a release.

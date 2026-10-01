@@ -5,9 +5,9 @@
 
 local construction_react_util = require "::/gui/construction/construction_react_util.tl"
 local builtin = require "::/gui/main/builtin.lua"
-local shared = require "ptracks_shared.lua"
-local geometry = require "ptracks_geometry.lua"
-local planner = require "ptracks_planner.lua"
+local shared = require "parallelism_shared.lua"
+local geometry = require "parallelism_geometry.lua"
+local planner = require "parallelism_planner.lua"
 
 local patch = {}
 
@@ -798,7 +798,7 @@ function patch.install()
 
 	-- dev aid: ptracksDump() in the console
 	local ok, err = pcall(function()
-		require("ptracks_dump.lua").install()
+		require("parallelism_dump.lua").install()
 	end)
 	if not ok then
 		shared.log("dump tool not installed: " .. tostring(err))

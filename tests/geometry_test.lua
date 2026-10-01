@@ -1,10 +1,10 @@
--- Offline tests for ptracks_geometry.lua, run with any Lua 5.3+ interpreter:
+-- Offline tests for parallelism_geometry.lua, run with any Lua 5.3+ interpreter:
 --   lua tests/geometry_test.lua
 -- The reference numbers come from a parallel branch built by hand in game.
 
 local here = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
-package.path = here .. "/../content/gui/parallel_tracks/?.lua;" .. package.path
-local geometry = require "ptracks_geometry"
+package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
+local geometry = require "parallelism_geometry"
 
 local failures = 0
 local function check(name, ok, detail)

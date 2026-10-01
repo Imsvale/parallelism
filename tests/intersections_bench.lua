@@ -4,8 +4,8 @@
 --   lua tests/intersections_bench.lua
 
 local here = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
-package.path = here .. "/../content/gui/parallel_tracks/?.lua;" .. package.path
-local geometry = require "ptracks_geometry"
+package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
+local geometry = require "parallelism_geometry"
 
 local function v(x, y) return { x = x, y = y, z = 5 } end
 

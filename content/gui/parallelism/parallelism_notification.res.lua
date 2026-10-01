@@ -3,7 +3,7 @@ function data()
 		type = "notification",
 		data = {
 			guiType = "Caution",
-			label = _("Parallel Tracks"),
+			label = _("Parallelism"),
 			initiallyIgnoredType = false,
 		},
 	}

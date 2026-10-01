@@ -1,7 +1,7 @@
 -- Dev aid: logs the edges and nodes around a point with all their components, to compare
 -- what the game's builder makes with what the mod makes (e.g. a road pair built by hand
 -- and one built by the mod). Self-contained, so the console can load it:
---   require("imsvale_parallelism::/gui/parallel_tracks/ptracks_dump.lua").around()
+--   require("imsvale_parallelism::/gui/parallelism/parallelism_dump.lua").around()
 -- around the mouse, or .around(radius) / .around(radius, x, y). The mod also calls it
 -- when a drag starts at an existing node.
 

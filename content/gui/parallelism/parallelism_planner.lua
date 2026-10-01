@@ -2,8 +2,8 @@
 -- crossing existing tracks, and the proposal for it. Loaded on both lua states that
 -- need it: the game script (building) and the menu (preview).
 
-local shared = require "ptracks_shared.lua"
-local geometry = require "ptracks_geometry.lua"
+local shared = require "parallelism_shared.lua"
+local geometry = require "parallelism_geometry.lua"
 
 local planner = {}
 

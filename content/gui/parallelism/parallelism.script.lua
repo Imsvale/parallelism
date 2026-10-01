@@ -9,12 +9,12 @@ if type(_ug_loadedModules) == "table" then
 	end
 end
 
-local shared = require "ptracks_shared.lua"
-local geometry = require "ptracks_geometry.lua"
+local shared = require "parallelism_shared.lua"
+local geometry = require "parallelism_geometry.lua"
 
-local planner = require "ptracks_planner.lua"
+local planner = require "parallelism_planner.lua"
 
-local dump = require "ptracks_dump.lua"
+local dump = require "parallelism_dump.lua"
 
 -- how long to wait for the player's build to show up in the world before giving up
 local PENDING_MAX_FRAMES = 300
@@ -54,7 +54,7 @@ local current = {
 local spikeLogged = false
 
 -- dev aid: a drag starting at an existing node dumps the edges and nodes around it
--- (ptracks_dump.lua), once per node; the console runs on a lua state of its own, so
+-- (parallelism_dump.lua), once per node; the console runs on a lua state of its own, so
 -- this is the way to trigger it
 local DUMP_AT_DRAG_START = true
 local lastDumpedNode = nil
@@ -385,8 +385,8 @@ end
 -- Shows the player a message in the game's notifications.
 local function notify(description)
 	local notification = {
-		type = "imsvale_parallelism::/gui/parallel_tracks/ptracks_notification.script",
-		params = { title = _("Parallel Tracks"), description = description },
+		type = "imsvale_parallelism::/gui/parallelism/parallelism_notification.script",
+		params = { title = _("Parallelism"), description = description },
 		autoDismissDuration = 60000,
 	}
 	local ok, err = pcall(function()
