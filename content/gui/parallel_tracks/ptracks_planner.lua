@@ -930,6 +930,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 							end
 						end
 					end
+					local slid = false
 					if tooClose
 						and a.props.comp.type == b.props.comp.type and a.props.comp.typeIndex == b.props.comp.typeIndex then
 						if a.node1.entity ~= entity then
@@ -938,6 +939,63 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						if b.node0.entity ~= entity then
 							b = reversed(b)
 						end
+						-- First choice: slide the node onto the nearest crossing. Only the short
+						-- bit between node and crossing is merged into the edge beyond the node,
+						-- the rest keeps its exact shape (merging the two whole edges bent the
+						-- track too much and strayed metres, seen in game: Too Much Curvature).
+						local nearestCut, onB = nil, false
+						for __, side in ipairs({ { a, false }, { b, true } }) do
+							for __, cut in ipairs(side[1].cuts) do
+								if nearestCut == nil or geometry.horizontalDistance(cut.node.position, position)
+									< geometry.horizontalDistance(nearestCut.node.position, position) then
+									nearestCut, onB = cut, side[2]
+								end
+							end
+						end
+						if nearestCut then
+							local newA, newB, short, mergedPart, merged
+							if onB then
+								local u = geometry.closestParameter(nearestCut.node.position, b.edge)
+								short, newB = geometry.split(b.edge, u)
+								merged = geometry.merge(a.edge, short)
+								mergedPart = { a.edge, short }
+								newA = merged
+							else
+								local u = geometry.closestParameter(nearestCut.node.position, a.edge)
+								newA, short = geometry.split(a.edge, u)
+								merged = geometry.merge(short, b.edge)
+								mergedPart = { short, b.edge }
+								newB = merged
+							end
+							if geometry.mergeDeviation(mergedPart[1], mergedPart[2], merged) <= MAX_MERGE_DEVIATION then
+								local joint = nearestCut.node
+								local edgeA = { node0 = a.node0, node1 = joint, edge = newA, props = a.props, cuts = {} }
+								local edgeB = { node0 = joint, node1 = b.node1, edge = newB, props = a.props, cuts = {} }
+								-- the other cuts go to whichever new edge they lie on
+								for __, side in ipairs({ a, b }) do
+									for __, cut in ipairs(side.cuts) do
+										if cut ~= nearestCut then
+											local __, da = geometry.closestParameter(cut.node.position, newA)
+											local __, db = geometry.closestParameter(cut.node.position, newB)
+											table.insert(da <= db and edgeA.cuts or edgeB.cuts, cut)
+										end
+									end
+								end
+								offsetEdges[at[1]] = edgeA
+								offsetEdges[at[2]] = edgeB
+								dropped[entity] = true
+								stats.dropped = stats.dropped + 1
+								log(string.format("  own node %d is %.2f m from a crossing, moved it onto the crossing", entity, nearest))
+								merging = true
+								slid = true
+							end
+						end
+					end
+					if slid then
+						break
+					end
+					if tooClose
+						and a.props.comp.type == b.props.comp.type and a.props.comp.typeIndex == b.props.comp.typeIndex then
 						-- one curve cannot follow every shape two can (e.g. a long stretch of a
 						-- tight spiral): keep the node if the merged curve would stray
 						local merged = geometry.merge(a.edge, b.edge)
@@ -1379,7 +1437,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				comp.trafficLightConfig = src.trafficLightConfig
 			end)
 			nc.comp = comp
-			if not newNodes[node] then
+			-- replace the config an existing node has; many have none (plain track nodes),
+			-- and removing a config that is not there crashed the game on applying the
+			-- build (ecs::Engine::PostRemoveComponent)
+			if not newNodes[node] and worldNodeConfig(node) ~= nil then
 				toRemove[#toRemove + 1] = node
 			end
 			toAdd[#toAdd + 1] = nc
