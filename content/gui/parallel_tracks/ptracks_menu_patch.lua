@@ -39,6 +39,10 @@ local preview = {
 }
 
 local function clearPreview()
+	if preview.wireframeEdges then
+		preview.wireframeEdges = nil
+		preview.version = preview.version + 1
+	end
 	if #preview.proposals > 0 then
 		preview.proposals = {}
 		preview.costs = {}
@@ -89,7 +93,8 @@ local function updatePreview(proposal)
 		end
 	end)
 	local planned, stats = planner.makeProposal(drawn, geometry.offsets(preview.count, preview.side, distance), nil, false,
-		{ reverse = preview.reverse, nodeConfigs = nodeConfigs })
+		{ reverse = preview.reverse, nodeConfigs = nodeConfigs, wireframe = preview.wireframe })
+	preview.wireframeEdges = preview.wireframe and stats.wireframe or nil
 	-- the cost decides whether the next changes are all planned; slow ones are logged
 	if started then
 		local took = planner.clockMs() - started
@@ -181,6 +186,55 @@ local function previewSummary()
 		text = text .. " (game notes: " .. preview.warning .. ")"
 	end
 	return text
+end
+
+-- dev aid (shared.DEBUG_WIREFRAME): the whole plan as lines, drawn by the game without
+-- judging it, so also for plans that are refused. Colors by kind of edge.
+local WIREFRAME_COLORS = {
+	drawn = { 1, 1, 1, 0.9 },        -- the drawn track, as the planner collected it
+	ours = { 0, 0.9, 1, 0.9 },       -- new track of the mod
+	existing = { 1, 0.85, 0, 0.9 },  -- existing track cut or reshaped, added again
+	removed = { 1, 0.1, 0.1, 0.6 },  -- existing track the plan removes
+}
+local wireframeFailed = false
+
+local function makeWireframeEdge(e, color, width)
+	local geom = api.type.EdgeGeometry.new()
+	geom.type = api.type.EdgeGeometry.Type.CUBIC_SPLINE
+	local spline = geom.cubicSpline
+	spline.pos = { api.type.Vec2f.new(e.p0.x, e.p0.y), api.type.Vec2f.new(e.p1.x, e.p1.y) }
+	spline.tangent = { api.type.Vec2f.new(e.t0.x, e.t0.y), api.type.Vec2f.new(e.t1.x, e.t1.y) }
+	geom.cubicSpline = spline
+	geom.height = api.type.Vec2f.new(e.p0.z, e.p1.z)
+	geom.length = geometry.arcLength(e)
+	geom.width = width
+	local edge = builtin.type.EdgeRenderable.Edge.new(geom)
+	edge.colors = { api.type.Vec4f.new(color[1], color[2], color[3], color[4]) }
+	edge.width = width
+	edge.offsetZ = 1.0
+	edge.stepSize = 1.0
+	return edge
+end
+
+local function makeWireframe()
+	if wireframeFailed or not preview.wireframeEdges then
+		return nil
+	end
+	local ok, result = pcall(function()
+		local edges = {}
+		for __, w in ipairs(preview.wireframeEdges) do
+			-- removed edges a little wider, so the pieces drawn on top of them stay visible
+			edges[#edges + 1] = makeWireframeEdge(w.edge, WIREFRAME_COLORS[w.kind] or WIREFRAME_COLORS.ours, w.kind == "removed" and 0.8 or 0.4)
+		end
+		return builtin.EdgeRenderable{ edges = edges, ignoreDepth = true }
+	end)
+	if not ok then
+		-- once: a wrong guess at the API should not cost every frame
+		wireframeFailed = true
+		shared.log("wireframe failed, off until the game restarts: " .. tostring(result))
+		return nil
+	end
+	return result
 end
 
 -- The preview of one extra track: the game's own proposal viewer, which draws the
@@ -447,6 +501,23 @@ local function makeParams(builder, resName)
 			checkEnabledFn = withExtras,
 		}
 	end
+	if shared.DEBUG_WIREFRAME then
+		result[#result + 1] = {
+			group = "parallelTracks",
+			key = shared.KEY_WIREFRAME,
+			name = "Wireframe",
+			tooltip = "Dev aid: draw the whole plan as lines. White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed.",
+			values = { "Off", "On" },
+			defaultIndex = 1,
+			resetOnCategoryChange = false,
+			resetOnMenuClose = false,
+			uiType = api.type["enum"].ScriptParamType.Button,
+			yearFrom = 0,
+			yearTo = 0,
+			location = api.type["enum"].ScriptParamLocation.Toolbar,
+			checkEnabledFn = withExtras,
+		}
+	end
 	result[#result + 1] = {
 		-- never shown: the preview changes its value to have the menu redraw the builder
 		group = "parallelTracks",
@@ -541,6 +612,13 @@ function patch.install()
 				preview.resName = definition.resName
 				clearPreview()
 			end
+			local wireframe = shared.DEBUG_WIREFRAME and params[shared.KEY_WIREFRAME] == 2 or false
+			if wireframe ~= preview.wireframe then
+				preview.wireframe = wireframe
+				-- plan again, with or without the wireframe edges
+				clearPreview()
+				preview.signature = nil
+			end
 			-- dev aid: what the hidden redraw param holds, against the preview version
 			local redrawValue = tostring(params[shared.KEY_REDRAW])
 			if redrawValue ~= lastLoggedRedraw then
@@ -614,6 +692,12 @@ function patch.install()
 				-- one at most: a second proposal viewer in an action crashes the game
 				if preview.proposals[1] then
 					params.children[#params.children + 1] = makeViewer(1)
+				end
+				if preview.wireframe then
+					local wireframe = makeWireframe()
+					if wireframe then
+						params.children[#params.children + 1] = wireframe
+					end
 				end
 				if SPIKE_SELECTOR and preview.builder == shared.STREET_BUILDER then
 					-- experiment: does a script see the build click? A Selector is how the base

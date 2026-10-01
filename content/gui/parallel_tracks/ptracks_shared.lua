@@ -44,6 +44,12 @@ local shared = {
 	-- search, caches for templates, components and edge geometry), to compare with them
 	PERF_MEASURES = true,
 
+	-- dev switch: a "Wireframe" button in the track and road toolbars that draws the whole
+	-- plan of the preview as lines (drawn track, new pieces, existing pieces cut and
+	-- added again, removed edges), also for plans that are refused
+	DEBUG_WIREFRAME = true,
+	KEY_WIREFRAME = "ptracksWireframe",
+
 	-- dev experiment, roads with 2+ only: can the mod take the drawn road over? The
 	-- builder is told not to draw its own preview (skipRender), and an input catcher
 	-- logs the build click (IA_SELECT / IA_APPLY). Normal building is unchanged otherwise.

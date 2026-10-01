@@ -1537,6 +1537,27 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- A plan with a track bending at one of its nodes must not reach the game: at a
 	-- crossing that crashes it. Callers check stats.problems.
 	stats.removedEdges = edgesToRemove
+	-- dev aid (options.wireframe): every edge of the plan, for a wireframe view of it:
+	-- { edge, kind } with kind "drawn" (as collected from the builder), "ours" (new
+	-- track), "existing" (an existing edge cut or reshaped and added again), "removed"
+	if options.wireframe then
+		local list = {}
+		for __, d in ipairs(drawn) do
+			list[#list + 1] = { edge = d.edge, kind = "drawn" }
+		end
+		for __, entity in ipairs(edgesToRemove) do
+			local comp = getEdgeComp(entity)
+			if comp then
+				list[#list + 1] = { edge = toEdge(comp), kind = "removed" }
+			end
+		end
+		for i, p in ipairs(pieces) do
+			if stats.plan[i] then
+				list[#list + 1] = { edge = stats.plan[i].edge, kind = p.origins and "existing" or "ours" }
+			end
+		end
+		stats.wireframe = list
+	end
 	stats.removedNodes = nodesToRemove
 	local checkStart = clockMs()
 	stats.problems = geometry.checkPlan(stats.plan, nil, corners)
