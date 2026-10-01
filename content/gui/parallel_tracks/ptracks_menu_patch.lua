@@ -11,6 +11,10 @@ local planner = require "ptracks_planner.lua"
 
 local patch = {}
 
+-- dev experiment: a Selector in the road builder, to see the build click (it disables
+-- the builder, see where it is added)
+local SPIKE_SELECTOR = false
+
 --------------------------------------------------------------------------------
 -- preview
 
@@ -549,10 +553,12 @@ function patch.install()
 				if preview.proposals[1] then
 					params.children[#params.children + 1] = makeViewer(1)
 				end
-				if shared.SPIKE_TAKEOVER and preview.builder == shared.STREET_BUILDER then
+				if SPIKE_SELECTOR and preview.builder == shared.STREET_BUILDER then
 					-- experiment: does a script see the build click? A Selector is how the base
 					-- game's own custom tools take clicks (a builtin: recipes of the mod's own
-					-- crash the game in here). Both callbacks pass the event on.
+					-- crash the game in here). Result 2026-10-01: it sees every click (onSelect,
+					-- mouse event types 0/1/2/8), but takes the input over: the road builder no
+					-- longer drags or previews. Kept for a custom road tool.
 					params.children[#params.children + 1] = builtin.Selector{
 						onSelect = function(entity)
 							shared.log("spike: selector onSelect " .. tostring(entity))
