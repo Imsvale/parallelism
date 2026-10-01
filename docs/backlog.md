@@ -79,7 +79,10 @@ Ideas and open questions parked until the core track building is robust.
   slid onto the crossing, the bit in between changing edge, within 5 cm of the old
   line (a straight-to-curve transition moves a couple of meters at most). No whole-edge
   merges on existing track for crossings any more (they drifted long stretches up to
-  0.2 m): if a slide does not fit, the drag is refused. Switches still merge to clear
+  0.2 m): if a slide does not fit, the drag is refused. A node at a seam (a straight
+  meeting a curve) cannot slide onto the crossing without a cubic carrying both (2 cm
+  for a 0.44 m move); it slides away instead, to just over 5 m from the crossing, so
+  the seam sits in one short piece (about 2 mm) and the rest stays exact. Switches still merge to clear
   their zone, as the native builder does. Our own nodes reuse existing ones only
   within 5 cm (0.1 m at run ends); tracks no longer snap to loose ends at all.
 - **Show refused extra tracks.** When our own plan has a problem (e.g. a piece too
