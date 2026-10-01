@@ -1543,7 +1543,86 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		local deviation = which == 0 and mergeStray(otherEdge, part.edge, merged, part.comp.roadTemplate)
 			or mergeStray(part.edge, otherEdge, merged, part.comp.roadTemplate)
 		if deviation > EXISTING_MAX_DEVIATION then
-			log(string.format("  node %d between crossed edges %d and %d kept: joining would stray %.2f m", endNode.entity, own, other, deviation))
+			-- Not one curve (e.g. a straight meeting a curve): slide the node onto the
+			-- nearest crossing instead. The short bit between them changes edge, the rest
+			-- of both edges keeps its shape, and the neighbour keeps its own crossings
+			-- (seen in game: a leftover node 0.5 m from a crossing, both edges crossed).
+			local nearestCut, onOther = nil, false
+			for __, side in ipairs({ { part.cuts, false }, { split.cuts, true } }) do
+				for __, cut in ipairs(side[1]) do
+					if nearestCut == nil or geometry.horizontalDistance(cut.node.position, endNode.position)
+						< geometry.horizontalDistance(nearestCut.node.position, endNode.position) then
+						nearestCut, onOther = cut, side[2]
+					end
+				end
+			end
+			if nearestCut == nil or nearestCut.zone ~= nil then
+				log(string.format("  node %d between crossed edges %d and %d kept: joining would stray %.2f m", endNode.entity, own, other, deviation))
+				return false
+			end
+			-- which == 1: part runs ... -> node, other runs node -> far; which == 0 mirrored
+			local newPart, newOther, mergeA, mergeB, merged2
+			if not onOther then
+				local u = geometry.closestParameter(nearestCut.node.position, part.edge)
+				local keep, short
+				if which == 1 then
+					keep, short = geometry.split(part.edge, u)
+					merged2 = geometry.merge(short, otherEdge)
+					mergeA, mergeB = short, otherEdge
+				else
+					short, keep = geometry.split(part.edge, u)
+					merged2 = geometry.merge(otherEdge, short)
+					mergeA, mergeB = otherEdge, short
+				end
+				newPart, newOther = keep, merged2
+			else
+				local u = geometry.closestParameter(nearestCut.node.position, otherEdge)
+				local short, rest
+				if which == 1 then
+					short, rest = geometry.split(otherEdge, u)
+					merged2 = geometry.merge(part.edge, short)
+					mergeA, mergeB = part.edge, short
+				else
+					rest, short = geometry.split(otherEdge, u)
+					merged2 = geometry.merge(short, part.edge)
+					mergeA, mergeB = short, part.edge
+				end
+				newPart, newOther = merged2, rest
+			end
+			local slideDeviation = mergeStray(mergeA, mergeB, merged2, part.comp.roadTemplate)
+			if slideDeviation > EXISTING_MAX_DEVIATION then
+				log(string.format("  node %d between crossed edges %d and %d kept: joining would stray %.2f m, sliding %.2f m",
+					endNode.entity, own, other, deviation, slideDeviation))
+				return false
+			end
+			local joint = nearestCut.node
+			local otherCuts = {}
+			for __, cut in ipairs(split.cuts) do
+				if cut ~= nearestCut then
+					otherCuts[#otherCuts + 1] = cut
+				end
+			end
+			for i, cut in ipairs(part.cuts) do
+				if cut == nearestCut then
+					table.remove(part.cuts, i)
+					break
+				end
+			end
+			consumed[other] = true
+			part.edge = newPart
+			if which == 1 then
+				part.node1 = joint
+				part.extra[#part.extra + 1] = { node0 = joint, node1 = far, edge = newOther, origins = { other }, cuts = otherCuts }
+			else
+				part.node0 = joint
+				part.extra[#part.extra + 1] = { node0 = far, node1 = joint, edge = newOther, origins = { other }, cuts = otherCuts }
+			end
+			part.endEdge[which] = nil
+			part.removeEdges[#part.removeEdges + 1] = other
+			part.removeNodes[#part.removeNodes + 1] = endNode.entity
+			stats.moved = stats.moved + 1
+			log(string.format("  node %d between crossed edges %d and %d moved onto the crossing", endNode.entity, own, other))
+			-- the end is now the crossing, nothing more to join on this side
 			return false
 		end
 		consumed[other] = true
@@ -1629,12 +1708,20 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			addCut(part.edge, part.node0, part.node1, part.cuts,
 				{ comp = split.comp, segmentType = segmentType, playerOwned = getPlayerOwned(entity), origins = part.removeEdges })
 			for __, x in ipairs(part.extra) do
-				addSegment(x.node0, x.node1, x.edge,
-					{ comp = split.comp, segmentType = segmentType, playerOwned = getPlayerOwned(entity), origins = x.origins })
-				local length = geometry.arcLength({ p0 = x.node0.position, p1 = x.node1.position, t0 = x.edge.t0, t1 = x.edge.t1 })
-				if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
-					stats.shortPiece = string.format("a piece of %.1f m next to a crossing at %s, the game needs %.0f m",
-						length, shared.vecToString(x.node0.position), MIN_PIECE_LENGTH)
+				local props = { comp = split.comp, segmentType = segmentType, playerOwned = getPlayerOwned(entity), origins = x.origins }
+				if x.cuts and #x.cuts > 0 then
+					-- a crossed neighbour that took over a bit of this edge: its own crossings
+					for __, cut in ipairs(x.cuts) do
+						cut.u = geometry.closestParameter(cut.node.position, x.edge)
+					end
+					addCut(x.edge, x.node0, x.node1, x.cuts, props)
+				else
+					addSegment(x.node0, x.node1, x.edge, props)
+					local length = geometry.arcLength({ p0 = x.node0.position, p1 = x.node1.position, t0 = x.edge.t0, t1 = x.edge.t1 })
+					if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
+						stats.shortPiece = string.format("a piece of %.1f m next to a crossing at %s, the game needs %.0f m",
+							length, shared.vecToString(x.node0.position), MIN_PIECE_LENGTH)
+					end
 				end
 			end
 			for __, e in ipairs(part.removeEdges) do
