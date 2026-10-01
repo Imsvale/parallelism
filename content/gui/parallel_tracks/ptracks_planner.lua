@@ -18,8 +18,10 @@ local REMNANT_TOLERANCE = 0.25
 -- ...and within this for a piece that branches off the drawn chain (see collectDrawnSegments)
 local REMNANT_LOOSE_TOLERANCE = 1.0
 local DEFAULT_TRACK_DISTANCE = 5.0
--- an existing node this close to where a new one would go is used instead
-local NODE_SNAP_DISTANCE = 0.5
+-- An existing node this close to where a new one would go is used instead, e.g. the
+-- end of the previous drag's parallel, which a smooth continuation meets to within
+-- millimeters. Not a way to bend a track onto a node: at 0.5 m that made bumps.
+local NODE_SNAP_DISTANCE = 0.1
 -- ...in the middle of a run (the offset of a node of the drawn track that is not an end)
 local MID_NODE_SNAP_DISTANCE = 0.05
 -- height difference up to which nodes / crossings count as the same level
@@ -775,8 +777,11 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						-- joining a road in the middle, not at its end
 						stats.junctions = stats.junctions + 1
 					end
-				elseif useCount[entity] == 1 then
-					-- an end of the run next to the loose end of a previous parallel: continue it
+				elseif useCount[entity] == 1 and streets then
+					-- an end of the run next to the loose end of a previous parallel: continue
+					-- it. Roads only: a road drag can leave a road end at an angle; the track
+					-- builder always continues smoothly, so a track's offset meets the old end
+					-- exactly, and snapping further only bends the track.
 					local looseEnd, distance = findLooseEnd(newPosition, looseEndRadius)
 					if looseEnd then
 						node = looseEnd
