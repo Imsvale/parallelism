@@ -215,5 +215,42 @@ local wr = geometry.minRadiusAlong(wobbly)
 check("ends parallel but bends in between", wr < 200 and geometry.radius(wobbly.p0, wobbly.p1, wobbly.t0, wobbly.t1) == math.huge,
 	string.format("%.1f", wr))
 
+-- merge: a short bit of a straight joined to the start of a long arc (a seam moved by
+-- 0.44 m) barely changes the track
+do
+	local r = 150
+	local arcAngle = 54 / r
+	local tl = 4 * r * math.tan(arcAngle / 4)
+	-- arc from (0, 0) heading +x, turning left
+	local arc = {
+		p0 = v(0, 0), p1 = v(r * math.sin(arcAngle), r - r * math.cos(arcAngle)),
+		t0 = v(tl, 0, 0), t1 = v(tl * math.cos(arcAngle), tl * math.sin(arcAngle), 0),
+	}
+	local bit = { p0 = v(-0.44, 0), p1 = v(0, 0), t0 = v(0.44, 0, 0), t1 = v(0.44, 0, 0) }
+	local merged = geometry.merge(bit, arc)
+	local deviation = geometry.mergeDeviation(bit, arc, merged)
+	-- the tangents scaled by the arc length ratio alone, as merge did before
+	local la, lb = geometry.arcLength(bit), geometry.arcLength(arc)
+	local fa, fb = la / (la + lb), lb / (la + lb)
+	local ratio = { p0 = bit.p0, p1 = arc.p1, t0 = v(bit.t0.x / fa, bit.t0.y / fa, 0), t1 = v(arc.t1.x / fb, arc.t1.y / fb, 0) }
+	local before = geometry.mergeDeviation(bit, arc, ratio)
+	-- a straight and an arc cannot be one cubic exactly; the fit has to beat the ratio
+	check("short bit joined to a long arc: fit strays less than the length ratio", deviation < before and deviation < 0.03,
+		string.format("%.4f m, ratio %.4f m", deviation, before))
+	-- sliding away instead: the bit plus the first ~5 m of the arc as one piece, the
+	-- rest of the arc exact
+	local v5 = geometry.parameterAtLength(arc, 5.5 - 0.44)
+	local near = geometry.split(arc, v5)
+	local piece = geometry.merge(bit, near)
+	local away = geometry.mergeDeviation(bit, near, piece)
+	check("short bit plus 5 m of the arc as one piece strays under 3 mm", away < 0.003, string.format("%.5f m", away))
+	check("parameterAtLength finds 5.06 m along", math.abs(geometry.arcLength(near) - 5.06) < 0.02,
+		string.format("%.3f m", geometry.arcLength(near)))
+	local halfA, halfB = geometry.split(arc, 0.37)
+	local back = geometry.merge(halfA, halfB)
+	check("two pieces of one arc merge back", geometry.mergeDeviation(halfA, halfB, back) < 0.003,
+		string.format("%.5f m", geometry.mergeDeviation(halfA, halfB, back)))
+end
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

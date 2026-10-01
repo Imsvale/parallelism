@@ -69,6 +69,8 @@ local MAX_MERGE_DEVIATION = 0.2
 -- crossed pieces joined back. Whole edges are no longer merged on existing track (it
 -- drifted off long stretches), except to clear a switch's zone, as the game does.
 local EXISTING_MAX_DEVIATION = 0.05
+-- a slide onto a crossing that strays more than this tries sliding away from it instead
+local SEAM_DEVIATION = 0.005
 -- smallest curve radius for extra tracks if the track template does not say
 local DEFAULT_MIN_RADIUS = 40.0
 -- for extra roads only a road turned inside out on the inside of a bend is refused, the
@@ -1421,32 +1423,79 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				nearestCut = cut
 			end
 		end
-		local slideStray, slideNote = nil, nil
+		local slideNote = nil
 		if nearestCut and nearestCut.zone == nil then
 			local u = geometry.closestParameter(nearestCut.node.position, part.edge)
-			local keep, short, newOther, mergeA, mergeB
+			local keep, short
 			if which == 0 then
 				short, keep = geometry.split(part.edge, u)
-				newOther = geometry.merge(otherEdge, short)
-				mergeA, mergeB = otherEdge, short
 			else
 				keep, short = geometry.split(part.edge, u)
-				newOther = geometry.merge(short, otherEdge)
-				mergeA, mergeB = short, otherEdge
 			end
-			slideStray = mergeStray(mergeA, mergeB, newOther, part.comp.roadTemplate)
-			slideNote = string.format(" (slide: bit %.2f m, strays %s, node %.3f m off the track)",
-				geometry.arcLength(short), slideStray == math.huge and "bends too tight" or string.format("%.3f m", slideStray),
+			local shortLength = geometry.arcLength(short)
+			local template = part.comp.roadTemplate
+
+			-- (a) onto the crossing: the bit beyond joins the neighbouring edge
+			local ontoEdge = which == 0 and geometry.merge(otherEdge, short) or geometry.merge(short, otherEdge)
+			local ontoStray = which == 0 and mergeStray(otherEdge, short, ontoEdge, template)
+				or mergeStray(short, otherEdge, ontoEdge, template)
+
+			-- (b) away from it, just far enough along the neighbouring edge: the bit and the
+			-- start of the neighbour become one piece of minimum length, the rest of the
+			-- neighbour stays exactly as it is. At a seam (a straight meeting a curve) one
+			-- long curve for (a) strays centimeters, one short piece only millimeters.
+			local awayPiece, awayRest, awayPoint, awayStray = nil, nil, nil, math.huge
+			local need = minPieceLength(nearestCut) + 0.5 - shortLength
+			local otherLength = geometry.arcLength(otherEdge)
+			if need > 0 and otherLength - need >= MIN_PIECE_LENGTH then
+				if which == 0 then
+					-- other runs far -> node: the new node lies need short of its end
+					local v = geometry.parameterAtLength(otherEdge, otherLength - need)
+					local rest, near = geometry.split(otherEdge, v)
+					awayPiece = geometry.merge(near, short)
+					awayRest = rest
+					awayStray = mergeStray(near, short, awayPiece, template)
+				else
+					local v = geometry.parameterAtLength(otherEdge, need)
+					local near, rest = geometry.split(otherEdge, v)
+					awayPiece = geometry.merge(short, near)
+					awayRest = rest
+					awayStray = mergeStray(short, near, awayPiece, template)
+				end
+				awayPoint = which == 0 and awayRest.p1 or awayRest.p0
+			end
+
+			local function fmt(x)
+				return x == math.huge and "no" or string.format("%.3f m", x)
+			end
+			slideNote = string.format(" (bit %.2f m; onto the crossing strays %s, away from it %s; node %.3f m off the track)",
+				shortLength, fmt(ontoStray), fmt(awayStray),
 				geometry.horizontalDistance(geometry.hermite(part.edge.p0, part.edge.p1, part.edge.t0, part.edge.t1, u), nearestCut.node.position))
-			if slideStray <= EXISTING_MAX_DEVIATION then
+
+			-- onto the crossing when it is (nearly) exact, it needs no node; else the smaller
+			local useAway = awayPiece ~= nil and ontoStray > SEAM_DEVIATION and awayStray < ontoStray
+			local stray = useAway and awayStray or ontoStray
+			if stray <= EXISTING_MAX_DEVIATION then
 				local joint = nearestCut.node
 				part.edge = keep
 				if which == 0 then
 					part.node0 = joint
-					part.extra[#part.extra + 1] = { node0 = far, node1 = joint, edge = newOther, origins = { other } }
 				else
 					part.node1 = joint
-					part.extra[#part.extra + 1] = { node0 = joint, node1 = far, edge = newOther, origins = { other } }
+				end
+				if useAway then
+					local moved = newNode({ x = awayPoint.x, y = awayPoint.y, z = awayPoint.z })
+					if which == 0 then
+						part.extra[#part.extra + 1] = { node0 = far, node1 = moved, edge = awayRest, origins = { other } }
+						part.extra[#part.extra + 1] = { node0 = moved, node1 = joint, edge = awayPiece, origins = { other } }
+					else
+						part.extra[#part.extra + 1] = { node0 = joint, node1 = moved, edge = awayPiece, origins = { other } }
+						part.extra[#part.extra + 1] = { node0 = moved, node1 = far, edge = awayRest, origins = { other } }
+					end
+				elseif which == 0 then
+					part.extra[#part.extra + 1] = { node0 = far, node1 = joint, edge = ontoEdge, origins = { other } }
+				else
+					part.extra[#part.extra + 1] = { node0 = joint, node1 = far, edge = ontoEdge, origins = { other } }
 				end
 				for i, cut in ipairs(part.cuts) do
 					if cut == nearestCut then
@@ -1458,7 +1507,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				part.removeEdges[#part.removeEdges + 1] = other
 				part.removeNodes[#part.removeNodes + 1] = endNode.entity
 				stats.moved = stats.moved + 1
-				log(prefix .. ", moved it onto the crossing (edge " .. other .. " takes the bit beyond)")
+				log(prefix .. (useAway and ", moved it away from the crossing" or ", moved it onto the crossing") .. slideNote)
 				-- the end is now the crossing, nothing more to clear on this side
 				return false
 			end

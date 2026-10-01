@@ -244,17 +244,87 @@ end
 -- One edge replacing a followed by b (a.p1 = b.p0). Exact when both are pieces of one
 -- curve split at a point (straights, arcs), since a piece's tangents are those of the
 -- whole curve scaled by the piece's share of it.
+-- The parameter u at which the edge is length long (from its start), by sampling the
+-- arc length and interpolating; 0 or 1 beyond the ends.
+function geometry.parameterAtLength(edge, length)
+	if length <= 0 then
+		return 0
+	end
+	local n = 64
+	local total = 0
+	local prev = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, 0)
+	for i = 1, n do
+		local u = i / n
+		local p = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, u)
+		local step = horizontalDistance(prev, p)
+		if total + step >= length then
+			return (i - 1 + (length - total) / math.max(step, 1e-12)) / n
+		end
+		total = total + step
+		prev = p
+	end
+	return 1
+end
+
+-- One edge for a followed by b: the outer end points and end directions are kept. The
+-- tangent lengths are first taken from the arc length ratio (exact for two pieces cut
+-- from one curve), then fitted to points sampled along a and b, which matters when a
+-- short bit is joined to a long edge (the ratio alone strayed 5 cm for a 0.44 m bit on
+-- a 54 m edge, where the track barely changes).
 function geometry.merge(a, b)
 	local la = geometry.arcLength(a)
 	local lb = geometry.arcLength(b)
 	local fa = la / (la + lb)
 	local fb = lb / (la + lb)
-	return {
+	local ratio = {
 		p0 = geometry.copy(a.p0),
 		p1 = geometry.copy(b.p1),
 		t0 = { x = a.t0.x / fa, y = a.t0.y / fa, z = a.t0.z / fa },
 		t1 = { x = b.t1.x / fb, y = b.t1.y / fb, z = b.t1.z / fb },
 	}
+	-- least squares for the two tangent lengths, samples placed by arc length share
+	local q0, q1, d0, d1 = ratio.p0, ratio.p1, ratio.t0, ratio.t1
+	local a11, a12, a22, b1, b2 = 0, 0, 0, 0, 0
+	local n = 12
+	for _, side in ipairs({ { a, 0, fa }, { b, fa, fb } }) do
+		local edge, start, share = side[1], side[2], side[3]
+		for i = 1, n do
+			local s = (i - 0.5) / n
+			local target = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, s)
+			local u = start + share * s
+			local u2, u3 = u * u, u * u * u
+			local h00 = 2 * u3 - 3 * u2 + 1
+			local h01 = -2 * u3 + 3 * u2
+			local h10 = u3 - 2 * u2 + u
+			local h11 = u3 - u2
+			local rx = target.x - (h00 * q0.x + h01 * q1.x)
+			local ry = target.y - (h00 * q0.y + h01 * q1.y)
+			a11 = a11 + h10 * h10 * (d0.x * d0.x + d0.y * d0.y)
+			a12 = a12 + h10 * h11 * (d0.x * d1.x + d0.y * d1.y)
+			a22 = a22 + h11 * h11 * (d1.x * d1.x + d1.y * d1.y)
+			b1 = b1 + h10 * (rx * d0.x + ry * d0.y)
+			b2 = b2 + h11 * (rx * d1.x + ry * d1.y)
+		end
+	end
+	local det = a11 * a22 - a12 * a12
+	if math.abs(det) < 1e-12 then
+		return ratio
+	end
+	local s0 = (b1 * a22 - b2 * a12) / det
+	local s1 = (a11 * b2 - a12 * b1) / det
+	if not (s0 > 0 and s1 > 0) then
+		return ratio
+	end
+	local fitted = {
+		p0 = ratio.p0,
+		p1 = ratio.p1,
+		t0 = { x = d0.x * s0, y = d0.y * s0, z = d0.z * s0 },
+		t1 = { x = d1.x * s1, y = d1.y * s1, z = d1.z * s1 },
+	}
+	if geometry.mergeDeviation(a, b, fitted) < geometry.mergeDeviation(a, b, ratio) then
+		return fitted
+	end
+	return ratio
 end
 
 local function evalEdge(e, u)
