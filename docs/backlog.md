@@ -2,6 +2,14 @@
 
 Ideas and open questions parked until the core track building is robust.
 
+## Parked (the user brings these up)
+
+- **Fanned crossing (2026-10-01).** The drawn track runs down alongside a 6-track
+  bundle and turns away; the extra tracks fan out and cross each other ("would cross
+  each other"). A different kind of failure. Screenshot `2026-10-01 21_12_24-Transport
+  Fever 3.png` (in the user's Screenshots folder); log lines with the judged and the
+  refused plan in `docs/parked/2026-10-01_fanned-crossing.log`.
+
 ## Open questions
 
 - **Cost of the extra tracks.** Done 2026-09-30: built with a `Context` whose `player`
