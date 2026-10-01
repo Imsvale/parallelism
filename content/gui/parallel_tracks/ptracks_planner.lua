@@ -818,34 +818,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					end
 					for __, x in ipairs(geometry.intersections(oe.edge, other)) do
 						local angle = geometry.crossingAngle(oe.edge, x.ua, other, x.ub)
-						-- A crossing right at one of our own nodes in the middle of the run
-						-- (within EDGE_END_DISTANCE of the end of both offset edges there)
-						-- was dropped by both, and the track ran through the other one (seen
-						-- in game: a Collision). That node becomes the crossing node instead.
-						local atNode = nil
-						if not isAwayFromEnds(oe.edge, x.pointA) then
-							local near = geometry.horizontalDistance(x.pointA, oe.edge.p0) <= EDGE_END_DISTANCE and oe.node0 or oe.node1
-							if movable[near.entity] then
-								atNode = near
-							end
-						end
-						if atNode and math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT and isAwayFromEnds(other, x.pointB)
-							and not crossingNodes[atNode.entity .. ":" .. entity] then
-							crossingNodes[atNode.entity .. ":" .. entity] = true
-							if noJunctions then
-								stats.junctions = stats.junctions + 1
-							elseif angle < MIN_CROSSING_ANGLE then
-								stats.shallow = stats.shallow + 1
-							else
-								-- no longer free to be dropped: the crossing needs it
-								movable[atNode.entity] = nil
-								crossingAtNode[atNode.entity] = true
-								addSplit(entity, x.ub, atNode, angle)
-								stats.crossings = stats.crossings + 1
-								log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg, at own node %d ", x.ub, angle, atNode.entity)
-									.. shared.vecToString(atNode.position))
-							end
-						elseif math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
+						-- (a crossing right at one of our own nodes, at the end of both offset
+						-- edges there, is not reported here at all; see below)
+						if math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
 							and isAwayFromEnds(oe.edge, x.pointA) and isAwayFromEnds(other, x.pointB) then
 							if noJunctions then
 								stats.junctions = stats.junctions + 1
@@ -871,7 +846,77 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		-- An existing track running through one of our own nodes in the middle of the run:
 		-- the intersection search misses a crossing right at the end of both edges there
 		-- (seen twice in game: the track ran through the other one, Collision). Checked
-		-- here by distance; the node becomes the crossing node.
+		-- here by distance; the node becomes the crossing node, moved exactly onto the
+		-- crossing first: a crossing node has to lie on both tracks. Left where it was (up
+		-- to 0.15 m off), the 5 m pieces cut from the other track bent to meet it (seen in
+		-- game: 30 m bends in a 75 m arc).
+
+		-- signed horizontal distance of p from the edge (positive: to its left)
+		local function signedDistance(p, other)
+			local u = geometry.closestParameter(p, other)
+			local w = geometry.hermite(other.p0, other.p1, other.t0, other.t1, u)
+			local t = geometry.hermiteDerivative(other.p0, other.p1, other.t0, other.t1, u)
+			local d = geometry.horizontalDistance(p, w)
+			return (t.x * (p.y - w.y) - t.y * (p.x - w.x)) >= 0 and d or -d
+		end
+		-- Moves the own node (between two offset edges) along our track onto the point
+		-- where it crosses other: only the short bit in between changes edge. Returns
+		-- the point, or nil if the crossing is not within a meter or the edges would bend.
+		local function snapOntoCrossing(node, other)
+			local a, b = nil, nil
+			for __, oe in ipairs(offsetEdges) do
+				if oe.node1.entity == node.entity then
+					a = oe
+				elseif oe.node0.entity == node.entity then
+					b = oe
+				end
+			end
+			if a == nil or b == nil then
+				return nil
+			end
+			-- s in [-1, 0] runs back along a, [0, 1] on along b, about a meter each way
+			local spanA = math.min(0.5, 1 / math.max(1, geometry.arcLength(a.edge)))
+			local spanB = math.min(0.5, 1 / math.max(1, geometry.arcLength(b.edge)))
+			local function pointAt(s)
+				if s < 0 then
+					return geometry.hermite(a.edge.p0, a.edge.p1, a.edge.t0, a.edge.t1, 1 + s * spanA)
+				end
+				return geometry.hermite(b.edge.p0, b.edge.p1, b.edge.t0, b.edge.t1, s * spanB)
+			end
+			local lo, hi = -1, 1
+			local fLo = signedDistance(pointAt(lo), other)
+			if fLo * signedDistance(pointAt(hi), other) > 0 then
+				return nil
+			end
+			for __ = 1, 40 do
+				local mid = (lo + hi) / 2
+				local fMid = signedDistance(pointAt(mid), other)
+				if (fMid >= 0) == (fLo >= 0) then
+					lo, fLo = mid, fMid
+				else
+					hi = mid
+				end
+			end
+			local s = (lo + hi) / 2
+			local newA, newB, short, merged, mergeA, mergeB
+			if s < 0 then
+				newA, short = geometry.split(a.edge, 1 + s * spanA)
+				merged = geometry.merge(short, b.edge)
+				newB, mergeA, mergeB = merged, short, b.edge
+			else
+				short, newB = geometry.split(b.edge, s * spanB)
+				merged = geometry.merge(a.edge, short)
+				newA, mergeA, mergeB = merged, a.edge, short
+			end
+			if mergeStray(mergeA, mergeB, merged, templateOf(a.props)) > MAX_MERGE_DEVIATION then
+				return nil
+			end
+			local point = pointAt(s)
+			a.edge, b.edge = newA, newB
+			node.position = { x = point.x, y = point.y, z = node.position.z }
+			return node.position
+		end
+
 		for __, oe in ipairs(offsetEdges) do
 			for which, node in ipairs({ oe.node0, oe.node1 }) do
 				if movable[node.entity] and not crossingAtNode[node.entity] then
@@ -899,13 +944,18 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 									stats.junctions = stats.junctions + 1
 								elseif angle < MIN_CROSSING_ANGLE then
 									stats.shallow = stats.shallow + 1
-								else
+								elseif snapOntoCrossing(node, other) then
+									u = geometry.closestParameter(node.position, other)
 									movable[node.entity] = nil
 									crossingAtNode[node.entity] = true
 									addSplit(entity, u, node, angle)
 									stats.crossings = stats.crossings + 1
 									log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg, through own node %d ", u, angle, node.entity)
 										.. shared.vecToString(node.position))
+								else
+									-- not without bending: the track would run through the other one
+									stats.missedCrossing = string.format("a crossing at own node %d could not be placed", node.entity)
+									log("  " .. stats.missedCrossing)
 								end
 								break
 							end
@@ -1255,6 +1305,22 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- spacing apart; new crossings then land next to them on both sides (seen in game: a
 	-- whole grid refused for short pieces). Those nodes lie on one curve, so the join
 	-- restores it. Returns true if it joined one.
+	-- the offset edge with a cut at the node (a crossing node of ours), lazily indexed
+	local offsetEdgeByCutNode = nil
+	local function offsetEdgeAt(nodeEntity)
+		if offsetEdgeByCutNode == nil then
+			offsetEdgeByCutNode = {}
+			for __, offsetEdges in ipairs(tracks) do
+				for __, oe in ipairs(offsetEdges) do
+					for __, cut in ipairs(oe.cuts) do
+						offsetEdgeByCutNode[cut.node.entity] = oe
+					end
+				end
+			end
+		end
+		return offsetEdgeByCutNode[nodeEntity]
+	end
+
 	local consumed = {}
 	local function absorbNeighbour(part, which)
 		local endNode = which == 0 and part.node0 or part.node1
@@ -1370,9 +1436,26 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			clearEnd(part, 0)
 			clearEnd(part, 1)
 			if #part.removeNodes > 0 then
-				-- the curve changed, find the cuts on it again
+				-- The curve changed (merged, up to MAX_MERGE_DEVIATION off the old one):
+				-- move each crossing node to where our track crosses the new curve, a
+				-- node off the curve makes the short pieces next to it bend to meet it.
 				for __, cut in ipairs(part.cuts) do
-					cut.u = geometry.closestParameter(cut.node.position, part.edge)
+					local ours = offsetEdgeAt(cut.node.entity)
+					local best = nil
+					if ours then
+						for __, x in ipairs(geometry.intersections(ours.edge, part.edge)) do
+							local d = geometry.horizontalDistance(x.pointA, cut.node.position)
+							if d < 1 and (best == nil or d < best.d) then
+								best = { d = d, point = x.pointA, u = x.ub }
+							end
+						end
+					end
+					if best then
+						cut.node.position = { x = best.point.x, y = best.point.y, z = cut.node.position.z }
+						cut.u = best.u
+					else
+						cut.u = geometry.closestParameter(cut.node.position, part.edge)
+					end
 				end
 			end
 			addCut(part.edge, part.node0, part.node1, part.cuts,
@@ -1397,6 +1480,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 
 	for __, offsetEdges in ipairs(tracks) do
 		for __, oe in ipairs(offsetEdges) do
+			-- crossing nodes may have moved onto a merged existing track, see above
+			for __, cut in ipairs(oe.cuts) do
+				cut.u = geometry.closestParameter(cut.node.position, oe.edge)
+			end
 			addCut(oe.edge, oe.node0, oe.node1, oe.cuts, oe.props)
 			stats.edges = stats.edges + 1
 		end
@@ -1430,6 +1517,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	end
 	if stats.usesRemoved then
 		table.insert(stats.problems, 1, string.format("the plan uses node %d, which it removes", stats.usesRemoved))
+	end
+	if stats.missedCrossing then
+		table.insert(stats.problems, 1, stats.missedCrossing)
 	end
 	if stats.sharpCorner then
 		table.insert(stats.problems, 1, string.format("the road turns %.0f deg at the end of a parallel, more than %.0f", stats.sharpCorner, MITER_MAX_ANGLE))
