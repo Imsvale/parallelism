@@ -22,9 +22,9 @@ local PENDING_MAX_FRAMES = 300
 -- dev aid: log the whole proposal of every track build, also with a track count of 1
 local DEBUG_DUMP = true
 
--- dev aid: skip the combined build and go straight to the one-by-one fallback, to see
--- its notification
-local FORCE_FALLBACK = false
+-- dev aid: when the combined build of the extra tracks fails, build them one by one, to
+-- see which one fails and why. Builds part of a drag, so never on in play.
+local ONE_BY_ONE_DIAGNOSTIC = false
 
 -- engine state: once per loaded script, saves made before an event was added still get it
 local subscribed = false
@@ -347,7 +347,7 @@ local function describeStats(stats)
 		.. tostring(stats.nodeConfigs or 0) .. " node configs"
 end
 
--- Sends one build and logs how it went; onDone(success) runs after it.
+-- Sends one build and logs how it went; onDone(success, game message) runs after it.
 local function sendBuild(label, proposal, stats, onDone)
 	-- with a player in the context the build is paid like the player's own, as the base
 	-- game does when swapping a bridge type from the entity window
@@ -359,6 +359,7 @@ local function sendBuild(label, proposal, stats, onDone)
 			costs = ", costs " .. tostring(res.resultProposalData.costs)
 		end)
 		shared.log(label .. " (" .. describeStats(stats) .. "): " .. (success and "ok" or "FAILED") .. costs)
+		local message = nil
 		if not success then
 			-- the whole plan, as a lua table that tests can load
 			shared.log("  plan: " .. planner.planToString(stats.plan))
@@ -366,8 +367,12 @@ local function sendBuild(label, proposal, stats, onDone)
 			if not ok then
 				shared.log("  no error details: " .. tostring(err))
 			end
+			pcall(function()
+				local messages = res.resultProposalData.errorState.messages
+				message = #messages > 0 and tostring(messages[1]) or nil
+			end)
 		end
-		onDone(success)
+		onDone(success, message)
 	end)
 end
 
@@ -386,9 +391,10 @@ local function notify(description)
 	end
 end
 
--- Fallback: builds the track at offsets[index], then the next one once that is in the
--- world. One command per track, planned from the world as it is at that moment, so a
--- track that cannot be built does not take the others with it.
+-- Diagnostic, not for play (ONE_BY_ONE_DIAGNOSTIC): builds the track at offsets[index],
+-- then the next one once that is in the world, one command per track planned from the
+-- world as it is then. Builds what it can around a track that fails, which the mod must
+-- not do; it shows which track fails and why, when the combined build fails.
 local buildTrack
 
 local function buildNext(job, index)
@@ -408,7 +414,7 @@ buildTrack = function(job, index)
 		return
 	end
 	shared.log("track at offset " .. offset .. ":")
-	local proposal, stats = planner.makeProposal(readDrawn(job), offset, shared.log, false, { reverse = job.reverse })
+	local proposal, stats = planner.makeProposal(readDrawn(job), offset, shared.log, false, { reverse = job.reverse, step = job.distance })
 	if stats.edges == 0 or #stats.problems > 0 then
 		buildNext(job, index + 1)
 		return
@@ -422,11 +428,13 @@ buildTrack = function(job, index)
 end
 
 -- All extra tracks in one command: they appear together, the drag is built completely
--- or not at all, and it is the same plan the preview shows. While it is new, a failure
--- falls back to building the tracks one by one, and the log tells how often that is.
+-- or not at all, and it is the same plan the preview shows. If the game refuses it,
+-- nothing is built: either a game limit or a fault in the mod, to be found and dealt
+-- with here (ONE_BY_ONE_DIAGNOSTIC shows which track fails).
 local function buildCombined(job)
 	shared.log("tracks at offsets " .. table.concat(job.offsets, ", ") .. ":")
-	local proposal, stats = planner.makeProposal(readDrawn(job), job.offsets, shared.log, false, { reverse = job.reverse })
+	local proposal, stats = planner.makeProposal(readDrawn(job), job.offsets, shared.log, false,
+		{ reverse = job.reverse, step = job.distance })
 	if stats.edges == 0 then
 		return
 	end
@@ -437,17 +445,17 @@ local function buildCombined(job)
 		notify("The parallel " .. shared.nounOf(job.builder) .. " were not built: they cannot be laid out safely here.")
 		return
 	end
-	if FORCE_FALLBACK then
-		shared.log("FORCE_FALLBACK: building the tracks one by one")
-		job.built = 0
-		buildNext(job, 1)
-		return
-	end
-	sendBuild("all tracks", proposal, stats, function(success)
+	sendBuild("all tracks", proposal, stats, function(success, message)
 		if not success then
-			shared.log("combined build failed, building the tracks one by one")
-			job.built = 0
-			buildNext(job, 1)
+			if ONE_BY_ONE_DIAGNOSTIC then
+				shared.log("combined build failed, ONE_BY_ONE_DIAGNOSTIC: building the tracks one by one")
+				job.built = 0
+				buildNext(job, 1)
+			else
+				shared.log("combined build failed, nothing built")
+				notify("The parallel " .. shared.nounOf(job.builder) .. " could not be built"
+					.. (message and (": " .. message) or "") .. ". Only the drawn one was built.")
+			end
 		end
 	end)
 end
@@ -457,7 +465,8 @@ end
 local function runJob(job)
 	local ok, err = pcall(function()
 		local comp = planner.getEdgeComp(job.drawn[1].entity)
-		job.offsets = geometry.offsets(job.count, job.side, planner.parallelDistance(comp.roadTemplate, job.spacing))
+		job.distance = planner.parallelDistance(comp.roadTemplate, job.spacing)
+		job.offsets = geometry.offsets(job.count, job.side, job.distance)
 		buildCombined(job)
 	end)
 	if not ok then

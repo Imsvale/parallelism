@@ -49,9 +49,20 @@ Ideas and open questions parked until the core track building is robust.
   Fixed in the planner, to be confirmed in game: drawn segments are oriented
   consistently before offsetting, merges that would stray more than 0.2 m are not made,
   and plans with a track bending at a node are never shown or built.
-- **Combined build fallback.** The extra tracks are built with one command; if that
-  fails, they are built one by one. Once the single command proves reliable, comment the
-  fallback out (keep it in the code).
+- **Combined build fallback: now a diagnostic only (2026-10-01).** In play the extra
+  tracks are built in one command or not at all; a failure notifies the player. The
+  one-by-one builder runs only with `ONE_BY_ONE_DIAGNOSTIC` in `ptracks.script.lua`: it
+  builds part of a drag, but shows which track fails and why. It did that once: 6
+  tracks across a curving 6-track bundle, 3 of 5 built, the other 2 buildable by hand.
+  Faults it exposed, fixed: a crossing exactly at one of our own nodes was dropped
+  (the track ran through the other one; now that node becomes the crossing node), and
+  the loose-end snap took a single track's offset as the step (snapped onto the
+  neighbour's end; the planner now gets the real distance). Still open from it: an own
+  node 4.6 m from a crossing that cannot be merged away (the merge would stray 3.6 m):
+  moving the node a few metres along the track instead of merging would keep the shape.
+- **The drag check knows the game's verdict on the preview (2026-10-01).** A drag whose
+  preview the game judges critical (e.g. a grid of crossings 5 m apart: Collision) is
+  refused before the click, instead of being built and failing.
 
 - **Preview trails the primary track.** The extra tracks appear a few frames after the
   builder's own. Planning is about 1 ms on open ground; the rest is the forced menu

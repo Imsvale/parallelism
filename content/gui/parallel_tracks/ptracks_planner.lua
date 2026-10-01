@@ -450,9 +450,13 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	local streets = isStreet(planRoadType)
 	local noJunctions = streets and not ROAD_JUNCTIONS
 	-- the distance between neighbouring tracks: the nearest offset is one step out
-	local step = math.huge
-	for __, offset in ipairs(offsets) do
-		step = math.min(step, math.abs(offset))
+	-- options.step: when planning a single track further out (the one-by-one builder),
+	-- its offset is several steps (it once snapped onto the neighbour's loose end)
+	local step = options.step or math.huge
+	if not options.step then
+		for __, offset in ipairs(offsets) do
+			step = math.min(step, math.abs(offset))
+		end
 	end
 	local looseEndRadius = math.min(MIN_PIECE_LENGTH * 1.5, LOOSE_END_SHARE * step)
 	geometry.fastIntersections = shared.PERF_MEASURES
@@ -544,6 +548,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	local corners = {}
 	-- loose ends moved to a corner: they are removed, nothing may use them
 	local movedAway = {}
+	-- our own nodes that became crossing nodes (a crossing right at the node)
+	local crossingAtNode = {}
 	-- our node -> the drawn node it mirrors, for node configs
 	local mirrorOf = {}
 	timing.firstTrack = clockMs()
@@ -758,6 +764,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 
 		local phase = lap("offsets", timing.trackStart)
 		-- crossings with existing tracks on the same level get a shared node
+		-- (own node .. ":" .. existing edge) of crossings made at one of our nodes
+		local crossingNodes = {}
 		for __, oe in ipairs(offsetEdges) do
 			for __, entity in ipairs(findEdgesNear(oe.edge)) do
 				local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
@@ -771,7 +779,34 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					end
 					for __, x in ipairs(geometry.intersections(oe.edge, other)) do
 						local angle = geometry.crossingAngle(oe.edge, x.ua, other, x.ub)
-						if math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
+						-- A crossing right at one of our own nodes in the middle of the run
+						-- (within EDGE_END_DISTANCE of the end of both offset edges there)
+						-- was dropped by both, and the track ran through the other one (seen
+						-- in game: a Collision). That node becomes the crossing node instead.
+						local atNode = nil
+						if not isAwayFromEnds(oe.edge, x.pointA) then
+							local near = geometry.horizontalDistance(x.pointA, oe.edge.p0) <= EDGE_END_DISTANCE and oe.node0 or oe.node1
+							if movable[near.entity] then
+								atNode = near
+							end
+						end
+						if atNode and math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT and isAwayFromEnds(other, x.pointB)
+							and not crossingNodes[atNode.entity .. ":" .. entity] then
+							crossingNodes[atNode.entity .. ":" .. entity] = true
+							if noJunctions then
+								stats.junctions = stats.junctions + 1
+							elseif angle < MIN_CROSSING_ANGLE then
+								stats.shallow = stats.shallow + 1
+							else
+								-- no longer free to be dropped: the crossing needs it
+								movable[atNode.entity] = nil
+								crossingAtNode[atNode.entity] = true
+								addSplit(entity, x.ub, atNode, angle)
+								stats.crossings = stats.crossings + 1
+								log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg, at own node %d ", x.ub, angle, atNode.entity)
+									.. shared.vecToString(atNode.position))
+							end
+						elseif math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
 							and isAwayFromEnds(oe.edge, x.pointA) and isAwayFromEnds(other, x.pointB) then
 							if noJunctions then
 								stats.junctions = stats.junctions + 1
@@ -963,7 +998,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			addSegment(chain[i], chain[i + 1], piece, props)
 			-- a piece next to a crossing or branch that could not be made long enough: the
 			-- game refuses it at best, and crashed on it for roads
-			if #chain > 2 then
+			if #chain > 2 or crossingAtNode[chain[i].entity] or crossingAtNode[chain[i + 1].entity] then
 				local length = geometry.arcLength({ p0 = chain[i].position, p1 = chain[i + 1].position, t0 = piece.t0, t1 = piece.t1 })
 				if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
 					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
