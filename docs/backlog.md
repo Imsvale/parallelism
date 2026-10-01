@@ -79,7 +79,12 @@ Ideas and open questions parked until the core track building is robust.
   slid onto the crossing, the bit in between changing edge, within 5 cm of the old
   line (a straight-to-curve transition moves a couple of meters at most). No whole-edge
   merges on existing track for crossings any more (they drifted long stretches up to
-  0.2 m): if a slide does not fit, the drag is refused. A node at a seam (a straight
+  0.2 m): if a slide does not fit, the drag is refused. Edges are cubic curves, not
+  arcs: merging two pieces of one circle needs the right tangent lengths. The old merge
+  took them from the length ratio, exact only for two pieces cut from one edge; for a
+  0.44 m bit and 50 m of the same 65.6 m circle it strayed 3 cm. Merges now fit the
+  tangent lengths (1.4 mm there). The deviation check itself traced curves too coarsely
+  (4.7 mm on that arc) and now samples every half meter. A node at a seam (a straight
   meeting a curve) cannot slide onto the crossing without a cubic carrying both (2 cm
   for a 0.44 m move); it slides away instead, to just over 5 m from the crossing, so
   the seam sits in one short piece (about 2 mm) and the rest stays exact. Switches still merge to clear
