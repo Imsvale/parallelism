@@ -357,28 +357,13 @@ end
 local function sendBuild(label, proposal, stats, onDone)
 	-- with a player in the context the build is paid like the player's own, as the base
 	-- game does when swapping a bridge type from the entity window
+	-- a fresh context (logged 2026-10-02): gatherFields true, checkTerrainAlignment,
+	-- gatherBuildings, cleanupStreetGraph and extendProposalRedoPillars false
 	local context = api.type.Context.new()
-	-- dev aid: what a fresh context holds, and the edge distance the mod sends (open
-	-- questions: terrain, ballast and catenary, see the backlog)
-	local flags = {}
-	for __, key in ipairs({ "checkTerrainAlignment", "gatherFields", "gatherBuildings", "cleanupStreetGraph", "extendProposalRedoPillars" }) do
-		local ok, value = pcall(function()
-			return context[key]
-		end)
-		flags[#flags + 1] = key .. " " .. tostring(value) .. (ok and "" or " (error)")
-	end
-	local distances = {}
-	local ok, err = pcall(function()
-		for __, segment in ipairs(proposal.streetProposal.edgesToAdd) do
-			distances[#distances + 1] = tostring(segment.comp.distance)
-		end
-	end)
-	shared.log("  context: " .. table.concat(flags, ", ") .. "; edge distances " .. table.concat(distances, " ")
-		.. (ok and "" or " (" .. tostring(err) .. ")"))
 	context.player = api.engine.util.getPlayer()
-	-- bridges: one by one, the native builder gives a bundle pillars across its whole
-	-- width, a combined build only a narrow central one; testing whether this flag
-	-- (rebuild the pillars of neighbouring bridges) is what makes the difference
+	-- bridges: without it a bundle got only a narrow central pillar, built one by one
+	-- natively it gets one across its whole width (fixed together with the edge
+	-- distance, which of the two did it was not tested)
 	context.extendProposalRedoPillars = true
 	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
 		local costs = ""

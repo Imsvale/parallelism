@@ -133,16 +133,17 @@ Ideas and open questions parked until the core track building is robust.
     follow terrain, embankments, levelling, cuttings and tunnels all work. Revisit only
     on an actual failure.
   - Fields: destroyed by the extra tracks, as they should be.
-  - Catenary: cosmetic only, electrification works. The extra tracks had no overhead
-    wires and the masts were merged over the first two tracks only. The extra tracks
-    had edge `distance` 0, native track has the template's `trackDistance` (5). Now
-    copied from the drawn track; to confirm in game.
-  - Bridges: a bundle gets a narrow central pillar, built one by one natively it gets a
-    pillar across the whole width. Now building with `extendProposalRedoPillars`, and
-    the `distance` fix may matter here too; to confirm in game.
-  - Still to check: the other `Context` flags (`checkTerrainAlignment`, `gatherFields`,
-    `cleanupStreetGraph`, `gatherBuildings`, `refundableEntities`); the build logs
-    what a fresh context holds.
+  - Catenary: fixed 2026-10-02. The extra tracks had no overhead wires and the masts
+    were merged over the first two tracks only, because their edge `distance` was 0
+    (native track carries the template's `trackDistance`, 5). Now copied from the
+    drawn track.
+  - Bridges: fixed 2026-10-02, pillars now span the whole bundle (before: a narrow
+    central one). Fixed by `extendProposalRedoPillars` and the `distance` together.
+  - Still to check: buildings in the way. A fresh `Context` has `gatherBuildings`
+    false (also `checkTerrainAlignment` and `cleanupStreetGraph`; `gatherFields` is
+    true), so whether a bundle through a town demolishes houses as the native builder
+    does is untested. `refundableEntities` (refunds when rebuilding recent
+    construction) is not set either.
 - **Translations.** The strings are English only.
 - **Tell the player when a track fails.** Refused drags get a builder error message. A
   build that fails after the drag was accepted (combined build falls back to one by one,
