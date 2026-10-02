@@ -51,12 +51,15 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Open: roads
 
-- **Road junctions are off.** Three crashes (`map_util.h` "it != map.end()", while the
-  game evaluated the preview) came from plans where an extra road crossed or branched
-  onto a road; track crossings never did this. Suspected: missing node configs, which
-  our roads now copy from the drawn ones (fixed after the crashes). `ROAD_JUNCTIONS =
-  false` in the planner refuses such drags. To try: turn it on, a two-way road
-  crossing, then one-way.
+- **Road junctions: on again, to test (2026-10-02).** Three crashes (`map_util.h`
+  "it != map.end()", while the game evaluated the preview) came from plans where an
+  extra road crossed or branched onto a road. Our junction nodes had no node config at
+  all. Study of the road builder's junctions (`docs/studies/2026-10-02_native-junctions.md`):
+  every node gets a config, lanes counted from the node, every turn but U-turns.
+  `planner.junctionConnections` reproduces all four studied junctions exactly
+  (`tests/junction_test.lua`); `ROAD_JUNCTIONS = true`. A junction whose config fails
+  is refused, never sent. Untested in game; trams (`withTram`) and roads with more
+  lanes not studied.
 - **Starting a drag from the extra road's end.** The new pair pivots around the other
   road, so its extra road lands beside or into the old pair; some angles are accepted,
   some refused (collision). Wanted: a drag from either end of a pair continues the pair.

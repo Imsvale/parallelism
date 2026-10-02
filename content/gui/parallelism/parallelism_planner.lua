@@ -47,10 +47,12 @@ local MITER_MIN_ANGLE = 1.0
 -- (the corner lies offset * tan(kink / 2) along the roads: 21 m at 105 degrees for a
 -- 16 m road, 39 m at 135; an inside corner that eats a whole edge is refused anyway)
 local MITER_MAX_ANGLE = 135.0
--- dev switch: extra roads crossing or branching onto roads. Every plan with such a
--- junction crashed the game so far (map_util.h "it != map.end()", three times, while
--- evaluating the preview), road plans without one did not. Off: such drags are refused.
-local ROAD_JUNCTIONS = false
+-- dev switch: extra roads crossing or branching onto roads. Until 2026-10-02 every plan
+-- with such a junction crashed the game (map_util.h "it != map.end()", three times,
+-- while evaluating the preview): our junction nodes had no node config. Now they get
+-- the lane connections the road builder would give them (junctionConnections).
+-- Off: such drags are refused.
+local ROAD_JUNCTIONS = true
 -- give new and touched nodes node configs (lane connections etc.) as the builder does;
 -- false: none at all, as before 2026-10-01
 local NODE_CONFIGS = true
@@ -220,6 +222,112 @@ local function minPieceLength(cut)
 	local t = math.tan(math.rad(math.max(cut.angle, 1)))
 	return math.max(MIN_PIECE_LENGTH, CROSSING_CLEARANCE / t)
 end
+
+-- Lane connections at a road junction, as the road builder makes them (2026-10-02, see
+-- docs/studies/2026-10-02_native-junctions.md). edges: { entity, dir (leaving the
+-- node), atStart (the node is the edge's node0), lanes (its lane configs) }. Returns
+-- plain { segment0, lane0, segment1, lane1, withRoad, withTram }.
+-- Lanes are counted as seen from the node: the physical index for an edge starting
+-- there, mirrored for one ending there. Every incoming edge connects to every other
+-- outgoing edge (no U-turns): straight on lane to lane; a single lane into all lanes; a
+-- right turn from the right lanes (lane to lane into as many), a left turn from the
+-- left lane into all.
+local TRANSPORT_ROAD = { 2, 3, 4 } -- CAR, BUS, TRUCK
+local TRANSPORT_TRAM = { 5, 6 } -- TRAM, ELECTRIC_TRAM
+local function junctionConnections(edges)
+	local function hasMode(lane, modes)
+		local found = false
+		pcall(function()
+			for mode, on in pairs(lane.transportModes) do
+				for __, m in ipairs(modes) do
+					if on and mode == m then
+						found = true
+					end
+				end
+			end
+		end)
+		return found
+	end
+	-- per edge: driving lanes coming in and going out, each ordered left to right as the
+	-- driver sees them
+	local info = {}
+	for __, e in ipairs(edges) do
+		local incoming, outgoing = {}, {}
+		local lanes = e.lanes or {}
+		local n = #lanes
+		for i, lane in ipairs(lanes) do
+			local road, tram = hasMode(lane, TRANSPORT_ROAD), hasMode(lane, TRANSPORT_TRAM)
+			if road or tram then
+				local physical = i - 1
+				local frame = e.atStart and physical or (n - 1 - physical)
+				local entry = { lane = frame, road = road, tram = tram }
+				local coming = (e.atStart and not lane.forward) or (not e.atStart and lane.forward)
+				if coming then
+					incoming[#incoming + 1] = entry
+				else
+					outgoing[#outgoing + 1] = entry
+				end
+			end
+		end
+		-- incoming: the higher index is further left; outgoing: the lower
+		table.sort(incoming, function(a, b) return a.lane > b.lane end)
+		table.sort(outgoing, function(a, b) return a.lane < b.lane end)
+		info[#info + 1] = { edge = e, incoming = incoming, outgoing = outgoing }
+	end
+	local result = {}
+	local function connect(a, la, b, lb)
+		local withRoad, withTram = la.road and lb.road, la.tram and lb.tram
+		if withRoad or withTram then
+			result[#result + 1] = { segment0 = a.edge.entity, lane0 = la.lane, segment1 = b.edge.entity, lane1 = lb.lane,
+				withRoad = withRoad, withTram = withTram }
+		end
+	end
+	for __, a in ipairs(info) do
+		for __, b in ipairs(info) do
+			local ins, outs = a.incoming, b.outgoing
+			if a.edge.entity ~= b.edge.entity and #ins > 0 and #outs > 0 then
+				-- the turn from arriving along a (against its leaving direction) to leaving
+				-- along b: positive to the left
+				local ax, ay = -a.edge.dir.x, -a.edge.dir.y
+				local bx, by = b.edge.dir.x, b.edge.dir.y
+				local atan2 = math.atan2 or math.atan
+				local angle = math.deg(atan2(ax * by - ay * bx, ax * bx + ay * by))
+				if math.abs(angle) < 170 then
+					if #ins == 1 then
+						for __, lo in ipairs(outs) do
+							connect(a, ins[1], b, lo)
+						end
+					elseif math.abs(angle) < 45 or (angle < 0 and #outs > 1) then
+						-- straight on, or a right turn into several lanes: lane to lane,
+						-- lined up on the right for a right turn, else on the left
+						local count = math.min(#ins, #outs)
+						for k = 1, count do
+							if angle < 0 and math.abs(angle) >= 45 then
+								connect(a, ins[#ins - count + k], b, outs[#outs - count + k])
+							else
+								connect(a, ins[k], b, outs[k])
+							end
+						end
+						-- extra incoming lanes straight on: into the nearest outgoing lane
+						for k = count + 1, #ins do
+							connect(a, ins[k], b, outs[#outs])
+						end
+					elseif angle < 0 then
+						-- right turn into one lane: from the right lane
+						connect(a, ins[#ins], b, outs[1])
+					else
+						-- left turn: from the left lane into all
+						for __, lo in ipairs(outs) do
+							connect(a, ins[1], b, lo)
+						end
+					end
+				end
+			end
+		end
+	end
+	return result
+end
+planner.junctionConnections = junctionConnections
 
 -- The smallest radius the game allows for a track or road type.
 local function allowedRadius(templateName)
@@ -1292,7 +1400,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			edge = { p0 = node0.position, p1 = node1.position, t0 = piece.t0, t1 = piece.t1 },
 		}
 		pieces[#pieces + 1] = { entity = entity, node0 = node0.entity, node1 = node1.entity, t0 = piece.t0, t1 = piece.t1,
-			origins = props.origins, template = templateOf(props) }
+			origins = props.origins, template = templateOf(props), comp = props.comp }
 		-- the game objects only when a proposal is wanted, a check needs just the plan
 		if planOnly then
 			return
@@ -2147,8 +2255,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			table.insert(atNode[node], entry)
 		end
 		for __, p in ipairs(pieces) do
-			addAt(p.node0, { entity = p.entity, dir = p.t0, origins = p.origins })
-			addAt(p.node1, { entity = p.entity, dir = neg(p.t1), origins = p.origins })
+			addAt(p.node0, { entity = p.entity, dir = p.t0, origins = p.origins, piece = p, atStart = true })
+			addAt(p.node1, { entity = p.entity, dir = neg(p.t1), origins = p.origins, piece = p, atStart = false })
 		end
 		-- existing edges at a node, but those left out
 		local function worldAt(node, leaveOut)
@@ -2178,6 +2286,44 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			end
 			return worldNodeConfig(node)
 		end
+		-- LaneConnection objects for junctionConnections' plain tables. The API documents
+		-- no constructor; if there is none, copies of a connection of a drawn node's config
+		-- are reused (each read of laneConnections hands out fresh copies).
+		local function makeLaneConnections(connections)
+			local make = nil
+			pcall(function()
+				if api.type.LaneConnection and api.type.LaneConnection.new then
+					api.type.LaneConnection.new()
+					make = function()
+						return api.type.LaneConnection.new()
+					end
+				end
+			end)
+			if make == nil then
+				for __, d in ipairs(drawn) do
+					for __, node in ipairs({ d.node0, d.node1 }) do
+						local src = make == nil and sourceConfig(node)
+						if src and #src.laneConnections > 0 then
+							make = function()
+								return src.laneConnections[1]
+							end
+						end
+					end
+				end
+			end
+			if make == nil then
+				error("no way to make lane connections")
+			end
+			local result = {}
+			for __, c in ipairs(connections) do
+				local lc = make()
+				lc.segment0, lc.lane0, lc.segment1, lc.lane1 = c.segment0, c.lane0, c.segment1, c.lane1
+				lc.withRoad, lc.withTram = c.withRoad, c.withTram
+				result[#result + 1] = lc
+			end
+			return result
+		end
+
 		local toAdd, toRemove, done = {}, {}, {}
 		-- A new config for node, like src with its edges replaced through map (connections
 		-- to unmapped edges dropped), traffic turned around with swap. src is only read:
@@ -2223,9 +2369,71 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			done[node] = true
 		end
 
+		-- Road junctions our extra roads make (crossing or joining a road): every turn, as
+		-- the road builder configures its own (docs/studies/2026-10-02_native-junctions.md).
+		if streets then
+			for node, entries in pairs(atNode) do
+				local ours = false
+				for __, e in ipairs(entries) do
+					if e.origins == nil then
+						ours = true
+					end
+				end
+				if ours and not done[node] then
+					local edges = {}
+					for __, e in ipairs(entries) do
+						local lanes = nil
+						pcall(function()
+							lanes = laneConfigsOf(e.piece.comp, e.piece.template)
+						end)
+						edges[#edges + 1] = { entity = e.entity, dir = e.dir, atStart = e.atStart, lanes = lanes }
+					end
+					if not newNodes[node] then
+						for __, s in ipairs(getNode2Segments()[node] or {}) do
+							if not removedEdges[s] then
+								local comp = readEdgeComp(s)
+								if comp then
+									local atStart = comp.node0 == node
+									edges[#edges + 1] = { entity = s, atStart = atStart, lanes = comp.laneConfigs,
+										dir = atStart and plain(comp.tangent0) or neg(plain(comp.tangent1)) }
+								end
+							end
+						end
+					end
+					if #edges >= 3 then
+						local connections = junctionConnections(edges)
+						local crosswalks = {}
+						for __, e in ipairs(edges) do
+							crosswalks[#crosswalks + 1] = e.entity
+						end
+						local ok, err = pcall(function()
+							local nc = api.type.BaseNodeLaneConnectionAndEntity.new()
+							nc.entity = node
+							local comp = nc.comp
+							comp.laneConnections = makeLaneConnections(connections)
+							comp.crosswalks = crosswalks
+							comp.trafficLightPreference = 2
+							comp.doubleSlipSwitch = false
+							nc.comp = comp
+							if not newNodes[node] and worldNodeConfig(node) ~= nil then
+								toRemove[#toRemove + 1] = node
+							end
+							toAdd[#toAdd + 1] = nc
+						end)
+						done[node] = true
+						log(string.format("  junction node %d: %d edges, %d lane connections%s", node, #edges, #connections,
+							ok and "" or (", config failed: " .. tostring(err))))
+						if not ok then
+							stats.junctionFailed = tostring(err)
+						end
+					end
+				end
+			end
+		end
+
 		-- our nodes: like the drawn node they mirror, edges matched by direction
 		for node, drawnNode in pairs(mirrorOf) do
-			local exists = newNodes[node] or (node >= 0 and not removedNodes[node])
+			local exists = not done[node] and (newNodes[node] or (node >= 0 and not removedNodes[node]))
 			local src = exists and sourceConfig(drawnNode)
 			if src then
 				local from = {}
@@ -2316,6 +2524,13 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			end)
 			if not ok then
 				shared.log("node configs left out: " .. tostring(err))
+			end
+			-- a road junction without its config is what crashed the game before
+			-- (map_util.h): never hand one over
+			if streets and (not ok or stats.junctionFailed) then
+				local problem = "a road junction could not be configured: " .. tostring(stats.junctionFailed or err)
+				table.insert(stats.problems, 1, problem)
+				log("  plan problem: " .. problem)
 			end
 		end
 		-- An edge without lane configs crashes the game (lane_config_util.cpp, seen for
