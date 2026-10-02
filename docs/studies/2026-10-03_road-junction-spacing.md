@@ -24,47 +24,67 @@ Procedure:
 **NB:** Make sure the extension in **#4** snaps to its own **0° build guide**,
 **not** the road beside it, as that would shift it to a 4 m spacing!
 
-| Angle | X     | Note                                        |
-| ----- | ----- | ------------------------------------------- |
-| 90°   | 2.5 m |                                             |
-| 75°   | ?     | 4.0 m works on the "outside", but not the "inside" of the angle. |
-| 60°   |       |                                             |
-| 45°   |       |                                             |
-| 30°   |       |                                             |
-| 20°   |       |                                             |
+| Angle | X      | Note |
+| ----- | ------ | ---- |
+| 90°   | 2.5 m  |      |
+| 75°   | 6.5 m  |      |
+| 60°   | 10.0 m |      |
+| 45°   | 13.0 m |      |
+| 30°   | 15.0 m |      |
+| 20°   | 16.0 m |      |
+| 15°   | 16.0 m |      |
+| 10°   | 16.5 m |      |
+
+At 5° the game will do a T, but not an X. Since T's are more generous, I here placed the
+junctions for the now pesudo-parallels as close to the middle junction as I could fit.
+(They're no longer exactly parallel, but inching a bit closer to the middle road.)
+See log for the result. It's the last one I built.
+
+### Analysis of the native X (2026-10-03)
+
+The native X column is one rule: **the corners of neighbouring junctions must be about
+2.5 m apart along the main road.** A junction's corner (where the edges of the two roads
+meet) lies `wc/2 / sin(a) + wm/2 / tan(a)` from its centre along the main road (`wc`:
+crossing road width, `wm`: main road width, `a`: the angle). With the junctions
+`(gap + wc) / sin(a)` apart, that gives the smallest gap:
+
+    gap_min = wm * cos(a) + 2.5 m * sin(a)
+
+For 16 m roads, predicted against measured: 90: 2.50 / 2.5, 75: 6.56 / 6.5, 60: 10.17 /
+10.0, 45: 13.08 / 13.0, 30: 15.11 / 15.0, 20: 15.89 / 16.0, 15: 16.10 / 16.0, 10: 16.19 /
+16.5. The measured values are on the slider's 0.5 m steps; all within one step. Left
+between the corners: 2.1 to 2.8 m (4.3 m at 10 degrees, where one step is a lot).
+
+Read: the main road's width, seen along the crossing roads (`wm * cos(a)`), plus a
+little. At small angles it approaches the main road's full width.
 
 ### Parallelism mod
 
-| Angle | T     | X     | Note                                                                 |
-| ----- | ----- | ----- | -------------------------------------------------------------------- |
-| 90°   | 2.5 m | 2.5 m | X at 2.5 m holds from 90.0° down to about 88.2° (slightly variable). |
-| 75°   | 2.0 m |       | One failed, one succeeded, so it seems to be right on the edge.      |
-| 60°   |       |       |                                                                      |
-| 45°   |       |       |                                                                      |
-| 30°   |       |       |                                                                      |
-| 20°   |       |       |                                                                      |
+| Angle | T     | X      | Note                                                                 |
+| ----- | ----- | ------ | -------------------------------------------------------------------- |
+| 90°   | 2.5 m | 2.5 m  |  |
+| 75°   | 2.5 m | 6.5 m  |                                                                      |
+| 60°   | 2.0 m | 10.5 m |                                                                      |
+| 45°   | 1.5 m | 13.5 m |                                                                      |
+| 30°   | 1.5 m | 16.0 m |                                                                      |
+| 20°   | N/A   |        | Angle too small. Won't build at any spacing (current mod version).   |
 
-#### Observations
+## Earlier notes (to re-validate against the new data)
 
-- T and X have different limits: at 75°, a T at 2.0 m builds, an X at 2.0 m does not.
-- ¹Follow-up to the above: T works at (mostly?) any angle at 2.5 m spacing.
-- At 90° a T needs 2.5 m, at 75° only 2.0 m: a slanted T fits closer (its junction is
-  longer along the main road, so the two junctions sit further apart there).
-
-## Native layout of the main road (33 degrees, 20 m spacing)
+### Native layout of the main road (33 degrees, 20 m spacing)
 
 Twice the same: junctions 66.1 m apart (36 m centre distance / sin 33), the nearest
 plain nodes outside them 53.0 m away, none between them. The builder removes plain nodes
 12.7-12.9 m from a junction and moves or inserts a node to make the outer piece 53.0 m.
 Verified parallel: the three crossing roads at 0.00 degrees to each other, 36.00 m apart.
 
-## T and X are the same
+### T and X are the same
 
 Built correctly (extended along the straight build guide, not snapped to the other road,
 which pulls the spacing toward the builder's 4 m), T and X accept the same spacing. 90
 degrees: 2.5 m.
 
-## Native layout at 25 degrees (20 m spacing, two X groups)
+### Native layout at 25 degrees (20 m spacing, two X groups)
 
 Junctions 85.3 m apart along the main road (36 / sin 25), nothing between them, the
 nearest plain node outside 62.1 m away (both groups); on the outer crossing roads also
@@ -75,7 +95,7 @@ w/2 / sin(a) + w/2 / tan(a) + 26.0 (16 m roads: 53.0 m at 33 degrees, 62.1 m at 
 predicts 34 m at 90, 40 m at 60, 46 m at 45). Used as the room next to a road junction
 (outer side) since 2026-10-03. To check: a native X at 90 or 60 degrees.
 
-## Native layouts at 90 and 60 degrees (20 m spacing)
+### Native layouts at 90 and 60 degrees (20 m spacing)
 
 No fixed distance here: the nearest plain nodes outside the junctions were wherever they
 happened to be, all beyond the predicted room (90 degrees: 45.3 m and more against 34 m
