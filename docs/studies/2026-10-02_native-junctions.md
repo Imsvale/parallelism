@@ -41,6 +41,17 @@ A three-lane highway carriageway across a two-way road (13 connections) and star
 at one (8): the same rules hold. Straight on lane to lane, the right turn from the
 right lane, the left turn from the left lane, a single lane into all three.
 
+## Hand-built highway controls (01:02-01:05)
+
+Two-lane highway carriageway across a two-way street in both directions, starting at
+one, ending at one; three-lane highways crossing each other sharply (turns of about 146
+degrees). The rules above reproduce the first four once one is added: **a road with no
+way straight on (ending at another) turns left from all its lanes**, the right turn
+still from the right lane only. The sharp highway crossing does not fit: the builder
+connects the 146-degree turn lane to lane and spreads the right two lanes over the
+straight exit. One sample is not enough to derive that; it stays a known difference
+(our connections there are complete, just laid out differently).
+
 ## The mod (2026-10-02)
 
 `planner.junctionConnections` reproduces all six junctions exactly

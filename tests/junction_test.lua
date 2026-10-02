@@ -99,5 +99,53 @@ compare("highway leaving a two-way road (T)", {
 }, { "796.1->411.1", "796.1->411.2", "796.1->411.3", "796.1->486.2", "486.1->796.2", "486.1->411.1",
 	"486.1->411.2", "486.1->411.3" })
 
+-- hand-built controls (2026-10-02 01:02-01:05): two-lane highway (medium) and town road
+local HIGHWAY2 = { lane(false, SHOULDER), lane(true, CAR), lane(true, CAR), lane(true, SHOULDER) }
+
+-- (7) highway right to left across a two-way road, node 832
+compare("highway R-L across two-way", {
+	edge(838, false, 59.28, -2.82, HIGHWAY2), -- 396 -> 832, comes from the east
+	edge(516, true, -55.25, 2.63, HIGHWAY2),  -- 832 -> 833, leaves west
+	edge(840, false, -2.72, -54.49, TWO_WAY), -- 805 -> 832, leaves south
+	edge(836, true, 3.35, 67.08, TWO_WAY),    -- 832 -> 508, leaves north
+}, { "838.1->516.2", "838.2->516.1", "840.1->516.1", "840.1->516.2", "838.2->840.2", "840.1->836.2",
+	"838.1->836.2", "836.1->840.2", "836.1->516.1", "836.1->516.2" })
+
+-- (8) highway left to right across a two-way road, node 735
+compare("highway L-R across two-way", {
+	edge(851, false, -46.42, 2.16, HIGHWAY2), -- 347 -> 735, comes from the west
+	edge(852, true, 35.72, -1.66, HIGHWAY2),  -- 735 -> 848, leaves east
+	edge(854, true, 2.27, 45.40, TWO_WAY),    -- 735 -> 832, leaves north
+	edge(855, false, -3.17, -63.57, TWO_WAY), -- 333 -> 735, leaves south
+}, { "851.1->852.2", "851.2->852.1", "855.1->852.1", "855.1->852.2", "851.1->855.2", "855.1->854.2",
+	"854.1->855.2", "854.1->852.1", "854.1->852.2", "851.2->854.2" })
+
+-- (9) highway starting at a two-way road, node 498
+compare("highway starting at two-way", {
+	edge(877, false, -2.97, -64.79, TWO_WAY), -- 327 -> 498, leaves south
+	edge(875, true, 50.00, -2.29, HIGHWAY2),  -- 498 -> 514, leaves east
+	edge(878, true, 3.08, 67.28, TWO_WAY),    -- 498 -> 489, leaves north
+}, { "877.1->875.1", "877.1->875.2", "877.1->878.2", "878.1->877.2", "878.1->875.1", "878.1->875.2" })
+
+-- (10) highway ending at a two-way road, node 644
+compare("highway ending at two-way", {
+	edge(363, false, 61.07, -2.40, HIGHWAY2), -- 303 -> 644, comes from the east
+	edge(887, false, -3.36, -73.31, TWO_WAY), -- 498 -> 644, leaves south
+	edge(886, true, 2.81, 61.26, TWO_WAY),    -- 644 -> 293, leaves north
+}, { "363.1->887.2", "363.2->887.2", "887.1->886.2", "363.1->886.2", "886.1->887.2" })
+
+-- (11) three-lane highways crossing at a sharp angle, node 900: KNOWN DIFFERENCE. The
+-- builder lane-to-lanes the 146 degree turn and spreads the right two lanes over the
+-- other exit; one sample is not enough to derive that. Reported, not counted.
+local counted = failures
+compare("highways crossing sharply (known difference)", {
+	edge(903, false, 31.45, 71.99, HIGHWAY),    -- 899 -> 900, comes from the north-east
+	edge(904, true, -46.45, -106.33, HIGHWAY),  -- 900 -> 901, leaves south-west
+	edge(905, false, 12.53, -70.15, HIGHWAY),   -- 730 -> 900, comes from the south
+	edge(906, true, -14.71, 82.38, HIGHWAY),    -- 900 -> 468, leaves north
+}, { "903.1->904.3", "903.2->904.2", "903.3->904.1", "905.1->904.3", "905.2->904.2", "905.3->904.1",
+	"905.1->906.3", "905.2->906.1", "905.2->906.2", "903.1->906.2", "903.1->906.3", "903.2->906.1" })
+failures = counted
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

@@ -275,6 +275,24 @@ local function junctionConnections(edges)
 		info[#info + 1] = { edge = e, incoming = incoming, outgoing = outgoing }
 	end
 	local result = {}
+	local atan2 = math.atan2 or math.atan
+	-- the turn from arriving along a (against its leaving direction) to leaving along b,
+	-- in degrees, positive to the left
+	local function turn(a, b)
+		local ax, ay = -a.edge.dir.x, -a.edge.dir.y
+		local bx, by = b.edge.dir.x, b.edge.dir.y
+		return math.deg(atan2(ax * by - ay * bx, ax * bx + ay * by))
+	end
+	-- an incoming edge with no way straight on (a road ending at another, T): its left
+	-- turn takes all lanes (seen in game: both lanes of a highway ending at a road)
+	local function hasStraight(a)
+		for __, b in ipairs(info) do
+			if b.edge.entity ~= a.edge.entity and #b.outgoing > 0 and math.abs(turn(a, b)) < 45 then
+				return true
+			end
+		end
+		return false
+	end
 	local function connect(a, la, b, lb)
 		local withRoad, withTram = la.road and lb.road, la.tram and lb.tram
 		if withRoad or withTram then
@@ -286,12 +304,7 @@ local function junctionConnections(edges)
 		for __, b in ipairs(info) do
 			local ins, outs = a.incoming, b.outgoing
 			if a.edge.entity ~= b.edge.entity and #ins > 0 and #outs > 0 then
-				-- the turn from arriving along a (against its leaving direction) to leaving
-				-- along b: positive to the left
-				local ax, ay = -a.edge.dir.x, -a.edge.dir.y
-				local bx, by = b.edge.dir.x, b.edge.dir.y
-				local atan2 = math.atan2 or math.atan
-				local angle = math.deg(atan2(ax * by - ay * bx, ax * bx + ay * by))
+				local angle = turn(a, b)
 				if math.abs(angle) < 170 then
 					if #ins == 1 then
 						for __, lo in ipairs(outs) do
@@ -315,6 +328,12 @@ local function junctionConnections(edges)
 					elseif angle < 0 then
 						-- right turn into one lane: from the right lane
 						connect(a, ins[#ins], b, outs[1])
+					elseif not hasStraight(a) then
+						-- left turn with no way straight on: from all lanes, lane to lane on
+						-- the left, the rest into the right outgoing lane
+						for k, li in ipairs(ins) do
+							connect(a, li, b, outs[math.min(k, #outs)])
+						end
 					else
 						-- left turn: from the left lane into all
 						for __, lo in ipairs(outs) do
