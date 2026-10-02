@@ -842,7 +842,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				or text:find("moved", 1, true) or text:find("cannot", 1, true) or text:find("could not", 1, true)
 				or text:find("joined", 1, true) or text:find("refit", 1, true) or text:find("not done", 1, true)
 				or text:find("slid", 1, true) or text:find("anchored", 1, true) or text:find("crossing edge", 1, true)
-				or text:find("lengthened", 1, true) or text:find("junction node", 1, true) or text:find("cut ", 1, true)) then
+				or text:find("lengthened", 1, true) or text:find("junction node", 1, true) or text:find("cut ", 1, true)
+				or text:find("run end", 1, true) or text:find("through existing", 1, true)) then
 				stats.notes[#stats.notes + 1] = text
 			end
 		end
@@ -1225,6 +1226,13 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				if not anchorCuts[node.entity] then
 					-- gets the node config the builder made for the drawn node
 					mirrorOf[node.entity] = entity
+				end
+				-- dev aid: how each end of the run was placed
+				if useCount[entity] == 1 then
+					local segments = getNode2Segments()[entity]
+					log(string.format("  run end: drawn node %d (%d world edges) at %s -> our node %d at %s%s%s", entity,
+						segments and #segments or 0, shared.vecToString(position), node.entity, shared.vecToString(node.position),
+						slidFrom and " (slid)" or "", corners[node.entity] and " (corner)" or ""))
 				end
 				if slidFrom then
 					branchFrom[node.entity] = slidFrom
