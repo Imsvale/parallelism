@@ -34,6 +34,10 @@ local EDGE_SNAP_DISTANCE = 0.25
 local EDGE_END_DISTANCE = 0.1
 -- a split closer than this to a node of the split edge moves that node instead
 local MIN_PIECE_LENGTH = 5.0
+-- Roads need more room between a junction or crossing and the next node: a 5.06 m
+-- piece next to a T and a 5.9 m one before a junction were refused (Construction Not
+-- Possible, 2026-10-02). A first guess, not measured.
+local ROAD_MIN_PIECE_LENGTH = 10.0
 -- an end of an offset track continues a loose end within this share of the distance
 -- between neighbouring tracks (below half, so never the neighbour's)
 local LOOSE_END_SHARE = 0.4
@@ -215,18 +219,23 @@ local function styleOf(props)
 	return template and template.streetStyle or nil
 end
 
+-- The shortest piece the plan allows next to a crossing or junction: roads need more.
+local function pieceMinimum()
+	return isStreet(planRoadType) and ROAD_MIN_PIECE_LENGTH or MIN_PIECE_LENGTH
+end
+
 -- The shortest piece of track the game accepts next to a node on it. A crossing needs
 -- more the flatter it is: the two tracks run side by side for a while (fitted to builds
 -- in game: at 6.1 degrees 7.7 m next to a crossing failed, 14.9 m worked).
 local function minPieceLength(cut)
 	if cut.zone ~= nil then
-		return math.max(MIN_PIECE_LENGTH, cut.zone)
+		return math.max(pieceMinimum(), cut.zone)
 	end
 	if cut.angle == nil then
-		return MIN_PIECE_LENGTH
+		return pieceMinimum()
 	end
 	local t = math.tan(math.rad(math.max(cut.angle, 1)))
-	return math.max(MIN_PIECE_LENGTH, CROSSING_CLEARANCE / t)
+	return math.max(pieceMinimum(), CROSSING_CLEARANCE / t)
 end
 
 -- Lane connections at a road junction: the mod's own sensible default (2026-10-02), not
@@ -1526,7 +1535,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						if cutNodes[far.entity] or crossingAtNode[far.entity] then
 							local d = geometry.horizontalDistance(far.position, position)
 							nearest = math.min(nearest, d)
-							if d < MIN_PIECE_LENGTH then
+							if d < pieceMinimum() then
 								tooClose = true
 							end
 						end
@@ -1748,9 +1757,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			-- onto crossings, then edges run crossing to crossing; seen in game: 1.35 m)
 			if #chain > 2 or cutNodes[chain[i].entity] or cutNodes[chain[i + 1].entity] then
 				local length = geometry.arcLength({ p0 = chain[i].position, p1 = chain[i + 1].position, t0 = piece.t0, t1 = piece.t1 })
-				if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
+				if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
 					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
-						length, shared.vecToString(chain[i].position), MIN_PIECE_LENGTH)
+						length, shared.vecToString(chain[i].position), pieceMinimum())
 					stats.problemAt = chain[i].position
 				end
 			end
@@ -2379,9 +2388,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				else
 					addSegment(x.node0, x.node1, x.edge, props)
 					local length = geometry.arcLength({ p0 = x.node0.position, p1 = x.node1.position, t0 = x.edge.t0, t1 = x.edge.t1 })
-					if length < MIN_PIECE_LENGTH - PIECE_TOLERANCE and not stats.shortPiece then
+					if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
 						stats.shortPiece = string.format("a piece of %.1f m next to a crossing at %s, the game needs %.0f m",
-							length, shared.vecToString(x.node0.position), MIN_PIECE_LENGTH)
+							length, shared.vecToString(x.node0.position), pieceMinimum())
 						stats.problemAt = x.node0.position
 					end
 				end
