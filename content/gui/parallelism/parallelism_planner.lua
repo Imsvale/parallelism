@@ -49,8 +49,9 @@ local MITER_MIN_ANGLE = 1.0
 local MITER_MAX_ANGLE = 135.0
 -- A drag starting or ending on a road at an angle (a T): each parallel's end slides
 -- along the parallel to meet that road, by at most this many times the offset (about
--- 2.7 times at 20 degrees), and not for roads meeting flatter than BRANCH_MIN_ANGLE.
-local BRANCH_MAX_SLIDE = 3.0
+-- 2.7 times at 20 degrees, 3.7 at 15), and not for roads meeting flatter than
+-- BRANCH_MIN_ANGLE (the game refuses those anyway).
+local BRANCH_MAX_SLIDE = 5.0
 local BRANCH_MIN_ANGLE = 15.0
 -- dev switch: extra roads crossing or branching onto roads. Until 2026-10-02 every plan
 -- with such a junction crashed the game (map_util.h "it != map.end()", three times,
@@ -1009,73 +1010,90 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		-- The drawn road starts or ends on a road (a T, at any angle): the parallel's end,
 		-- offset sideways, misses that road unless the angle is square. Slide it along
 		-- the parallel's own direction until it meets the road (shortening or extending the
-		-- parallel), where it then branches off as usual. Returns the point, or nil.
+		-- parallel), where it then branches off as usual. The road is followed through its
+		-- plain nodes: at sharp angles and on curves the parallel meets it on a further
+		-- piece. Returns the point, or nil.
 		local function branchPoint(entity, position, tangent, offsetPosition)
 			if not streets then
 				return nil
 			end
-			local roads = {}
+			-- the road the drawn end lies on: its edges at the drawn node (built), or the
+			-- edge under it (while dragging the drawn end is new, the road still whole)
+			local start = {}
 			for __, s in ipairs(getNode2Segments()[entity] or {}) do
 				if not drawnEntities[s] then
 					local comp = getEdgeComp(s)
 					if comp and isPlanned(comp) then
-						roads[#roads + 1] = toEdge(comp)
+						start[#start + 1] = s
 					end
 				end
 			end
-			if #roads < 2 then
-				-- while dragging the drawn end is new and the road still whole in the world
+			if #start < 2 then
 				local e = findEdgeAt(position)
 				if e and not drawnEntities[e] then
-					roads = { toEdge(getEdgeComp(e)) }
-				elseif #roads < 2 then
+					start = { e }
+				elseif #start < 2 then
 					return nil -- not a T (a road end is a corner, see tryCorner)
 				end
 			end
-			local reasons = {}
-			local best, bestS = nil, math.huge
-			for __, road in ipairs(roads) do
-				-- the road may curve: intersect with its tangent line, project, repeat
-				local u = geometry.closestParameter(offsetPosition, road)
-				local point = nil
-				local s = nil
-				for __ = 1, 6 do
-					local q = geometry.hermite(road.p0, road.p1, road.t0, road.t1, u)
-					local t = geometry.hermiteDerivative(road.p0, road.p1, road.t0, road.t1, u)
-					if geometry.angleBetween(tangent, t) < BRANCH_MIN_ANGLE or geometry.angleBetween(tangent, t) > 180 - BRANCH_MIN_ANGLE then
-						reasons[#reasons + 1] = string.format("meets at %.1f deg", geometry.angleBetween(tangent, t))
-						s = nil
-						break
+			local len = math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y)
+			if len < 1e-9 then
+				return nil
+			end
+			local dir = { x = tangent.x / len, y = tangent.y / len, z = 0 }
+			local reach = BRANCH_MAX_SLIDE * math.abs(offset)
+			-- the road's edges within reach, following plain nodes (two edges) both ways
+			local roads, seen, queue = {}, {}, {}
+			for __, s in ipairs(start) do
+				seen[s] = true
+				queue[#queue + 1] = s
+			end
+			while #queue > 0 and #roads < 12 do
+				local s = table.remove(queue, 1)
+				local comp = getEdgeComp(s)
+				if comp then
+					local edge = toEdge(comp)
+					roads[#roads + 1] = edge
+					for __, n in ipairs({ comp.node0, comp.node1 }) do
+						local p = plain(n == comp.node0 and comp.position0 or comp.position1)
+						local at = getNode2Segments()[n] or {}
+						if #at == 2 and geometry.horizontalDistance(p, offsetPosition) < reach + 10 then
+							for __, t in ipairs(at) do
+								local c = not seen[t] and not drawnEntities[t] and getEdgeComp(t)
+								if c and isPlanned(c) then
+									seen[t] = true
+									queue[#queue + 1] = t
+								end
+							end
+						end
 					end
-					local along = geometry.lineIntersection(offsetPosition, tangent, q, t)
-					if along == nil then
-						reasons[#reasons + 1] = "parallel to it"
-						s = nil
-						break
-					end
-					local len = math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y)
-					s = along * len
-					local x = { x = offsetPosition.x + tangent.x * along, y = offsetPosition.y + tangent.y * along, z = offsetPosition.z }
-					u = geometry.closestParameter(x, road)
-					point = geometry.hermite(road.p0, road.p1, road.t0, road.t1, u)
 				end
-				if s and point then
-					local miss = geometry.horizontalDistance(point, {
-						x = offsetPosition.x + tangent.x / math.sqrt(tangent.x ^ 2 + tangent.y ^ 2) * s,
-						y = offsetPosition.y + tangent.y / math.sqrt(tangent.x ^ 2 + tangent.y ^ 2) * s })
-					if miss >= 0.05 then
-						reasons[#reasons + 1] = string.format("misses it by %.2f m", miss)
-					elseif math.abs(s) > BRANCH_MAX_SLIDE * math.abs(offset) then
-						reasons[#reasons + 1] = string.format("would slide %.1f m", s)
+			end
+			-- the parallel's line, both ways, as a straight edge
+			local ray = {
+				p0 = { x = offsetPosition.x - dir.x * reach, y = offsetPosition.y - dir.y * reach, z = offsetPosition.z },
+				p1 = { x = offsetPosition.x + dir.x * reach, y = offsetPosition.y + dir.y * reach, z = offsetPosition.z },
+			}
+			ray.t0 = { x = ray.p1.x - ray.p0.x, y = ray.p1.y - ray.p0.y, z = 0 }
+			ray.t1 = ray.t0
+			local best, bestS = nil, math.huge
+			local reasons = {}
+			for __, road in ipairs(roads) do
+				for __, x in ipairs(geometry.intersections(ray, road)) do
+					local angle = geometry.crossingAngle(ray, x.ua, road, x.ub)
+					local s = (x.pointB.x - offsetPosition.x) * dir.x + (x.pointB.y - offsetPosition.y) * dir.y
+					if angle < BRANCH_MIN_ANGLE then
+						reasons[#reasons + 1] = string.format("meets at %.1f deg", angle)
 					elseif math.abs(s) < math.abs(bestS) then
-						best, bestS = { x = point.x, y = point.y, z = offsetPosition.z }, s
+						best, bestS = { x = x.pointB.x, y = x.pointB.y, z = offsetPosition.z }, s
 					end
 				end
 			end
 			if best then
 				log(string.format("  node %d: on a road at an angle, parallel end slid %.2f m along itself to meet it", entity, bestS))
 			else
-				log(string.format("  node %d: on a road, parallel end not slid (%s)", entity, table.concat(reasons, "; ")))
+				log(string.format("  node %d: on a road, parallel end not slid (%d road edges searched within %.0f m%s)", entity, #roads,
+					reach, #reasons > 0 and ("; " .. table.concat(reasons, "; ")) or ""))
 			end
 			return best
 		end
