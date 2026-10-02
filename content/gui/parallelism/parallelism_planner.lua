@@ -905,6 +905,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		local nodes = {}
 		-- new nodes in the middle of the offset track, which may be dropped
 		local movable = {}
+		-- run ends slid onto a road (branchPoint): node -> where the parallel would end
+		local branchFrom = {}
 
 		-- The drawn run starts (atStart) or ends at the end of an existing road and kinks
 		-- there. If the parallel of that road ends where it should, move its end to the
@@ -1085,10 +1087,14 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				if newPosition == nil then
 					return nil
 				end
+				local slidFrom = nil
 				if useCount[entity] == 1 then
 					node = tryCorner(entity, position, tangent, atStart)
 					if node == nil then
-						newPosition = branchPoint(entity, position, tangent, newPosition) or newPosition
+						local point = branchPoint(entity, position, tangent, newPosition)
+						if point then
+							slidFrom, newPosition = newPosition, point
+						end
 					end
 				end
 				-- in the middle of the run only a node practically on the spot: a node of
@@ -1150,6 +1156,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					-- gets the node config the builder made for the drawn node
 					mirrorOf[node.entity] = entity
 				end
+				if slidFrom then
+					branchFrom[node.entity] = slidFrom
+				end
 				nodes[entity] = node
 			end
 			return node
@@ -1161,8 +1170,57 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			local node0 = getNode(d.node0, d.edge.p0, d.edge.t0, true)
 			local node1 = getNode(d.node1, d.edge.p1, d.edge.t1, false)
 			if node0 and node1 then
-				local t0, t1 = geometry.offsetTangents(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1, node0.position, node1.position)
-				local edge = { p0 = node0.position, p1 = node1.position, t0 = t0, t1 = t1 }
+				-- the parallel as it would run, then cut or lengthened to an end slid onto a
+				-- road (branchPoint): cut exactly where it meets the road, lengthened by a
+				-- straight piece (a gap under a minimum piece: the end just moves)
+				local props = { comp = d.comp, template = d.template, segmentType = d.segmentType, playerOwned = getPlayerOwned(d.entity) }
+				local p0 = branchFrom[node0.entity] or node0.position
+				local p1 = branchFrom[node1.entity] or node1.position
+				local t0, t1 = geometry.offsetTangents(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1, p0, p1)
+				local natural = { p0 = p0, p1 = p1, t0 = t0, t1 = t1 }
+				local startNode, endNode = node0, node1
+				for __, atStart in ipairs({ true, false }) do
+					local slid = atStart and node0 or node1
+					if branchFrom[slid.entity] then
+						local x = slid.position
+						local u, distance = geometry.closestParameter(x, natural)
+						if distance < 0.05 and u > 0.001 and u < 0.999 then
+							local first, second = geometry.split(natural, u)
+							natural = atStart and second or first
+							if atStart then
+								natural.p0 = x
+							else
+								natural.p1 = x
+							end
+						elseif geometry.horizontalDistance(x, atStart and natural.p0 or natural.p1) < MIN_PIECE_LENGTH then
+							local q0, q1 = atStart and x or natural.p0, atStart and natural.p1 or x
+							local s0, s1 = geometry.offsetTangents(natural.p0, natural.p1, natural.t0, natural.t1, q0, q1)
+							natural = { p0 = q0, p1 = q1, t0 = s0, t1 = s1 }
+						else
+							local far = atStart and natural.p0 or natural.p1
+							local mid = newNode(far)
+							local straight = atStart and { x = far.x - x.x, y = far.y - x.y, z = far.z - x.z }
+								or { x = x.x - far.x, y = x.y - far.y, z = x.z - far.z }
+							offsetEdges[#offsetEdges + 1] = {
+								node0 = atStart and slid or mid,
+								node1 = atStart and mid or slid,
+								edge = { p0 = atStart and x or far, p1 = atStart and far or x, t0 = straight, t1 = straight },
+								props = props,
+								cuts = {},
+							}
+							if atStart then
+								startNode = mid
+							else
+								endNode = mid
+							end
+							log(string.format("  node %d: lengthened by a straight %.1f m to meet the road", slid.entity,
+								geometry.horizontalDistance(x, far)))
+						end
+					end
+				end
+				node0, node1 = startNode, endNode
+				local edge = natural
+				t0, t1 = edge.t0, edge.t1
 				local radius = geometry.radius(edge.p0, edge.p1, t0, t1)
 				-- on the inside of a bend tighter than the offset the track turns inside out:
 				-- its ends swap over, the chord runs against the drawn one
@@ -1176,7 +1234,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					node0 = node0,
 					node1 = node1,
 					edge = edge,
-					props = { comp = d.comp, template = d.template, segmentType = d.segmentType, playerOwned = getPlayerOwned(d.entity) },
+					props = props,
 					cuts = {},
 				}
 				-- a switch reaches as far along the base track as its branch takes to clear it
