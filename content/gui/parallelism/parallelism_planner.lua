@@ -55,6 +55,9 @@ local ROAD_JUNCTION_MARGIN = 12.0
 -- how far beyond a junction's corner the road builder keeps the next node (fitted to its
 -- builds at 33 and 25 degrees, see minPieceLength)
 local ROAD_JUNCTION_BEYOND = 26.0
+-- the gap the game leaves between the corners of neighbouring junctions along a road
+-- (native X, 2026-10-03; see docs/studies/2026-10-03_road-junction-spacing.md)
+local ROAD_CORNER_GAP = 2.5
 -- dev switch (A/B, 2026-10-03): the room by angle above; false: the earlier rule
 -- (ROAD_JUNCTION_CLEARANCE / tan(angle), at least ROAD_MIN_PIECE_LENGTH)
 -- (on again: only on the outer side of a junction; moving the nodes between our junction
@@ -271,7 +274,15 @@ local function minPieceLength(cut, inner)
 	end
 	local t = math.tan(math.rad(math.max(cut.angle, 1)))
 	local clearance = isStreet(planRoadType) and ROAD_JUNCTION_CLEARANCE or CROSSING_CLEARANCE
-	return math.max(pieceMinimum(), clearance / t)
+	local room = math.max(pieceMinimum(), clearance / t)
+	-- roads, inner side: at least clear of the junction's corner (seen 2026-10-03 at 19.8
+	-- degrees: a node 35.9 m from the junction, inside its 45.8 m corner, refused)
+	if isStreet(planRoadType) and planRoadWidth then
+		local a = math.rad(math.max(cut.angle, 1))
+		local half = planRoadWidth / 2
+		room = math.max(room, half / math.sin(a) + half / math.tan(a))
+	end
+	return room
 end
 
 -- Lane connections at a road junction: the mod's own sensible default (2026-10-02), not
@@ -1454,6 +1465,19 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity }
 								addSplit(entity, x.ub, node, angle)
 								stats.crossings = stats.crossings + 1
+								-- roads: the spacing the game needs between parallel roads crossing a
+								-- road at this angle (native X, 2026-10-03: the corners of neighbouring
+								-- junctions about 2.5 m apart along the crossed road)
+								if streets then
+									local crossedWidth = roadWidth(comp.roadTemplate)
+									if crossedWidth then
+										local a = math.rad(angle)
+										local need = crossedWidth * math.cos(a) + ROAD_CORNER_GAP * math.sin(a)
+										if need > (stats.spacingNeeded or 0) then
+											stats.spacingNeeded, stats.spacingAngle = need, angle
+										end
+									end
+								end
 								log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg ", x.ub, angle) .. shared.vecToString(x.pointA))
 							end
 						end

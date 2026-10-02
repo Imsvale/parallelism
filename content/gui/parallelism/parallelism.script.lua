@@ -184,6 +184,11 @@ local verdicts, verdictOrder = {}, {}
 local loggedSignatures = false
 local MAX_VERDICTS = 32
 
+-- Refuse road drags whose spacing is below what the game needs between parallel roads
+-- crossing a road at that angle (planner: stats.spacingNeeded). Off until it is clear
+-- what the mod can build and what the game will not (the user, 2026-10-03).
+local SPACING_CHECK = false
+
 -- dev switch: judge the drawn and our part together in the drag check (judgeTogether)
 -- off: it judges every such drag Construction Not Possible, also drags that build fine
 -- (2026-10-03): the builder already splits the crossed road, our plan splits the same
@@ -361,6 +366,11 @@ local function checkPlayerProposal(param)
 		message = string.format("Parallel %s would curve tighter than %.0f m", noun, stats.minAllowedRadius)
 	elseif #stats.problems > 0 then
 		message = "Parallel " .. noun .. " cannot be laid out here"
+	elseif SPACING_CHECK and stats.spacingNeeded and current.spacing and current.spacing < stats.spacingNeeded - 0.01 then
+		-- (rounded up to the slider's step)
+		local step = shared.SPACING_STEP
+		message = string.format("Parallel %s crossing at %.0f degrees need at least %.1f m spacing", noun, stats.spacingAngle,
+			math.ceil(stats.spacingNeeded / step - 1e-6) * step)
 	end
 	if message ~= lastRefusal then
 		lastRefusal = message
