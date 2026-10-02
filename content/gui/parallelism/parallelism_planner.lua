@@ -54,7 +54,9 @@ local JUNCTION_REUSE_DISTANCE = 0.3
 local ROAD_JUNCTION_MARGIN = 12.0
 -- dev switch (A/B, 2026-10-03): the room by angle above; false: the earlier rule
 -- (ROAD_JUNCTION_CLEARANCE / tan(angle), at least ROAD_MIN_PIECE_LENGTH)
-local ROAD_ROOM_BY_ANGLE = false
+-- (on again: only on the outer side of a junction; moving the nodes between our junction
+-- and the drawn road's made the game refuse a 33 degree T)
+local ROAD_ROOM_BY_ANGLE = true
 -- the width of the roads being planned (set per plan; nil for tracks)
 local planRoadWidth = nil
 -- an end of an offset track continues a loose end within this share of the distance
@@ -246,14 +248,16 @@ end
 -- The shortest piece of track the game accepts next to a node on it. A crossing needs
 -- more the flatter it is: the two tracks run side by side for a while (fitted to builds
 -- in game: at 6.1 degrees 7.7 m next to a crossing failed, 14.9 m worked).
-local function minPieceLength(cut)
+-- inner: the node lies between this junction and the drawn road's crossing of the same
+-- road (the room by angle applies only on the outer side, see ROAD_ROOM_BY_ANGLE)
+local function minPieceLength(cut, inner)
 	if cut.zone ~= nil then
 		return math.max(pieceMinimum(), cut.zone)
 	end
 	if cut.angle == nil then
 		return pieceMinimum()
 	end
-	if ROAD_ROOM_BY_ANGLE and isStreet(planRoadType) and planRoadWidth then
+	if ROAD_ROOM_BY_ANGLE and not inner and isStreet(planRoadType) and planRoadWidth then
 		local s = math.sin(math.rad(math.max(cut.angle, 1)))
 		return math.max(pieceMinimum(), (planRoadWidth / 2 + ROAD_JUNCTION_MARGIN) / s)
 	end
@@ -1859,12 +1863,31 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- the node and cut the merged curve. Only for a node between exactly two plain edges
 	-- of the same kind. Returns true if it removed one.
 	local node2segments = nil
+	-- true if the drawn road crosses the existing road between the cut and a little beyond
+	-- the node (the node lies between our junction and the drawn road's)
+	local function isInner(cut, node)
+		local a, b = cut.node.position, node.position
+		local dx, dy = b.x - a.x, b.y - a.y
+		local len = math.sqrt(dx * dx + dy * dy)
+		if len < 1e-6 then
+			return false
+		end
+		local reach = len + minPieceLength(cut)
+		local far = { x = a.x + dx / len * reach, y = a.y + dy / len * reach, z = a.z }
+		local line = { p0 = a, p1 = far, t0 = { x = far.x - a.x, y = far.y - a.y, z = 0 }, t1 = { x = far.x - a.x, y = far.y - a.y, z = 0 } }
+		for __, d in ipairs(drawn) do
+			if #geometry.intersections(line, d.edge) > 0 then
+				return true
+			end
+		end
+		return false
+	end
 	local function tryMoveEnd(part, which)
 		local endNode = which == 0 and part.node0 or part.node1
 		local nearest = nil
 		for __, cut in ipairs(part.cuts) do
 			local d = geometry.horizontalDistance(cut.node.position, endNode.position)
-			if d < minPieceLength(cut) and (nearest == nil or d < nearest) then
+			if d < minPieceLength(cut, isInner(cut, endNode)) and (nearest == nil or d < nearest) then
 				nearest = d
 			end
 		end
