@@ -38,6 +38,7 @@ Same bundle, reloaded each time, one straight drag with the mod through the seam
 | Tracks | Result | Notes |
 |---|---|---|
 | 2 | built | The drawn track crossed first (native: 11 edges removed, 24 added, seams refitted). The extra track at 5 m then crossed the native's new pieces (6 crossings, 29-41 deg, pieces 9.2-10.2 m), no existing node had to go: 0 moved, 5 own nodes slid onto crossings. Our refit was not needed. |
+| 3 | built | Again 0 existing nodes moved: both extra tracks (5 and 10 m) crossed the native's refitted pieces (12 crossings, 25-43 deg) well clear of their nodes; 9 own nodes slid onto crossings. The native's 30 m refit pieces leave room for the next tracks. |
 
 ## Compared with the mod
 
