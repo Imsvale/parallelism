@@ -52,6 +52,9 @@ local JUNCTION_REUSE_DISTANCE = 0.3
 -- junctions and left 53 m. (16 m road: 16 m at 90 degrees, 29 m at 33, 62 m at 15.)
 -- 8 m left a plain node 30.2 m from a 33 degree junction (refused, 2026-10-03); 12 m: 37 m.
 local ROAD_JUNCTION_MARGIN = 12.0
+-- dev switch (A/B, 2026-10-03): the room by angle above; false: the earlier rule
+-- (ROAD_JUNCTION_CLEARANCE / tan(angle), at least ROAD_MIN_PIECE_LENGTH)
+local ROAD_ROOM_BY_ANGLE = false
 -- the width of the roads being planned (set per plan; nil for tracks)
 local planRoadWidth = nil
 -- an end of an offset track continues a loose end within this share of the distance
@@ -250,7 +253,7 @@ local function minPieceLength(cut)
 	if cut.angle == nil then
 		return pieceMinimum()
 	end
-	if isStreet(planRoadType) and planRoadWidth then
+	if ROAD_ROOM_BY_ANGLE and isStreet(planRoadType) and planRoadWidth then
 		local s = math.sin(math.rad(math.max(cut.angle, 1)))
 		return math.max(pieceMinimum(), (planRoadWidth / 2 + ROAD_JUNCTION_MARGIN) / s)
 	end
