@@ -273,7 +273,7 @@ local function makeWireframe()
 	end
 	local ok, result = pcall(function()
 		local edges = {}
-		-- the spot a refused plan names: a small magenta square, 3 m across
+		-- the spot a refused plan names: a small white square, 3 m across
 		if preview.problemAt then
 			local p, h = preview.problemAt, 1.5
 			local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
@@ -282,7 +282,7 @@ local function makeWireframe()
 				local p0 = { x = p.x + a[1], y = p.y + a[2], z = p.z }
 				local p1 = { x = p.x + b[1], y = p.y + b[2], z = p.z }
 				local t = { x = p1.x - p0.x, y = p1.y - p0.y, z = 0 }
-				edges[#edges + 1] = makeWireframeEdge({ p0 = p0, p1 = p1, t0 = t, t1 = t }, { 1, 0, 1, 1 }, 0.4)
+				edges[#edges + 1] = makeWireframeEdge({ p0 = p0, p1 = p1, t0 = t, t1 = t }, { 1, 1, 1, 1 }, 0.4)
 			end
 		end
 		for __, w in ipairs(preview.wireframeEdges) do

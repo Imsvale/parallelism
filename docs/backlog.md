@@ -18,8 +18,13 @@ Open work first, then what was solved and how (kept for the reasoning).
   Later hits of the same house in that drag do not flash.
 - **Show refused extra tracks.** When our own plan has a problem (e.g. a piece too
   short), the extra tracks are not shown at all: the game can crash evaluating such a
-  plan. Showing them as a red outline (`builtin.EdgeRenderable`, drawn without the game
-  judging it) would tell the player which track is the trouble.
+  plan. Decided 2026-10-02: two modes, both drawn with `builtin.EdgeRenderable` (not
+  judged by the game):
+  - default: a stripped-down view that fits what the game does, the problem segment
+    highlighted in red;
+  - the Wireframe view (all edges by kind) stays as the detailed option, likely in a
+    release too, not only as a dev aid. Its problem marker is now white (was magenta);
+    whether something more visible is needed is open.
 - **Explain predictable failures before sending.** Partly done: the planner refuses
   with a message for crossings too flat, pieces too short, bends too tight, a track
   crossing itself. Still unexplained: what the game alone refuses (e.g. "Construction
