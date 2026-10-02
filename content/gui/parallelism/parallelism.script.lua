@@ -191,9 +191,12 @@ local function checkPlayerProposal(param)
 	-- preview reports next to a road end the drawn road is about to continue (judged
 	-- before the drawn road exists) and which builds. Messages come translated, so this
 	-- only knows the English one.
+	-- (with junctions in the plan a Collision is real: it once failed the build after the
+	-- drawn road had been built)
 	local blocking = previewVerdict.critical
 		or (previewVerdict.message ~= nil
-			and not (previewVerdict.message == "Collision" and current.builder == shared.STREET_BUILDER))
+			and not (previewVerdict.message == "Collision" and current.builder == shared.STREET_BUILDER
+				and not previewVerdict.roadJunctions))
 	if previewVerdict.signature == signature and blocking then
 		local message = "Parallel " .. shared.nounOf(current.builder) .. " cannot be built here"
 			.. (previewVerdict.message and (" (" .. previewVerdict.message .. ")") or "")

@@ -823,7 +823,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			if #stats.notes < 60 and (text:find("kept", 1, true) or text:find("removed", 1, true)
 				or text:find("moved", 1, true) or text:find("cannot", 1, true) or text:find("could not", 1, true)
 				or text:find("joined", 1, true) or text:find("refit", 1, true) or text:find("not done", 1, true)
-				or text:find("slid", 1, true) or text:find("anchored", 1, true) or text:find("crossing edge", 1, true)) then
+				or text:find("slid", 1, true) or text:find("anchored", 1, true) or text:find("crossing edge", 1, true)
+				or text:find("lengthened", 1, true) or text:find("junction node", 1, true) or text:find("cut ", 1, true)) then
 				stats.notes[#stats.notes + 1] = text
 			end
 		end

@@ -350,7 +350,10 @@ local function makeViewer(index)
 				-- continue (judged before the drawn road exists) and which builds. Same rule as
 				-- the drag check in the game script.
 				local message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil
+				-- (not with junctions in the plan: there the collision was real, and the build
+				-- failed after the drawn road was built, 2026-10-02)
 				local roadEndArtifact = message == "Collision" and preview.builder == shared.STREET_BUILDER
+					and not preview.roadJunctions
 				preview.failed[index] = errorState.critical or (message ~= nil and not roadEndArtifact)
 				-- the drag check (game script) refuses a drag the game would not build; the
 				-- build bulldozes what the preview does (two lists: plain values cross over)
@@ -819,9 +822,15 @@ function patch.install()
 					-- the tooltip is asked many times a second, also while the drag holds still
 					if preview.version == version then
 						preview.stillCalls = (preview.stillCalls or 0) + 1
-						if preview.firstProblem and not preview.stillLogged and preview.stillCalls >= HOLD_STILL_CALLS and preview.plan then
+						-- our own refusal, or the game's verdict on the preview
+						local gameRefused = false
+						for __, f in pairs(preview.failed or {}) do
+							gameRefused = gameRefused or f
+						end
+						local reason = preview.firstProblem or (gameRefused and ("the game: " .. tostring(preview.gameMessage)))
+						if reason and not preview.stillLogged and preview.stillCalls >= HOLD_STILL_CALLS and preview.plan then
 							preview.stillLogged = true
-							shared.log("refused and held still: " .. tostring(preview.firstProblem))
+							shared.log("refused and held still: " .. tostring(reason))
 							for __, note in ipairs(preview.notes or {}) do
 								shared.log("  note:" .. note)
 							end
