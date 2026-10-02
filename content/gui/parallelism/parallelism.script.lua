@@ -181,6 +181,7 @@ local previewVerdict = {}
 -- alternate between two slightly different drags (seen 2026-10-03), and a check that
 -- knew only the latest verdict waited forever
 local verdicts, verdictOrder = {}, {}
+local loggedSignatures = false
 local MAX_VERDICTS = 32
 
 local function checkPlayerProposal(param)
@@ -223,7 +224,18 @@ local function checkPlayerProposal(param)
 		local message = "Parallel " .. shared.nounOf(current.builder) .. ": checking with the game..."
 		if message ~= lastRefusal then
 			lastRefusal = message
-			shared.log("check: verdict for this position not in yet")
+			local have = {}
+			for i = math.max(1, #verdictOrder - 3), #verdictOrder do
+				have[#have + 1] = shared.fingerprint(verdictOrder[i])
+			end
+			shared.log("check: verdict for this position not in yet (" .. shared.fingerprint(signature) .. "; latest verdicts "
+				.. table.concat(have, ", ") .. ")")
+			-- dev aid: the two signatures in full, once, to see where they differ
+			if not loggedSignatures and #verdictOrder > 0 then
+				loggedSignatures = true
+				shared.log("  waiting for: " .. signature)
+				shared.log("  latest verdict: " .. verdictOrder[#verdictOrder])
+			end
 		end
 		local errorMessages = {}
 		errorMessages[message] = true

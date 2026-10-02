@@ -109,6 +109,18 @@ function shared.maxCount(builder)
 	return shared.MAX_COUNT
 end
 
+-- a short fingerprint of a (long) string, to compare drag signatures in the log
+function shared.fingerprint(s)
+	if s == nil then
+		return "nil"
+	end
+	local h = 0
+	for i = 1, #s do
+		h = (h * 31 + s:byte(i)) % 1000003
+	end
+	return string.format("%06d/%d", h, #s)
+end
+
 -- "tracks" or "roads", for messages to the player
 function shared.nounOf(builder)
 	return builder == shared.STREET_BUILDER and "roads" or "tracks"
