@@ -185,7 +185,10 @@ local loggedSignatures = false
 local MAX_VERDICTS = 32
 
 -- dev switch: judge the drawn and our part together in the drag check (judgeTogether)
-local JUDGE_TOGETHER = true
+-- off: it judges every such drag Construction Not Possible, also drags that build fine
+-- (2026-10-03): the builder already splits the crossed road, our plan splits the same
+-- original edge again, the two sets of pieces overlap
+local JUDGE_TOGETHER = false
 
 -- The builder's live proposal (a full Proposal) with our planned SimpleProposal added
 -- in, judged by the game as one build. Returns a short verdict text. Our edges carry
