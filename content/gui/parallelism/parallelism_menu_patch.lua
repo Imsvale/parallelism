@@ -255,7 +255,23 @@ local WIREFRAME_COLORS = {
 	ours = { 0, 0.9, 1, 0.9 },       -- new track of the mod
 	existing = { 1, 0.85, 0, 0.9 },  -- existing track cut or reshaped, added again
 	removed = { 1, 0.1, 0.1, 0.6 },  -- existing track the plan removes
+	world = { 0.6, 0.6, 0.6, 0.6 },  -- existing track nearby, untouched (native builds)
 }
+-- node markers: squares of this half size (meters), larger where 3 or more edges meet
+local NODE_MARKER = 0.75
+local JUNCTION_MARKER = 1.5
+local MAX_NODE_MARKERS = 400
+
+local function addSquare(edges, p, h, color)
+	local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
+	for i = 1, 4 do
+		local a, b = corners[i], corners[i % 4 + 1]
+		local p0 = { x = p.x + a[1], y = p.y + a[2], z = p.z }
+		local p1 = { x = p.x + b[1], y = p.y + b[2], z = p.z }
+		local t = { x = p1.x - p0.x, y = p1.y - p0.y, z = 0 }
+		edges[#edges + 1] = { p0 = p0, p1 = p1, t0 = t, t1 = t, color = color }
+	end
+end
 local wireframeFailed = false
 
 local function makeWireframeEdge(e, color, width)
@@ -276,6 +292,51 @@ local function makeWireframeEdge(e, color, width)
 	return edge
 end
 
+-- The wireframe of a native build (count 1): the builder's live proposal (drawn edges,
+-- the pieces of edges it cuts, the edges it removes) and the existing edges around it,
+-- each with its nodes. For studying what the builder does.
+local NATIVE_WIREFRAME_RADIUS = 150
+local MAX_WORLD_EDGES = 250
+local function nativeWireframe(proposal, builder)
+	local sp = proposal.proposal
+	local list = {}
+	local drawn = planner.collectDrawnSegments(sp, shared.roadTypeOf(builder))
+	local drawnEdge = {}
+	for __, d in ipairs(drawn) do
+		list[#list + 1] = { edge = d.edge, kind = "drawn" }
+		drawnEdge[d.entity] = true
+	end
+	for __, s in ipairs(sp.addedSegments) do
+		if not drawnEdge[s.entity] then
+			list[#list + 1] = { edge = planner.toEdge(s.comp), kind = "existing" }
+		end
+	end
+	local removed = {}
+	for __, s in ipairs(sp.removedSegments) do
+		removed[s.entity < 0 and (-s.entity - 1) or s.entity] = true
+		list[#list + 1] = { edge = planner.toEdge(s.comp), kind = "removed" }
+	end
+	-- the world around the drag
+	local seen = {}
+	local count = 0
+	for __, d in ipairs(drawn) do
+		local m = geometry.hermite(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1, 0.5)
+		for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(m.x, m.y), NATIVE_WIREFRAME_RADIUS,
+			api.type.ComponentType.BASE_EDGE)) do
+			if not seen[entity] and not removed[entity] and count < MAX_WORLD_EDGES then
+				seen[entity] = true
+				local comp = planner.getEdgeComp(entity)
+				if comp then
+					count = count + 1
+					list[#list + 1] = { edge = planner.toEdge(comp), kind = "world" }
+				end
+			end
+		end
+	end
+	return list, #drawn > 0 and string.format("%d|%.2f,%.2f|%.2f,%.2f|%d", #drawn, drawn[1].edge.p0.x, drawn[1].edge.p0.y,
+		drawn[#drawn].edge.p1.x, drawn[#drawn].edge.p1.y, #sp.addedSegments) or nil
+end
+
 local function makeWireframe()
 	if wireframeFailed or not preview.wireframeEdges then
 		return nil
@@ -294,6 +355,9 @@ local function makeWireframe()
 				edges[#edges + 1] = makeWireframeEdge({ p0 = p0, p1 = p1, t0 = t, t1 = t }, { 1, 1, 1, 1 }, 0.4)
 			end
 		end
+		-- node markers at the ends of the edges: by position, with the edges meeting there
+		-- (removed ones not counted, they are gone after the build)
+		local nodes, order = {}, {}
 		for __, w in ipairs(preview.wireframeEdges) do
 			-- a refused plan can hold degenerate edges (a drag just started, a track turned
 			-- inside out); drawing one of zero length crashed the game
@@ -304,7 +368,33 @@ local function makeWireframe()
 			if geometry.arcLength(e) >= 0.1 and t0 > 1e-3 and t1 > 1e-3 then
 				-- removed edges a little wider, so the pieces drawn on top of them stay visible
 				edges[#edges + 1] = makeWireframeEdge(e, WIREFRAME_COLORS[w.kind] or WIREFRAME_COLORS.ours, w.kind == "removed" and 0.8 or 0.4)
+				for __, p in ipairs({ e.p0, e.p1 }) do
+					local key = string.format("%.1f,%.1f", p.x, p.y)
+					local n = nodes[key]
+					if n == nil then
+						n = { position = p, count = 0, kind = w.kind }
+						nodes[key] = n
+						order[#order + 1] = n
+					end
+					if w.kind ~= "removed" then
+						n.count = n.count + 1
+						if n.kind == "removed" or n.kind == "world" then
+							n.kind = w.kind
+						end
+					end
+				end
 			end
+		end
+		local squares = {}
+		for i, n in ipairs(order) do
+			if i > MAX_NODE_MARKERS then
+				break
+			end
+			local c = WIREFRAME_COLORS[n.kind] or WIREFRAME_COLORS.ours
+			addSquare(squares, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 })
+		end
+		for __, s in ipairs(squares) do
+			edges[#edges + 1] = makeWireframeEdge(s, s.color, 0.3)
 		end
 		return builtin.EdgeRenderable{ edges = edges, ignoreDepth = true }
 	end)
@@ -694,7 +784,7 @@ local function makeParams(builder, resName)
 			group = "parallelTracks",
 			key = shared.KEY_WIREFRAME,
 			name = "Wireframe",
-			tooltip = "Dev aid: draw the whole plan as lines. White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed.",
+			tooltip = "Dev aid: draw the whole plan as lines, with a square at every node (larger where 3 or more edges meet). White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed. With one track or road: the builder's own plan, and grey: existing track or road around it.",
 			values = { "Off", "On" },
 			defaultIndex = 1,
 			resetOnCategoryChange = false,
@@ -703,7 +793,10 @@ local function makeParams(builder, resName)
 			yearFrom = 0,
 			yearTo = 0,
 			location = api.type["enum"].ScriptParamLocation.Toolbar,
-			checkEnabledFn = withExtras,
+			-- also with one track or road: then it shows the builder's own plan
+			checkEnabledFn = function(params)
+				return isDrawing(builder, params) and "Enabled" or "Disabled"
+			end,
 		}
 	end
 	result[#result + 1] = {
@@ -870,6 +963,49 @@ function patch.install()
 				end)
 				if not ok then
 					shared.log("preview failed: " .. tostring(err))
+				end
+				return strings
+			end
+		elseif builder and shared.DEBUG_WIREFRAME and params[shared.KEY_WIREFRAME] == 2 and actionParams
+			and actionParams.getProposalStringsFn then
+			-- a native build (count 1) with the wireframe on: the builder's own proposal
+			paramRefs = { select(6, ...), select(3, ...) }
+			if #preview.proposals > 0 then
+				preview.proposals = {}
+				preview.version = preview.version + 1
+			end
+			preview.count = count
+			preview.builder = builder
+			preview.wireframe = true
+			preview.problemAt = nil
+			local edgeBuilder = actionParams.trackEdgeBuilder or actionParams.streetEdgeBuilder
+			if edgeBuilder and edgeBuilder.onClearFn then
+				local onClear = edgeBuilder.onClearFn
+				edgeBuilder.onClearFn = function(...)
+					onClear(...)
+					pcall(function()
+						preview.wireframeEdges = nil
+						preview.nativeSignature = nil
+						preview.version = preview.version + 1
+						requestRedraw()
+					end)
+				end
+			end
+			injectPreview = true
+			local getProposalStrings = actionParams.getProposalStringsFn
+			actionParams.getProposalStringsFn = function(proposal, proposalData)
+				local strings = getProposalStrings(proposal, proposalData) or {}
+				local ok, err = pcall(function()
+					local list, signature = nativeWireframe(proposal, builder)
+					if signature ~= preview.nativeSignature then
+						preview.nativeSignature = signature
+						preview.wireframeEdges = list
+						preview.version = preview.version + 1
+						requestRedraw()
+					end
+				end)
+				if not ok then
+					shared.log("native wireframe failed: " .. tostring(err))
 				end
 				return strings
 			end
