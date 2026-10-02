@@ -88,9 +88,10 @@ local function dumpEdge(entity, log)
 	end)))
 	log("  objects " .. tostring(try(function() return #e.objects end)))
 	local street = getComp(entity, "BASE_EDGE_STREET")
-	log("  street: " .. tostring(try(function()
+	-- tracks have no street component
+	log("  street: " .. (street == nil and "none" or tostring(try(function()
 		return "precedence " .. tostring(street.precedenceNode0) .. " / " .. tostring(street.precedenceNode1)
-	end)))
+	end))))
 	local owned = getComp(entity, "PLAYER_OWNED")
 	log("  owner: " .. tostring(try(function() return owned.player end)))
 	local bv = getComp(entity, "BOUNDING_VOLUME")
@@ -116,7 +117,8 @@ local function dumpNode(entity, node2segments, log)
 			return table.concat(list, ", ")
 		end))))
 	local config = getComp(entity, "BASE_NODE_CONFIG")
-	log("  config: " .. tostring(try(function()
+	-- plain track nodes have no config
+	log("  config: " .. (config == nil and "none" or tostring(try(function()
 		local parts = {}
 		for _, c in ipairs(config.laneConnections) do
 			parts[#parts + 1] = string.format("%s.%s->%s.%s%s%s", tostring(c.segment0), tostring(c.lane0), tostring(c.segment1), tostring(c.lane1),
@@ -130,7 +132,7 @@ local function dumpNode(entity, node2segments, log)
 			.. table.concat(crosswalks, ", ") .. "], trafficLightPreference " .. tostring(config.trafficLightPreference)
 			.. ", doubleSlip " .. tostring(config.doubleSlipSwitch)
 			.. ", userModified " .. tostring(config.userModifiedLaneConnections)
-	end)))
+	end))))
 	local bv = getComp(entity, "BOUNDING_VOLUME")
 	log("  bbox: " .. tostring(try(function() return box(bv.bbox) end)))
 end
