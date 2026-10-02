@@ -38,6 +38,11 @@ local MIN_PIECE_LENGTH = 5.0
 -- piece next to a T and a 5.9 m one before a junction were refused (Construction Not
 -- Possible, 2026-10-02). A first guess, not measured.
 local ROAD_MIN_PIECE_LENGTH = 10.0
+-- A road joining or crossing another at a flat angle takes up a long stretch of it:
+-- room needed along each road, as this / tan(angle) (about half a town road's width;
+-- seen 2026-10-02: a T at 15 degrees refused with the next node 10 and 26 m away,
+-- passed with it moved away). A first guess.
+local ROAD_JUNCTION_CLEARANCE = 8.0
 -- an end of an offset track continues a loose end within this share of the distance
 -- between neighbouring tracks (below half, so never the neighbour's)
 local LOOSE_END_SHARE = 0.4
@@ -235,7 +240,8 @@ local function minPieceLength(cut)
 		return pieceMinimum()
 	end
 	local t = math.tan(math.rad(math.max(cut.angle, 1)))
-	return math.max(pieceMinimum(), CROSSING_CLEARANCE / t)
+	local clearance = isStreet(planRoadType) and ROAD_JUNCTION_CLEARANCE or CROSSING_CLEARANCE
+	return math.max(pieceMinimum(), clearance / t)
 end
 
 -- Lane connections at a road junction: the mod's own sensible default (2026-10-02), not
