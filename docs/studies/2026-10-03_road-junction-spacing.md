@@ -8,17 +8,17 @@ road (step 3 is the native builder's own verdict).
 - Roads: main road and crossing roads `town_new_small` (two-way), flat ground.
 - Spacing: Parallelism's Spacing value (gap between the roads, edge to edge).
 - **T**: the parallel roads end on the main road. **X**: they cross it.
-- Smallest accepted: the smallest spacing that builds. Refused below: the largest tried
-  that did not. Angle as the tooltip's crossing line reads it.
+- Each cell: the smallest spacing that builds; the next step down (0.5 m less, the
+  slider's step) is refused. Angle as the tooltip's crossing line reads it.
 
-| Angle | T smallest accepted | T refused below | X smallest accepted | X refused below | Note |
-|---|---|---|---|---|---|
-| 90° | 2.5 m | 2.0 m? | 2.5 m | | X at 2.5 m holds from 90.0° down to 88.2°; 88.1° refused |
-| 75° | 2.0 m | 1.5 m | | 2.0 m | |
-| 60° | | | | | |
-| 45° | | | | | |
-| 30° | | | | | |
-| 20° | | | | | |
+| Angle | T | X | Note |
+|---|---|---|---|
+| 90° | 2.5 m | 2.5 m | X at 2.5 m holds from 90.0° down to 88.2°; 88.1° refused |
+| 75° | 2.0 m | | X at 2.0 m refused |
+| 60° | | | |
+| 45° | | | |
+| 30° | | | |
+| 20° | | | |
 
 ## Observations
 
