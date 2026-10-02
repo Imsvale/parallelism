@@ -1863,6 +1863,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- the node and cut the merged curve. Only for a node between exactly two plain edges
 	-- of the same kind. Returns true if it removed one.
 	local node2segments = nil
+	-- nodes removed by moves, and the far nodes those moves keep (see tryMoveEnd)
+	local movedNodes, farNodes = {}, {}
 	-- true if the drawn road crosses the existing road between the cut and a little beyond
 	-- the node (the node lies between our junction and the drawn road's)
 	local function isInner(cut, node)
@@ -1938,6 +1940,13 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				otherEdge = geometry.reverse(otherEdge)
 				far = { entity = otherComp.node0, position = otherEdge.p1 }
 			end
+		end
+		-- two parts must not move nodes into each other: one keeps a node the other removes
+		-- (seen 2026-10-03: "the plan uses node 566, which it removes", two parallels
+		-- crossing the main road close together)
+		if movedNodes[far.entity] or farNodes[endNode.entity] then
+			log(prefix .. ", its neighbour is moved or kept by another crossing, not moved")
+			return
 		end
 
 		-- First choice: slide the plain node onto the nearest crossing. A node in the middle
@@ -2035,6 +2044,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				part.endEdge[which] = nil
 				part.removeEdges[#part.removeEdges + 1] = other
 				part.removeNodes[#part.removeNodes + 1] = endNode.entity
+				movedNodes[endNode.entity], farNodes[far.entity] = true, true
 				stats.moved = stats.moved + 1
 				log(prefix .. (useAway and ", moved it away from the crossing" or ", moved it onto the crossing") .. slideNote)
 				-- the end is now the crossing, nothing more to clear on this side
@@ -2100,6 +2110,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				part.endEdge[which] = nil
 				part.removeEdges[#part.removeEdges + 1] = other
 				part.removeNodes[#part.removeNodes + 1] = endNode.entity
+				movedNodes[endNode.entity], farNodes[far.entity] = true, true
 				stats.moved = stats.moved + 1
 				stats.refitted = (stats.refitted or 0) + 1
 				log(prefix .. ", removed it and refitted the track from the crossing" .. refitNote .. slideNote)
@@ -2135,6 +2146,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		part.endEdge[which] = other
 		part.removeEdges[#part.removeEdges + 1] = other
 		part.removeNodes[#part.removeNodes + 1] = endNode.entity
+		movedNodes[endNode.entity], farNodes[far.entity] = true, true
 		stats.moved = stats.moved + 1
 		log(prefix .. ", removed it (merged with edge " .. other .. ")")
 		return true
