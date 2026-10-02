@@ -806,7 +806,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			local text = tostring(msg)
 			if #stats.notes < 60 and (text:find("kept", 1, true) or text:find("removed", 1, true)
 				or text:find("moved", 1, true) or text:find("cannot", 1, true) or text:find("could not", 1, true)
-				or text:find("joined", 1, true) or text:find("refit", 1, true) or text:find("not done", 1, true)) then
+				or text:find("joined", 1, true) or text:find("refit", 1, true) or text:find("not done", 1, true)
+				or text:find("slid", 1, true) or text:find("anchored", 1, true) or text:find("crossing edge", 1, true)) then
 				stats.notes[#stats.notes + 1] = text
 			end
 		end
@@ -1029,6 +1030,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					return nil -- not a T (a road end is a corner, see tryCorner)
 				end
 			end
+			local reasons = {}
 			local best, bestS = nil, math.huge
 			for __, road in ipairs(roads) do
 				-- the road may curve: intersect with its tangent line, project, repeat
@@ -1039,11 +1041,13 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					local q = geometry.hermite(road.p0, road.p1, road.t0, road.t1, u)
 					local t = geometry.hermiteDerivative(road.p0, road.p1, road.t0, road.t1, u)
 					if geometry.angleBetween(tangent, t) < BRANCH_MIN_ANGLE or geometry.angleBetween(tangent, t) > 180 - BRANCH_MIN_ANGLE then
+						reasons[#reasons + 1] = string.format("meets at %.1f deg", geometry.angleBetween(tangent, t))
 						s = nil
 						break
 					end
 					local along = geometry.lineIntersection(offsetPosition, tangent, q, t)
 					if along == nil then
+						reasons[#reasons + 1] = "parallel to it"
 						s = nil
 						break
 					end
@@ -1053,15 +1057,23 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					u = geometry.closestParameter(x, road)
 					point = geometry.hermite(road.p0, road.p1, road.t0, road.t1, u)
 				end
-				if s and point and geometry.horizontalDistance(point, {
-					x = offsetPosition.x + tangent.x / math.sqrt(tangent.x ^ 2 + tangent.y ^ 2) * s,
-					y = offsetPosition.y + tangent.y / math.sqrt(tangent.x ^ 2 + tangent.y ^ 2) * s }) < 0.05
-					and math.abs(s) <= BRANCH_MAX_SLIDE * math.abs(offset) and math.abs(s) < math.abs(bestS) then
-					best, bestS = { x = point.x, y = point.y, z = offsetPosition.z }, s
+				if s and point then
+					local miss = geometry.horizontalDistance(point, {
+						x = offsetPosition.x + tangent.x / math.sqrt(tangent.x ^ 2 + tangent.y ^ 2) * s,
+						y = offsetPosition.y + tangent.y / math.sqrt(tangent.x ^ 2 + tangent.y ^ 2) * s })
+					if miss >= 0.05 then
+						reasons[#reasons + 1] = string.format("misses it by %.2f m", miss)
+					elseif math.abs(s) > BRANCH_MAX_SLIDE * math.abs(offset) then
+						reasons[#reasons + 1] = string.format("would slide %.1f m", s)
+					elseif math.abs(s) < math.abs(bestS) then
+						best, bestS = { x = point.x, y = point.y, z = offsetPosition.z }, s
+					end
 				end
 			end
 			if best then
 				log(string.format("  node %d: on a road at an angle, parallel end slid %.2f m along itself to meet it", entity, bestS))
+			else
+				log(string.format("  node %d: on a road, parallel end not slid (%s)", entity, table.concat(reasons, "; ")))
 			end
 			return best
 		end
