@@ -177,6 +177,11 @@ end
 
 -- the game's verdict on the menu's preview, pushed by the menu patch
 local previewVerdict = {}
+-- the game's verdicts by drag signature, the last few: holding still, the builder can
+-- alternate between two slightly different drags (seen 2026-10-03), and a check that
+-- knew only the latest verdict waited forever
+local verdicts, verdictOrder = {}, {}
+local MAX_VERDICTS = 32
 
 local function checkPlayerProposal(param)
 	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
@@ -184,6 +189,7 @@ local function checkPlayerProposal(param)
 		return nil
 	end
 	local signature = planner.signatureOf(drawn, current.count, current.side, current.spacing, current.reverse, current.resName)
+	local verdict = verdicts[signature]
 	-- the game judged the preview of this very drag and would not build it: refuse the
 	-- drag rather than build part of it (the verdict arrives a little after the preview).
 	-- Not only critical errors: "Too Much Curvature" came as a plain message and the
@@ -193,14 +199,14 @@ local function checkPlayerProposal(param)
 	-- only knows the English one.
 	-- (with junctions in the plan a Collision is real: it once failed the build after the
 	-- drawn road had been built)
-	local blocking = previewVerdict.critical
-		or (previewVerdict.message ~= nil
-			and not (previewVerdict.message == "Collision" and current.builder == shared.STREET_BUILDER
-				and not previewVerdict.roadJunctions))
-	if previewVerdict.signature == signature and blocking then
+	local blocking = verdict ~= nil and (verdict.critical
+		or (verdict.message ~= nil
+			and not (verdict.message == "Collision" and current.builder == shared.STREET_BUILDER
+				and not verdict.roadJunctions)))
+	if blocking then
 		local message = "Parallel " .. shared.nounOf(current.builder) .. " cannot be built here"
-			.. (previewVerdict.message and (" (" .. previewVerdict.message .. ")") or "")
-			.. (previewVerdict.roadJunctions and ". Junctions too close together? Try more spacing." or "")
+			.. (verdict.message and (" (" .. verdict.message .. ")") or "")
+			.. (verdict.roadJunctions and ". Junctions too close together? Try more spacing." or "")
 		if message ~= lastRefusal then
 			lastRefusal = message
 			shared.log("check: " .. message)
@@ -224,7 +230,7 @@ local function checkPlayerProposal(param)
 		return { errorMessages = errorMessages, skipRender = false }
 	end
 	if signature == lastCheck.signature then
-		if lastCheck.result == nil and lastCheck.needsVerdict and previewVerdict.signature ~= signature then
+		if lastCheck.result == nil and lastCheck.needsVerdict and verdict == nil then
 			return pending()
 		end
 		if lastCheck.needsVerdict and lastRefusal and lastRefusal:find("checking with the game", 1, true) then
@@ -286,7 +292,7 @@ local function checkPlayerProposal(param)
 	end
 	local needsVerdict = (stats.crossings + stats.anchored) > 0
 	lastCheck = { signature = signature, result = result, needsVerdict = needsVerdict }
-	if result == nil and needsVerdict and previewVerdict.signature ~= signature then
+	if result == nil and needsVerdict and verdict == nil then
 		return pending()
 	end
 	return result
@@ -672,6 +678,15 @@ return {
 			previewVerdict = { signature = param.signature, critical = param.critical, message = param.message,
 				roadJunctions = param.roadJunctions,
 				bulldozeConstructions = param.bulldozeConstructions or {}, bulldozeBuildings = param.bulldozeBuildings or {} }
+			if param.signature then
+				if verdicts[param.signature] == nil then
+					verdictOrder[#verdictOrder + 1] = param.signature
+					if #verdictOrder > MAX_VERDICTS then
+						verdicts[table.remove(verdictOrder, 1)] = nil
+					end
+				end
+				verdicts[param.signature] = previewVerdict
+			end
 		elseif name == "builder.proposalCreate" and id == current.builder then
 			perf.requests = perf.requests + 1
 			logPerf()
