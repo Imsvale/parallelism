@@ -284,6 +284,25 @@ local function dumpProposal(id, param)
 			.. " type " .. tostring(s.type) .. "/" .. tostring(c.type) .. "/" .. tostring(c.typeIndex)
 			.. " objects " .. tostring(c.objects and #c.objects or "nil")
 			.. " " .. tostring(c.roadTemplate))
+		-- roads: the lanes the junction configs refer to (index, direction, width, modes)
+		if current.builder == shared.STREET_BUILDER then
+			pcall(function()
+				local lanes = {}
+				for i, lc in ipairs(c.laneConfigs) do
+					local modes = {}
+					pcall(function()
+						for mode, on in pairs(lc.transportModes) do
+							if on then
+								modes[#modes + 1] = tostring(mode)
+							end
+						end
+					end)
+					lanes[#lanes + 1] = string.format("%d:%s %.1f {%s}", i, lc.forward and "fwd" or "back", lc.width,
+						table.concat(modes, ","))
+				end
+				shared.log("    lanes " .. table.concat(lanes, "; "))
+			end)
+		end
 	end
 	for __, s in ipairs(street.removedSegments) do
 		logSegment("-", s)
@@ -296,6 +315,23 @@ local function dumpProposal(id, param)
 		shared.log("  + nodeConfig " .. tostring(nc.entity)
 			.. " laneConnections " .. tostring(c.laneConnections and #c.laneConnections or "nil")
 			.. " doubleSlipSwitch " .. tostring(c.doubleSlipSwitch))
+		-- in full for roads: junctions are what the mod still has to learn to build
+		if current.builder == shared.STREET_BUILDER then
+			pcall(function()
+				local parts = {}
+				for __, l in ipairs(c.laneConnections) do
+					parts[#parts + 1] = string.format("%s.%s->%s.%s%s%s", tostring(l.segment0), tostring(l.lane0),
+						tostring(l.segment1), tostring(l.lane1), l.withRoad and " road" or "", l.withTram and " tram" or "")
+				end
+				local crosswalks = {}
+				for __, e in ipairs(c.crosswalks) do
+					crosswalks[#crosswalks + 1] = tostring(e)
+				end
+				shared.log("    lanes [" .. table.concat(parts, ", ") .. "] crosswalks [" .. table.concat(crosswalks, ", ")
+					.. "] trafficLightPreference " .. tostring(c.trafficLightPreference)
+					.. " userModified " .. tostring(c.userModifiedLaneConnections))
+			end)
+		end
 	end
 	for __, entity in ipairs(street.nodeConfigsToRemove) do
 		shared.log("  - nodeConfig " .. tostring(entity))
