@@ -33,15 +33,16 @@ local function edge(entity, atStart, dx, dy, lanes)
 	return { entity = entity, atStart = atStart, dir = { x = dx, y = dy, z = 0 }, lanes = lanes }
 end
 
+-- Since 2026-10-02 the rules are the mod's own, not a copy of the builder's: each
+-- junction is checked for the promised properties (tests/junction_check.lua), the
+-- builder's connections (expected) only give the share in common.
+package.path = here .. "/?.lua;" .. package.path
+local junctionCheck = require "junction_check"
 local function compare(name, edges, expected)
-	local got = {}
-	for __, c in ipairs(planner.junctionConnections(edges)) do
-		got[#got + 1] = string.format("%d.%d->%d.%d", c.segment0, c.lane0, c.segment1, c.lane1)
-	end
-	table.sort(got)
-	table.sort(expected)
-	local a, b = table.concat(got, " "), table.concat(expected, " ")
-	check(name, a == b, a == b and (#got .. " connections") or ("\n     got      " .. a .. "\n     expected " .. b))
+	local got = planner.junctionConnections(edges)
+	local problems, share = junctionCheck.junction(edges, got, expected)
+	check(name, #problems == 0, string.format("%d connections, %.0f %% as the builder", #got, 100 * share)
+		.. (#problems > 0 and ("\n     " .. table.concat(problems, "\n     ")) or ""))
 end
 
 -- (1) two-way across two-way, node 372
@@ -134,18 +135,14 @@ compare("highway ending at two-way", {
 	edge(886, true, 2.81, 61.26, TWO_WAY),    -- 644 -> 293, leaves north
 }, { "363.1->887.2", "363.2->887.2", "887.1->886.2", "363.1->886.2", "886.1->887.2" })
 
--- (11) three-lane highways crossing at a sharp angle, node 900: KNOWN DIFFERENCE. The
--- builder lane-to-lanes the 146 degree turn and spreads the right two lanes over the
--- other exit; one sample is not enough to derive that. Reported, not counted.
-local counted = failures
-compare("highways crossing sharply (known difference)", {
+-- (11) three-lane highways crossing at a sharp angle, node 900
+compare("highways crossing sharply", {
 	edge(903, false, 31.45, 71.99, HIGHWAY),    -- 899 -> 900, comes from the north-east
 	edge(904, true, -46.45, -106.33, HIGHWAY),  -- 900 -> 901, leaves south-west
 	edge(905, false, 12.53, -70.15, HIGHWAY),   -- 730 -> 900, comes from the south
 	edge(906, true, -14.71, 82.38, HIGHWAY),    -- 900 -> 468, leaves north
 }, { "903.1->904.3", "903.2->904.2", "903.3->904.1", "905.1->904.3", "905.2->904.2", "905.3->904.1",
 	"905.1->906.3", "905.2->906.1", "905.2->906.2", "903.1->906.2", "903.1->906.3", "903.2->906.1" })
-failures = counted
 
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

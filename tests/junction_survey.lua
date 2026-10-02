@@ -12,24 +12,17 @@ local function lane(forward, modes) return { forward = forward, transportModes =
 local function edge(entity, atStart, dx, dy, lanes)
 	return { entity = entity, atStart = atStart, dir = { x = dx, y = dy, z = 0 }, lanes = lanes }
 end
+package.path = here .. "/?.lua;" .. package.path
+local junctionCheck = require "junction_check"
+local bad = 0
 local function compare(name, edges, expected)
-	local got = {}
-	for __, c in ipairs(planner.junctionConnections(edges)) do
-		got[#got + 1] = string.format("%d.%d->%d.%d", c.segment0, c.lane0, c.segment1, c.lane1)
-	end
-	table.sort(got)
-	table.sort(expected)
-	local a, b = table.concat(got, " "), table.concat(expected, " ")
+	local got = planner.junctionConnections(edges)
+	local problems, share = junctionCheck.junction(edges, got, expected)
 	total = total + 1
-	if a == b then matched = matched + 1 end
-	local gotSet, expSet = {}, {}
-	for __, x in ipairs(got) do gotSet[x] = true end
-	for __, x in ipairs(expected) do expSet[x] = true end
-	local missing, extra = {}, {}
-	for __, x in ipairs(expected) do if not gotSet[x] then missing[#missing + 1] = x end end
-	for __, x in ipairs(got) do if not expSet[x] then extra[#extra + 1] = x end end
-	print((a == b and "same " or "DIFF ") .. name .. string.format("  (%d builder, %d ours)", #expected, #got)
-		.. (a == b and "" or ("\n     missing " .. table.concat(missing, " ") .. "\n     extra   " .. table.concat(extra, " "))))
+	if share == 1 then matched = matched + 1 end
+	if #problems > 0 then bad = bad + 1 end
+	print((#problems == 0 and "ok   " or "FAIL ") .. name .. string.format("  %d ours, %d builder's, %.0f %% in common", #got, #expected, 100 * share)
+		.. (#problems > 0 and ("\n     " .. table.concat(problems, "\n     ")) or ""))
 end
 -- node 640 (01:11:08)
 compare("node 640 (01:11:08)", {
@@ -126,5 +119,5 @@ compare("node 499 (01:18:21)", {
 	edge(319, false, -47.68, 20.72, { lane(false, {[1] = true, [0] = true}), lane(false, {[3] = true, [4] = true}), lane(false, {[2] = true, [3] = true, [4] = true}), lane(false, {[2] = true, [3] = true, [4] = true}), lane(true, {[2] = true, [3] = true, [4] = true}), lane(true, {[2] = true, [3] = true, [4] = true}), lane(true, {[3] = true, [4] = true}), lane(true, {[1] = true, [0] = true}) }), -- country_new_large_bus.street_template
 }, { "319.1->694.2", "319.2->694.2", "319.3->694.1", "820.1->694.1", "820.1->694.2", "820.3->694.1", "820.3->694.2", "820.1->319.4", "820.1->319.5", "820.1->319.6", "820.2->319.5", "820.2->319.6", "820.3->319.4", "319.1->820.4", "319.1->820.5", "319.1->820.6", "319.2->820.5", "319.2->820.6", "319.3->820.4" })
 
-print(matched .. " of " .. total .. " the same")
+print(matched .. " of " .. total .. " the same as the builder, " .. bad .. " with problems")
 

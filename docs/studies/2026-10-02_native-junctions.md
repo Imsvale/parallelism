@@ -52,6 +52,29 @@ connects the 146-degree turn lane to lane and spreads the right two lanes over t
 straight exit. One sample is not enough to derive that; it stays a known difference
 (our connections there are complete, just laid out differently).
 
+## 6-lane country roads, ramps, bus lanes (01:11-01:18)
+
+13 more junctions (`tests/junction_survey.lua`, made by `tests/junctions_from_log.py`).
+The builder's lane allocation for multi-lane roads goes its own way: a left turn from
+the two left lanes of three, a 6-lane road at a T turning from all three lanes, ramps
+into the adjacent lane only, and sharp turns (146 degrees) connected lane to lane.
+
+## Decision: our own rules (2026-10-02)
+
+Not worth reverse-engineering further: the player can change any junction with the
+game's lane tool, other mods will have their own ideas, and some of the builder's
+defaults are arguably poor (turning across three lanes at a sharp highway junction).
+The bar is: never a junction the game cannot take, and lanes reasonably aligned. The
+rules (`planner.junctionConnections`): straight on lane to lane; turns from the lanes on
+their own side (a third each side when there is a way straight on, half each at a T),
+never across other traffic; no turns sharper than 135 degrees; a ramp lane to lane into
+the outer lanes on its side. `tests/junction_check.lua` checks every junction for
+completeness, allowed turns and uncrossed lanes; all 24 recorded junctions pass, 13 of
+them 100 % like the builder's, most others 80-88 %. Known: a ramp exactly in line with
+the main road joins on the left; the builder chose the right once, the left twice (we
+do not know which side the ramp lies on from directions alone). The drawn road always
+keeps the builder's own config, a ready comparison in game.
+
 ## The mod (2026-10-02)
 
 `planner.junctionConnections` reproduces all six junctions exactly

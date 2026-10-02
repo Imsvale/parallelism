@@ -223,17 +223,26 @@ local function minPieceLength(cut)
 	return math.max(MIN_PIECE_LENGTH, CROSSING_CLEARANCE / t)
 end
 
--- Lane connections at a road junction, as the road builder makes them (2026-10-02, see
--- docs/studies/2026-10-02_native-junctions.md). edges: { entity, dir (leaving the
--- node), atStart (the node is the edge's node0), lanes (its lane configs) }. Returns
--- plain { segment0, lane0, segment1, lane1, withRoad, withTram }.
--- Lanes are counted as seen from the node: the physical index for an edge starting
--- there, mirrored for one ending there. Every incoming edge connects to every other
--- outgoing edge (no U-turns): straight on lane to lane; a single lane into all lanes; a
--- right turn from the right lanes (lane to lane into as many), a left turn from the
--- left lane into all.
+-- Lane connections at a road junction: the mod's own sensible default (2026-10-02), not
+-- a copy of the road builder's (its choices are studied in
+-- docs/studies/2026-10-02_native-junctions.md; the player can change any of it with the
+-- game's lane tool). edges: { entity, dir (leaving the node), atStart (the node is the
+-- edge's node0), lanes (its lane configs) }. Returns plain { segment0, lane0, segment1,
+-- lane1, withRoad, withTram }.
+-- Lanes are counted as seen from the node, as the game does: the physical index for an
+-- edge starting there, mirrored for one ending there.
+-- The rules, per incoming road:
+-- 1. Straight on: lane to lane; more or fewer lanes on the far side spread evenly.
+-- 2. Turns use the lanes on their own side, never across other traffic: left turns the
+--    left lane(s), right turns the right; with no way straight on (a T) the lanes are
+--    split between the two sides. A turn into several lanes spreads over them.
+-- 3. No turns sharper than JUNCTION_MAX_TURN (and no U-turns).
+-- 4. A road merging into another that carries straight-on traffic (a ramp): lane to lane
+--    into the outer lanes on its own side only.
 local TRANSPORT_ROAD = { 2, 3, 4 } -- CAR, BUS, TRUCK
 local TRANSPORT_TRAM = { 5, 6 } -- TRAM, ELECTRIC_TRAM
+local JUNCTION_MAX_TURN = 135
+local JUNCTION_STRAIGHT = 45
 local function junctionConnections(edges)
 	local function hasMode(lane, modes)
 		local found = false
@@ -274,7 +283,6 @@ local function junctionConnections(edges)
 		table.sort(outgoing, function(a, b) return a.lane < b.lane end)
 		info[#info + 1] = { edge = e, incoming = incoming, outgoing = outgoing }
 	end
-	local result = {}
 	local atan2 = math.atan2 or math.atan
 	-- the turn from arriving along a (against its leaving direction) to leaving along b,
 	-- in degrees, positive to the left
@@ -283,16 +291,7 @@ local function junctionConnections(edges)
 		local bx, by = b.edge.dir.x, b.edge.dir.y
 		return math.deg(atan2(ax * by - ay * bx, ax * bx + ay * by))
 	end
-	-- an incoming edge with no way straight on (a road ending at another, T): its left
-	-- turn takes all lanes (seen in game: both lanes of a highway ending at a road)
-	local function hasStraight(a)
-		for __, b in ipairs(info) do
-			if b.edge.entity ~= a.edge.entity and #b.outgoing > 0 and math.abs(turn(a, b)) < 45 then
-				return true
-			end
-		end
-		return false
-	end
+	local result = {}
 	local function connect(a, la, b, lb)
 		local withRoad, withTram = la.road and lb.road, la.tram and lb.tram
 		if withRoad or withTram then
@@ -300,52 +299,128 @@ local function junctionConnections(edges)
 				withRoad = withRoad, withTram = withTram }
 		end
 	end
+	-- lanes ins (left to right) into outs (left to right): one to one if as many, else
+	-- spread evenly; spare outgoing lanes go to the left or right end (wide)
+	local function spread(a, ins, b, outs, wide)
+		local k, m = #ins, #outs
+		if k == 0 or m == 0 then
+			return
+		end
+		if k >= m then
+			for i = 1, k do
+				connect(a, ins[i], b, outs[math.max(1, math.ceil(i * m / k))])
+			end
+			return
+		end
+		local base, extra = math.floor(m / k), m % k
+		local o = 1
+		for i = 1, k do
+			local size = base
+			if (wide == "left" and i <= extra) or (wide ~= "left" and i > k - extra) then
+				size = size + 1
+			end
+			for __ = 1, size do
+				connect(a, ins[i], b, outs[o])
+				o = o + 1
+			end
+		end
+	end
+	local function slice(list, from, to)
+		local s = {}
+		for i = from, to do
+			s[#s + 1] = list[i]
+		end
+		return s
+	end
 	for __, a in ipairs(info) do
-		for __, b in ipairs(info) do
-			local ins, outs = a.incoming, b.outgoing
-			if a.edge.entity ~= b.edge.entity and #ins > 0 and #outs > 0 then
-				local angle = turn(a, b)
-				if math.abs(angle) < 170 then
-					if #ins == 1 then
-						for __, lo in ipairs(outs) do
-							connect(a, ins[1], b, lo)
-						end
-					elseif math.abs(angle) < 45 or (angle < 0 and #outs > 1) then
-						-- straight on, or a right turn into several lanes: lane to lane,
-						-- lined up on the right for a right turn, else on the left
-						local count = math.min(#ins, #outs)
-						for k = 1, count do
-							if angle < 0 and math.abs(angle) >= 45 then
-								connect(a, ins[#ins - count + k], b, outs[#outs - count + k])
-							else
-								connect(a, ins[k], b, outs[k])
-							end
-						end
-						-- extra incoming lanes straight on: into the nearest outgoing lane
-						for k = count + 1, #ins do
-							connect(a, ins[k], b, outs[#outs])
-						end
-					elseif angle < 0 then
-						-- right turn into one lane: from the right lane
-						connect(a, ins[#ins], b, outs[1])
-					elseif not hasStraight(a) then
-						-- left turn with no way straight on: from all lanes, lane to lane on
-						-- the left, the rest into the right outgoing lane
-						for k, li in ipairs(ins) do
-							connect(a, li, b, outs[math.min(k, #outs)])
-						end
-					else
-						-- left turn: from the left lane into all
-						for __, lo in ipairs(outs) do
-							connect(a, ins[1], b, lo)
+		local ins = a.incoming
+		if #ins > 0 then
+			local exits = {}
+			for __, b in ipairs(info) do
+				if b.edge.entity ~= a.edge.entity and #b.outgoing > 0 then
+					local angle = turn(a, b)
+					if math.abs(angle) <= JUNCTION_MAX_TURN then
+						exits[#exits + 1] = { b = b, angle = angle }
+					end
+				end
+			end
+			-- a merge (a ramp): the road's only way on, which another road enters more
+			-- nearly straight on (or as straight with more lanes)
+			local merge = nil
+			if #exits == 1 and math.abs(exits[1].angle) < JUNCTION_STRAIGHT then
+				local x = exits[1]
+				for __, c in ipairs(info) do
+					if c ~= a and c ~= x.b and #c.incoming > 0 then
+						local other = math.abs(turn(c, x.b))
+						if other < math.abs(x.angle) - 0.5
+							or (math.abs(other - math.abs(x.angle)) <= 0.5 and #c.incoming > #ins) then
+							merge = x
 						end
 					end
 				end
+			end
+			local lefts, rights, straights = {}, {}, {}
+			if merge then
+				-- into the outer lanes on its own side: a ramp turning right to join comes
+				-- from the right (in line: the left, as the builder does)
+				local outs = merge.b.outgoing
+				local k = math.min(#ins, #outs)
+				for i = 1, k do
+					if merge.angle < -0.5 then
+						connect(a, ins[#ins - k + i], merge.b, outs[#outs - k + i])
+					else
+						connect(a, ins[i], merge.b, outs[i])
+					end
+				end
+				exits = {}
+			end
+			-- straight on: the most nearly straight way within JUNCTION_STRAIGHT; any
+			-- other way is a turn to its side, however slight
+			local straightest = nil
+			for __, x in ipairs(exits) do
+				if math.abs(x.angle) < JUNCTION_STRAIGHT and (straightest == nil or math.abs(x.angle) < math.abs(straightest.angle)) then
+					straightest = x
+				end
+			end
+			for __, x in ipairs(exits) do
+				if x == straightest then
+					straights[#straights + 1] = x
+				elseif x.angle > 0 then
+					lefts[#lefts + 1] = x
+				else
+					rights[#rights + 1] = x
+				end
+			end
+			local n = #ins
+			local leftCount, rightCount
+			if #straights > 0 then
+				-- a third of the lanes each side (at least one), sharing with straight on
+				leftCount = math.max(1, math.floor(n / 3))
+				rightCount = leftCount
+			elseif #lefts > 0 and #rights > 0 then
+				leftCount = math.ceil(n / 2)
+				rightCount = math.max(1, n - leftCount)
+			else
+				leftCount, rightCount = n, n
+			end
+			for __, x in ipairs(lefts) do
+				spread(a, slice(ins, 1, leftCount), x.b, x.b.outgoing, "left")
+			end
+			for __, x in ipairs(rights) do
+				spread(a, slice(ins, n - rightCount + 1, n), x.b, x.b.outgoing, "right")
+			end
+			-- straight on: all lanes; two ways straight on (a fork) split them, left to left
+			table.sort(straights, function(p, q) return p.angle > q.angle end)
+			for i, x in ipairs(straights) do
+				local from = math.floor((i - 1) * n / #straights) + 1
+				local to = math.max(from, math.floor(i * n / #straights))
+				spread(a, slice(ins, from, to), x.b, x.b.outgoing, "right")
 			end
 		end
 	end
 	return result
 end
+
 planner.junctionConnections = junctionConnections
 
 -- true if a road with these lanes has a sidewalk (a lane for PERSON, transport mode 0)
