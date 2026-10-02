@@ -1699,7 +1699,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	-- emit
 	local edgesToAdd = {}
 	local edgesToRemove = {}
-	local nextEdgeId = -1
+	-- (options.edgeIdBase: ids clear of another proposal's, see judgeTogether)
+	local nextEdgeId = options.edgeIdBase or -1
 	-- every edge added, with the existing edges it replaces (origins), for node configs
 	local pieces = {}
 

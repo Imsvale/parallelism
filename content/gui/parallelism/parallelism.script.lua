@@ -184,6 +184,90 @@ local verdicts, verdictOrder = {}, {}
 local loggedSignatures = false
 local MAX_VERDICTS = 32
 
+-- dev switch: judge the drawn and our part together in the drag check (judgeTogether)
+local JUDGE_TOGETHER = true
+
+-- The builder's live proposal (a full Proposal) with our planned SimpleProposal added
+-- in, judged by the game as one build. Returns a short verdict text. Our edges carry
+-- ids far from the builder's (edgeIdBase); edges we remove appear as -(id + 1), as the
+-- builder's own removals do; nodes the same.
+local function judgeTogether(builderProposal, planned)
+	local combined = builderProposal
+	pcall(function()
+		combined = builderProposal:clone()
+	end)
+	local sp = combined.proposal
+	local ours = planned.streetProposal
+	local function list(src)
+		local l = {}
+		for __, x in ipairs(src or {}) do
+			l[#l + 1] = x
+		end
+		return l
+	end
+	local addedSegments = list(sp.addedSegments)
+	for __, s in ipairs(ours.edgesToAdd) do
+		addedSegments[#addedSegments + 1] = s
+	end
+	sp.addedSegments = addedSegments
+	local addedNodes = list(sp.addedNodes)
+	for __, n in ipairs(ours.nodesToAdd) do
+		addedNodes[#addedNodes + 1] = n
+	end
+	sp.addedNodes = addedNodes
+	local removedSegments = list(sp.removedSegments)
+	local have = {}
+	for __, s in ipairs(removedSegments) do
+		have[s.entity] = true
+	end
+	for __, id in ipairs(ours.edgesToRemove) do
+		local key = -(id + 1)
+		if not have[key] then
+			local comp = api.engine.getComponent(id, api.type.ComponentType.BASE_EDGE)
+			if comp then
+				local s = api.type.SegmentAndEntity.new()
+				s.entity = key
+				-- segment type: 1 track, 0 street (roadType 0 is TRACK)
+				s.type = comp.roadType == 0 and 1 or 0
+				s.comp = comp
+				removedSegments[#removedSegments + 1] = s
+			end
+		end
+	end
+	sp.removedSegments = removedSegments
+	local removedNodes = list(sp.removedNodes)
+	for __, id in ipairs(ours.nodesToRemove) do
+		local comp = api.engine.getComponent(id, api.type.ComponentType.BASE_NODE)
+		if comp then
+			local n = api.type.NodeAndEntity.new()
+			n.entity = -(id + 1)
+			n.comp = comp
+			removedNodes[#removedNodes + 1] = n
+		end
+	end
+	sp.removedNodes = removedNodes
+	local configs = list(sp.nodeConfigsToAdd)
+	for __, nc in ipairs(ours.nodeConfigsToAdd) do
+		configs[#configs + 1] = nc
+	end
+	sp.nodeConfigsToAdd = configs
+	local configsRemoved = list(sp.nodeConfigsToRemove)
+	for __, id in ipairs(ours.nodeConfigsToRemove) do
+		configsRemoved[#configsRemoved + 1] = id
+	end
+	sp.nodeConfigsToRemove = configsRemoved
+	combined.proposal = sp
+	local context = api.type.Context.new()
+	context.player = api.engine.util.getPlayer()
+	local data = api.engine.util.proposal.makeProposalData(combined, context)
+	local messages = {}
+	for __, m in ipairs(data.errorState.messages) do
+		messages[#messages + 1] = tostring(m)
+	end
+	return string.format("critical %s%s (%d + %d edges)", tostring(data.errorState.critical),
+		#messages > 0 and (", " .. table.concat(messages, "; ")) or "", #addedSegments - #ours.edgesToAdd, #ours.edgesToAdd)
+end
+
 local function checkPlayerProposal(param)
 	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
 	if #drawn == 0 then
@@ -216,40 +300,7 @@ local function checkPlayerProposal(param)
 		errorMessages[message] = true
 		return { errorMessages = errorMessages, skipRender = false }
 	end
-	-- A plan with crossings or junctions is only let through once the game has judged its
-	-- preview: released before that, a drag the game refuses went through on our plan
-	-- alone, and our part failed after the drawn road was built (2026-10-02, a 42 degree
-	-- road crossing). The menu nudges the builder to ask again when the verdict is in.
-	local function pending()
-		local message = "Parallel " .. shared.nounOf(current.builder) .. ": checking with the game..."
-		if message ~= lastRefusal then
-			lastRefusal = message
-			local have = {}
-			for i = math.max(1, #verdictOrder - 3), #verdictOrder do
-				have[#have + 1] = shared.fingerprint(verdictOrder[i])
-			end
-			shared.log("check: verdict for this position not in yet (" .. shared.fingerprint(signature) .. "; latest verdicts "
-				.. table.concat(have, ", ") .. ")")
-			-- dev aid: the two signatures in full, once, to see where they differ
-			if not loggedSignatures and #verdictOrder > 0 then
-				loggedSignatures = true
-				shared.log("  waiting for: " .. signature)
-				shared.log("  latest verdict: " .. verdictOrder[#verdictOrder])
-			end
-		end
-		local errorMessages = {}
-		errorMessages[message] = true
-		return { errorMessages = errorMessages, skipRender = false }
-	end
 	if signature == lastCheck.signature then
-		if lastCheck.result == nil and lastCheck.needsVerdict and verdict == nil then
-			return pending()
-		end
-		if lastCheck.needsVerdict and lastRefusal and lastRefusal:find("checking with the game", 1, true) then
-			-- dev aid: the builder asked again once the verdict was in (the menu's nudge)
-			lastRefusal = nil
-			shared.log("check: verdict in, asked again: ok")
-		end
 		return lastCheck.result
 	end
 	-- Every position is planned: the builder asks only when the drag changes, so an
@@ -302,11 +353,24 @@ local function checkPlayerProposal(param)
 		errorMessages[message] = true
 		result = { errorMessages = errorMessages, skipRender = false }
 	end
-	local needsVerdict = (stats.crossings + stats.anchored) > 0
-	lastCheck = { signature = signature, result = result, needsVerdict = needsVerdict }
-	if result == nil and needsVerdict and verdict == nil then
-		return pending()
+	-- Experiment (2026-10-03): the game's verdict on the drawn and our part together,
+	-- asked right here instead of waiting for the preview's (the builder asks only when
+	-- the drag changes, so a check waiting for the preview's verdict waited forever).
+	-- Logged only for now, to compare with the preview's verdicts.
+	if result == nil and JUDGE_TOGETHER and (stats.crossings + stats.anchored) > 0 then
+		local ok, err = pcall(function()
+			local planned = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, false,
+				{ reverse = current.reverse, edgeIdBase = -300000 })
+			if planned then
+				local verdictNow = judgeTogether(param[1], planned)
+				shared.log("judged together: " .. verdictNow)
+			end
+		end)
+		if not ok then
+			shared.log("judged together: failed: " .. tostring(err))
+		end
 	end
+	lastCheck = { signature = signature, result = result }
 	return result
 end
 
