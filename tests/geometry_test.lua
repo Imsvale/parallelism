@@ -256,5 +256,22 @@ do
 		string.format("%.5f m", geometry.mergeDeviation(halfA, halfB, back)))
 end
 
+-- the native builder's refit of existing track next to a crossing (2026-10-02, build 1
+-- edge 756: crossing to a node 30 m on, through a straight-to-curve seam)
+do
+	local function dir(degrees)
+		return v(math.cos(math.rad(degrees)), math.sin(math.rad(degrees)), 0)
+	end
+	local refit = geometry.arcCubic(v(-119.99, -1387.56, 5), dir(87.40), v(-118.27, -1357.64, 5), dir(81.16))
+	local l0 = math.sqrt(refit.t0.x ^ 2 + refit.t0.y ^ 2)
+	local l1 = math.sqrt(refit.t1.x ^ 2 + refit.t1.y ^ 2)
+	check("arcCubic tangents as the native refit (29.99 / 30.00)", math.abs(l0 - 29.99) < 0.05 and math.abs(l1 - 30.00) < 0.05,
+		string.format("%.2f / %.2f", l0, l1))
+	-- a true arc stays an arc: quarter circle of radius 50
+	local quarter = geometry.arcCubic(v(50, 0, 0), v(0, 1, 0), v(0, 50, 0), v(-1, 0, 0))
+	check("arcCubic of a quarter circle bends at about 50 m", math.abs(geometry.minRadiusAlong(quarter) - 50) < 1,
+		string.format("%.2f m", geometry.minRadiusAlong(quarter)))
+end
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

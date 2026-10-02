@@ -103,14 +103,18 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Rules
 
-- **Existing track keeps its shape (2026-10-01).** Crossing nodes lie exactly on both
-  tracks. Nodes near a crossing: our own ones (offsets of the drawn track's nodes) are
-  dropped or slid onto the crossing; a plain node of an existing track is slid onto the
-  crossing within 5 cm of the old line. If a slide does not fit, the drag is refused.
-  A node at a seam (a straight meeting a curve) slides away instead, to just over 5 m
-  from the crossing. Switches still merge to clear their zone, as the native builder
-  does. Our own nodes reuse existing ones only within 5 cm (0.1 m at run ends); tracks
-  do not snap to loose ends.
+- **Existing track: as the native builder (2026-10-02).** Crossing nodes lie exactly on
+  both tracks. Nodes near a crossing: our own ones (offsets of the drawn track's nodes)
+  are dropped or slid onto the crossing. A plain node of an existing track, first
+  choice: slid onto the crossing or away from it within 5 cm of the old line. Else, as
+  the native builder does (study `docs/studies/2026-10-02_native-crossings.md`): the
+  node is removed and the old track refitted from the crossing to a new node 30 m on
+  (or the next node) with an arc-like cubic, within 0.5 m of the old line and not
+  tighter than the type's minimum radius; else the drag is refused. Switches still
+  merge to clear their zone. Our own nodes reuse existing ones only within 5 cm (0.1 m
+  at run ends); tracks do not snap to loose ends. (Until 2026-10-02 the rule was
+  stricter: no reshaping beyond the 5 cm slides.) Not yet refitted: a seam between two
+  edges that are both crossed (`absorbNeighbour` still only slides).
 - **Tooltip additions are out of scope.** Anything in the builder tooltip belongs in
   the sibling mod Better Construction Tooltip (`mods/better-construction-tooltip`), and
   must add to the tooltip (wrap `getProposalStringsFn`, keep what is there) and be

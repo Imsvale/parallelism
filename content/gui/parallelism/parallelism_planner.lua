@@ -71,6 +71,14 @@ local MAX_MERGE_DEVIATION = 0.2
 local EXISTING_MAX_DEVIATION = 0.05
 -- a slide onto a crossing that strays more than this tries sliding away from it instead
 local SEAM_DEVIATION = 0.005
+-- When neither slide keeps the track within EXISTING_MAX_DEVIATION (a seam: a straight
+-- meeting a curve), do as the native builder does (measured 2026-10-02, see
+-- docs/studies/2026-10-02_native-crossings.md): remove the node and refit the old track
+-- from the crossing to a new node this far on (arc length), or to the next node if that
+-- is closer, as one arc-like cubic with the old track's directions at both ends. The
+-- native refits strayed up to 0.38 m per build and curved down to the type's minimum.
+local REFIT_LENGTH = 30.0
+local REFIT_MAX_DEVIATION = 0.5
 -- smallest curve radius for extra tracks if the track template does not say
 local DEFAULT_MIN_RADIUS = 40.0
 -- for extra roads only a road turned inside out on the inside of a bend is refused, the
@@ -1516,6 +1524,72 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				-- the end is now the crossing, nothing more to clear on this side
 				return false
 			end
+
+			-- (c) as the native builder: remove the node, refit from the crossing on
+			local joint = nearestCut.node
+			local need = REFIT_LENGTH - shortLength
+			local toFar = otherLength - need < MIN_PIECE_LENGTH
+			local refit, rest, restPoint, deviation
+			local atCrossing = geometry.hermiteDerivative(part.edge.p0, part.edge.p1, part.edge.t0, part.edge.t1, u)
+			if which == 1 then
+				-- crossing -> (node) -> new node or far; other runs node -> far
+				local near = otherEdge
+				if not toFar then
+					near, rest = geometry.split(otherEdge, geometry.parameterAtLength(otherEdge, need))
+					restPoint = rest.p0
+				end
+				refit = geometry.arcCubic(joint.position, atCrossing, near.p1, near.t1)
+				deviation = geometry.mergeDeviation(short, near, refit)
+			else
+				-- new node or far -> (node) -> crossing; other runs far -> node
+				local near = otherEdge
+				if not toFar then
+					rest, near = geometry.split(otherEdge, geometry.parameterAtLength(otherEdge, otherLength - need))
+					restPoint = rest.p1
+				end
+				refit = geometry.arcCubic(near.p0, near.t0, joint.position, atCrossing)
+				deviation = geometry.mergeDeviation(near, short, refit)
+			end
+			local radius = geometry.minRadiusAlong(refit)
+			local limit = allowedRadius(template)
+			local refitNote = string.format(" (refit %.1f m to %s strays %.3f m, bends at %.1f m, type needs %.0f m)",
+				geometry.arcLength(refit), toFar and "the next node" or "a new node", deviation, radius, limit)
+			if deviation <= REFIT_MAX_DEVIATION and radius >= limit then
+				part.edge = keep
+				if which == 0 then
+					part.node0 = joint
+				else
+					part.node1 = joint
+				end
+				if rest then
+					local moved = newNode({ x = restPoint.x, y = restPoint.y, z = restPoint.z })
+					if which == 0 then
+						part.extra[#part.extra + 1] = { node0 = far, node1 = moved, edge = rest, origins = { other } }
+						part.extra[#part.extra + 1] = { node0 = moved, node1 = joint, edge = refit, origins = { other } }
+					else
+						part.extra[#part.extra + 1] = { node0 = joint, node1 = moved, edge = refit, origins = { other } }
+						part.extra[#part.extra + 1] = { node0 = moved, node1 = far, edge = rest, origins = { other } }
+					end
+				elseif which == 0 then
+					part.extra[#part.extra + 1] = { node0 = far, node1 = joint, edge = refit, origins = { other } }
+				else
+					part.extra[#part.extra + 1] = { node0 = joint, node1 = far, edge = refit, origins = { other } }
+				end
+				for i, cut in ipairs(part.cuts) do
+					if cut == nearestCut then
+						table.remove(part.cuts, i)
+						break
+					end
+				end
+				part.endEdge[which] = nil
+				part.removeEdges[#part.removeEdges + 1] = other
+				part.removeNodes[#part.removeNodes + 1] = endNode.entity
+				stats.moved = stats.moved + 1
+				stats.refitted = (stats.refitted or 0) + 1
+				log(prefix .. ", removed it and refitted the track from the crossing" .. refitNote .. slideNote)
+				return false
+			end
+			slideNote = slideNote .. refitNote
 		end
 
 		if not (nearestCut and nearestCut.zone ~= nil) then
