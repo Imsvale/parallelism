@@ -1113,6 +1113,17 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			local best, bestS = nil, math.huge
 			local reasons = {}
 			for __, road in ipairs(roads) do
+				-- the line through an end node of the road (an existing junction, e.g. a T
+				-- built earlier and now extended to an X): the intersection search below
+				-- misses points at an edge's very end (seen 2026-10-03)
+				for __, p in ipairs({ road.p0, road.p1 }) do
+					local dx, dy = p.x - offsetPosition.x, p.y - offsetPosition.y
+					local s = dx * dir.x + dy * dir.y
+					local off = math.abs(dx * dir.y - dy * dir.x)
+					if off < JUNCTION_REUSE_DISTANCE and math.abs(s) <= reach and math.abs(s) < math.abs(bestS) then
+						best, bestS = { x = p.x, y = p.y, z = offsetPosition.z }, s
+					end
+				end
 				for __, x in ipairs(geometry.intersections(ray, road)) do
 					local angle = geometry.crossingAngle(ray, x.ua, road, x.ub)
 					local s = (x.pointB.x - offsetPosition.x) * dir.x + (x.pointB.y - offsetPosition.y) * dir.y
