@@ -63,3 +63,14 @@ Verified parallel: the three crossing roads at 0.00 degrees to each other, 36.00
 Built correctly (extended along the straight build guide, not snapped to the other road,
 which pulls the spacing toward the builder's 4 m), T and X accept the same spacing. 90
 degrees: 2.5 m.
+
+## Native layout at 25 degrees (20 m spacing, two X groups)
+
+Junctions 85.3 m apart along the main road (36 / sin 25), nothing between them, the
+nearest plain node outside 62.1 m away (both groups); on the outer crossing roads also
+62.1 m on both sides of the junction.
+
+**Fit:** the outer distance is the junction's corner plus 26.0 m, exactly at both angles:
+w/2 / sin(a) + w/2 / tan(a) + 26.0 (16 m roads: 53.0 m at 33 degrees, 62.1 m at 25;
+predicts 34 m at 90, 40 m at 60, 46 m at 45). Used as the room next to a road junction
+(outer side) since 2026-10-03. To check: a native X at 90 or 60 degrees.

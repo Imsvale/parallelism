@@ -52,6 +52,9 @@ local JUNCTION_REUSE_DISTANCE = 0.3
 -- junctions and left 53 m. (16 m road: 16 m at 90 degrees, 29 m at 33, 62 m at 15.)
 -- 8 m left a plain node 30.2 m from a 33 degree junction (refused, 2026-10-03); 12 m: 37 m.
 local ROAD_JUNCTION_MARGIN = 12.0
+-- how far beyond a junction's corner the road builder keeps the next node (fitted to its
+-- builds at 33 and 25 degrees, see minPieceLength)
+local ROAD_JUNCTION_BEYOND = 26.0
 -- dev switch (A/B, 2026-10-03): the room by angle above; false: the earlier rule
 -- (ROAD_JUNCTION_CLEARANCE / tan(angle), at least ROAD_MIN_PIECE_LENGTH)
 -- (on again: only on the outer side of a junction; moving the nodes between our junction
@@ -258,8 +261,13 @@ local function minPieceLength(cut, inner)
 		return pieceMinimum()
 	end
 	if ROAD_ROOM_BY_ANGLE and not inner and isStreet(planRoadType) and planRoadWidth then
-		local s = math.sin(math.rad(math.max(cut.angle, 1)))
-		return math.max(pieceMinimum(), (planRoadWidth / 2 + ROAD_JUNCTION_MARGIN) / s)
+		-- the junction's corner (where the edges of the two roads meet) lies
+		-- w/2 / sin + w/2 / tan along the road from its centre; the road builder keeps the
+		-- next node a fixed distance beyond that (2026-10-03, 16 m roads: 53.0 m at 33
+		-- degrees, 62.1 m at 25, both exactly corner + 26.0 m)
+		local a = math.rad(math.max(cut.angle, 1))
+		local half = planRoadWidth / 2
+		return math.max(pieceMinimum(), half / math.sin(a) + half / math.tan(a) + ROAD_JUNCTION_BEYOND)
 	end
 	local t = math.tan(math.rad(math.max(cut.angle, 1)))
 	local clearance = isStreet(planRoadType) and ROAD_JUNCTION_CLEARANCE or CROSSING_CLEARANCE
