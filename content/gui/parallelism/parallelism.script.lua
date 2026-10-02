@@ -191,81 +191,97 @@ local JUDGE_TOGETHER = true
 -- in, judged by the game as one build. Returns a short verdict text. Our edges carry
 -- ids far from the builder's (edgeIdBase); edges we remove appear as -(id + 1), as the
 -- builder's own removals do; nodes the same.
+local judgeCallLogged = false
+
 local function judgeTogether(builderProposal, planned)
-	local combined = builderProposal
-	pcall(function()
-		combined = builderProposal:clone()
-	end)
-	local sp = combined.proposal
+	-- makeProposalData takes a SimpleProposal (seen: "SimpleProposal expected, got
+	-- Proposal"), so the builder's part is turned into one: its new edges and nodes as
+	-- they are, its removals by real id (they appear as -(id + 1))
+	local sp = builderProposal.proposal
 	local ours = planned.streetProposal
-	local function list(src)
-		local l = {}
-		for __, x in ipairs(src or {}) do
-			l[#l + 1] = x
+	local combined = api.type.SimpleProposal.new()
+	local nodesToAdd, edgesToAdd, edgesToRemove, nodesToRemove = {}, {}, {}, {}
+	local configsToAdd, configsToRemove = {}, {}
+	local removing = {}
+	for __, n in ipairs(sp.addedNodes) do
+		if n.entity < 0 then
+			local node = api.type.NodeAndEntity.new()
+			node.entity = n.entity
+			node.comp.position = n.comp.position
+			nodesToAdd[#nodesToAdd + 1] = node
 		end
-		return l
 	end
-	local addedSegments = list(sp.addedSegments)
-	for __, s in ipairs(ours.edgesToAdd) do
-		addedSegments[#addedSegments + 1] = s
+	for __, s in ipairs(sp.addedSegments) do
+		edgesToAdd[#edgesToAdd + 1] = s
 	end
-	sp.addedSegments = addedSegments
-	local addedNodes = list(sp.addedNodes)
+	for __, s in ipairs(sp.removedSegments) do
+		local id = s.entity < 0 and (-s.entity - 1) or s.entity
+		removing[id] = true
+		edgesToRemove[#edgesToRemove + 1] = id
+	end
+	for __, n in ipairs(sp.removedNodes) do
+		nodesToRemove[#nodesToRemove + 1] = n.entity < 0 and (-n.entity - 1) or n.entity
+	end
+	for __, nc in ipairs(sp.nodeConfigsToAdd) do
+		configsToAdd[#configsToAdd + 1] = nc
+	end
+	for __, id in ipairs(sp.nodeConfigsToRemove) do
+		configsToRemove[#configsToRemove + 1] = id < 0 and (-id - 1) or id
+	end
+	local builderEdges = #edgesToAdd
 	for __, n in ipairs(ours.nodesToAdd) do
-		addedNodes[#addedNodes + 1] = n
+		nodesToAdd[#nodesToAdd + 1] = n
 	end
-	sp.addedNodes = addedNodes
-	local removedSegments = list(sp.removedSegments)
-	local have = {}
-	for __, s in ipairs(removedSegments) do
-		have[s.entity] = true
+	for __, s in ipairs(ours.edgesToAdd) do
+		edgesToAdd[#edgesToAdd + 1] = s
 	end
 	for __, id in ipairs(ours.edgesToRemove) do
-		local key = -(id + 1)
-		if not have[key] then
-			local comp = api.engine.getComponent(id, api.type.ComponentType.BASE_EDGE)
-			if comp then
-				local s = api.type.SegmentAndEntity.new()
-				s.entity = key
-				-- segment type: 1 track, 0 street (roadType 0 is TRACK)
-				s.type = comp.roadType == 0 and 1 or 0
-				s.comp = comp
-				removedSegments[#removedSegments + 1] = s
-			end
+		if not removing[id] then
+			edgesToRemove[#edgesToRemove + 1] = id
 		end
 	end
-	sp.removedSegments = removedSegments
-	local removedNodes = list(sp.removedNodes)
 	for __, id in ipairs(ours.nodesToRemove) do
-		local comp = api.engine.getComponent(id, api.type.ComponentType.BASE_NODE)
-		if comp then
-			local n = api.type.NodeAndEntity.new()
-			n.entity = -(id + 1)
-			n.comp = comp
-			removedNodes[#removedNodes + 1] = n
-		end
+		nodesToRemove[#nodesToRemove + 1] = id
 	end
-	sp.removedNodes = removedNodes
-	local configs = list(sp.nodeConfigsToAdd)
 	for __, nc in ipairs(ours.nodeConfigsToAdd) do
-		configs[#configs + 1] = nc
+		configsToAdd[#configsToAdd + 1] = nc
 	end
-	sp.nodeConfigsToAdd = configs
-	local configsRemoved = list(sp.nodeConfigsToRemove)
 	for __, id in ipairs(ours.nodeConfigsToRemove) do
-		configsRemoved[#configsRemoved + 1] = id
+		configsToRemove[#configsToRemove + 1] = id
 	end
-	sp.nodeConfigsToRemove = configsRemoved
-	combined.proposal = sp
+	combined.streetProposal.nodesToAdd = nodesToAdd
+	combined.streetProposal.edgesToAdd = edgesToAdd
+	combined.streetProposal.edgesToRemove = edgesToRemove
+	combined.streetProposal.nodesToRemove = nodesToRemove
+	combined.streetProposal.nodeConfigsToAdd = configsToAdd
+	combined.streetProposal.nodeConfigsToRemove = configsToRemove
 	local context = api.type.Context.new()
 	context.player = api.engine.util.getPlayer()
-	local data = api.engine.util.proposal.makeProposalData(combined, context)
+	local util = api.engine.util.proposal
+	-- the argument order is not documented for this form: try both
+	local ok, data = pcall(util.makeProposalData, combined, context)
+	if not ok then
+		local first = data
+		ok, data = pcall(util.makeProposalData, context, combined)
+		if not ok then
+			error(tostring(first) .. " / " .. tostring(data))
+		end
+		if not judgeCallLogged then
+			judgeCallLogged = true
+			shared.log("judged together: makeProposalData(context, proposal) is the form that works")
+		end
+	elseif not judgeCallLogged then
+		judgeCallLogged = true
+		shared.log("judged together: makeProposalData(proposal, context) is the form that works")
+	end
+	local ours_ = #edgesToAdd - builderEdges
+	builderEdges = builderEdges
 	local messages = {}
 	for __, m in ipairs(data.errorState.messages) do
 		messages[#messages + 1] = tostring(m)
 	end
-	return string.format("critical %s%s (%d + %d edges)", tostring(data.errorState.critical),
-		#messages > 0 and (", " .. table.concat(messages, "; ")) or "", #addedSegments - #ours.edgesToAdd, #ours.edgesToAdd)
+	return string.format("critical %s%s (%d drawn + %d ours edges)", tostring(data.errorState.critical),
+		#messages > 0 and (", " .. table.concat(messages, "; ")) or "", builderEdges, ours_)
 end
 
 local function checkPlayerProposal(param)
