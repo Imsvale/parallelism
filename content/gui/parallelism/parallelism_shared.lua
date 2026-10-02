@@ -26,7 +26,9 @@ local shared = {
 	SIDE_CENTER_RIGHT = 3,
 	SIDE_RIGHT = 4,
 
-	MAX_COUNT = 6,
+	MAX_COUNT = 12,
+	-- roads with the mod option "moreRoads"
+	MAX_MORE_ROADS = 6,
 	-- roads: a split highway needs 2; more only with the mod option "moreRoads"
 	MAX_ROADS = 2,
 
@@ -101,7 +103,7 @@ function shared.maxCount(builder)
 			shared.loggedModParams = true
 			shared.log("mod option moreRoads = " .. tostring(moreRoads))
 		end
-		return moreRoads == 1 and shared.MAX_COUNT or shared.MAX_ROADS
+		return moreRoads == 1 and shared.MAX_MORE_ROADS or shared.MAX_ROADS
 	end
 	return shared.MAX_COUNT
 end
