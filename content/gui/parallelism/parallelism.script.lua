@@ -197,6 +197,7 @@ local function checkPlayerProposal(param)
 	if previewVerdict.signature == signature and blocking then
 		local message = "Parallel " .. shared.nounOf(current.builder) .. " cannot be built here"
 			.. (previewVerdict.message and (" (" .. previewVerdict.message .. ")") or "")
+			.. (previewVerdict.roadJunctions and ". Junctions too close together? Try more spacing." or "")
 		if message ~= lastRefusal then
 			lastRefusal = message
 			shared.log("check: " .. message)
@@ -640,6 +641,7 @@ return {
 				shared.log("preview verdict for the drag check: critical " .. tostring(param.critical) .. ", " .. tostring(param.message))
 			end
 			previewVerdict = { signature = param.signature, critical = param.critical, message = param.message,
+				roadJunctions = param.roadJunctions,
 				bulldozeConstructions = param.bulldozeConstructions or {}, bulldozeBuildings = param.bulldozeBuildings or {} }
 		elseif name == "builder.proposalCreate" and id == current.builder then
 			perf.requests = perf.requests + 1

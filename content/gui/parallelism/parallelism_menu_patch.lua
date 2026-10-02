@@ -164,6 +164,7 @@ local function updatePreview(proposal)
 	preview.shortPiece = stats.shortPiece ~= nil
 	preview.existingBend = stats.existingBend ~= nil
 	preview.junctions = stats.junctions > 0
+	preview.roadJunctions = preview.builder == shared.STREET_BUILDER and (stats.crossings + stats.anchored) > 0
 	preview.sharpCorner = stats.sharpCorner ~= nil
 	preview.shallow = stats.shallow
 	preview.signature = signature
@@ -233,6 +234,12 @@ local function previewSummary()
 		text = text .. " (cannot be laid out here)"
 	elseif failed > 0 then
 		text = text .. " (cannot be built" .. (preview.gameMessage and (": " .. preview.gameMessage) or "") .. ")"
+		-- roads crossing or joining roads need room between their junctions, depending on
+		-- the angle (seen 2026-10-02: near 90 degrees the road builder's own spacing is
+		-- too little); no single number decides it, the player adjusts
+		if preview.roadJunctions then
+			text = text .. "\n" .. _("Junctions too close together? Try more spacing.")
+		end
 	elseif preview.warning then
 		text = text .. " (game notes: " .. preview.warning .. ")"
 	end
@@ -363,6 +370,8 @@ local function makeViewer(index)
 						signature = preview.signature,
 						critical = errorState.critical and true or false,
 						message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil,
+						-- roads making junctions: the refusal suggests more spacing
+						roadJunctions = preview.roadJunctions and true or false,
 						-- the buildings the preview bulldozes, for the build
 						bulldozeConstructions = bulldozeConstructions,
 						bulldozeBuildings = bulldozeBuildings,
