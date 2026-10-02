@@ -50,7 +50,8 @@ local JUNCTION_REUSE_DISTANCE = 0.3
 -- the road grows as the crossing gets flatter). Seen 2026-10-03 at 33 degrees: a 16.2 m
 -- piece refused; the road builder itself removed nodes 12.7 and 12.9 m from such
 -- junctions and left 53 m. (16 m road: 16 m at 90 degrees, 29 m at 33, 62 m at 15.)
-local ROAD_JUNCTION_MARGIN = 8.0
+-- 8 m left a plain node 30.2 m from a 33 degree junction (refused, 2026-10-03); 12 m: 37 m.
+local ROAD_JUNCTION_MARGIN = 12.0
 -- the width of the roads being planned (set per plan; nil for tracks)
 local planRoadWidth = nil
 -- an end of an offset track continues a loose end within this share of the distance
