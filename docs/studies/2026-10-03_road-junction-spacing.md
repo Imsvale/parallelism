@@ -24,21 +24,21 @@ Procedure:
 **NB:** Make sure the extension in **#4** snaps to its own **0° build guide**,
 **not** the road beside it, as that would shift it to a 4 m spacing!
 
-| Angle | X     | Note |
-| ----- | ----- | ---- |
-| 90°   | 2.5 m |      |
-| 75°   |       |      |
-| 60°   |       |      |
-| 45°   |       |      |
-| 30°   |       |      |
-| 20°   |       |      |
+| Angle | X     | Note                                        |
+| ----- | ----- | ------------------------------------------- |
+| 90°   | 2.5 m |                                             |
+| 75°   | ?     | 4.0 m works on the "outside", but not the "inside" of the angle. |
+| 60°   |       |                                             |
+| 45°   |       |                                             |
+| 30°   |       |                                             |
+| 20°   |       |                                             |
 
 ### Parallelism mod
 
 | Angle | T     | X     | Note                                                                 |
 | ----- | ----- | ----- | -------------------------------------------------------------------- |
 | 90°   | 2.5 m | 2.5 m | X at 2.5 m holds from 90.0° down to about 88.2° (slightly variable). |
-| 75°   | 2.0 m |       | X at 2.0 m refused                                                   |
+| 75°   | 2.0 m |       | One failed, one succeeded, so it seems to be right on the edge.      |
 | 60°   |       |       |                                                                      |
 | 45°   |       |       |                                                                      |
 | 30°   |       |       |                                                                      |
@@ -74,3 +74,14 @@ nearest plain node outside 62.1 m away (both groups); on the outer crossing road
 w/2 / sin(a) + w/2 / tan(a) + 26.0 (16 m roads: 53.0 m at 33 degrees, 62.1 m at 25;
 predicts 34 m at 90, 40 m at 60, 46 m at 45). Used as the room next to a road junction
 (outer side) since 2026-10-03. To check: a native X at 90 or 60 degrees.
+
+## Native layouts at 90 and 60 degrees (20 m spacing)
+
+No fixed distance here: the nearest plain nodes outside the junctions were wherever they
+happened to be, all beyond the predicted room (90 degrees: 45.3 m and more against 34 m
+predicted; 60 degrees: 47.1 m and more against 39.9 m). Consistent with the rule, no
+check of it: the builder only moves nodes that are inside the room, and here none were.
+At 33 and 25 degrees the same 53.0 / 62.1 m came back every time, which is what a moved
+node looks like.
+
+With the rule: the mod's T builds from 90 down to about 28-32 degrees (2026-10-03).
