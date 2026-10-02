@@ -1192,10 +1192,30 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 							else
 								natural.p1 = x
 							end
-						elseif geometry.horizontalDistance(x, atStart and natural.p0 or natural.p1) < MIN_PIECE_LENGTH then
+						elseif (function()
+							-- lengthened as one edge: the road builder leaves a junction with one
+							-- edge, a short straight piece before a node there was refused (seen
+							-- 2026-10-02 at 70 degrees: 5.9 and 12.6 m pieces, Construction Not
+							-- Possible). The same curve, arc-like from the junction with the old
+							-- directions: exact for a straight, close for a curve.
 							local q0, q1 = atStart and x or natural.p0, atStart and natural.p1 or x
-							local s0, s1 = geometry.offsetTangents(natural.p0, natural.p1, natural.t0, natural.t1, q0, q1)
-							natural = { p0 = q0, p1 = q1, t0 = s0, t1 = s1 }
+							local whole = geometry.arcCubic(q0, natural.t0, q1, natural.t1)
+							local far = atStart and natural.p0 or natural.p1
+							local straight = atStart and { p0 = x, p1 = far, t0 = { x = far.x - x.x, y = far.y - x.y, z = far.z - x.z },
+								t1 = { x = far.x - x.x, y = far.y - x.y, z = far.z - x.z } }
+								or { p0 = far, p1 = x, t0 = { x = x.x - far.x, y = x.y - far.y, z = x.z - far.z },
+								t1 = { x = x.x - far.x, y = x.y - far.y, z = x.z - far.z } }
+							local deviation = atStart and geometry.mergeDeviation(straight, natural, whole)
+								or geometry.mergeDeviation(natural, straight, whole)
+							if deviation <= REFIT_MAX_DEVIATION and geometry.minRadiusAlong(whole) >= allowedRadius(templateOf(props)) then
+								natural = whole
+								log(string.format("  node %d: lengthened %.1f m to meet the road, as one edge (strays %.3f m)", slid.entity,
+									geometry.horizontalDistance(x, far), deviation))
+								return true
+							end
+							return false
+						end)() then
+							-- done above
 						else
 							local far = atStart and natural.p0 or natural.p1
 							local mid = newNode(far)
