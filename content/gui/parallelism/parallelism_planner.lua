@@ -235,7 +235,8 @@ end
 -- 1. Straight on: lane to lane; more or fewer lanes on the far side spread evenly.
 -- 2. Turns use the lanes on their own side, never across other traffic: left turns the
 --    left lane(s), right turns the right; with no way straight on (a T) the lanes are
---    split between the two sides. A turn into several lanes spreads over them.
+--    split between the two sides, an odd middle lane turning both ways. A turn into several
+--    lanes spreads over them.
 -- 3. No turns sharper than JUNCTION_MAX_TURN (and no U-turns).
 -- 4. A road merging into another that carries straight-on traffic (a ramp): lane to lane
 --    into the outer lanes on its own side only.
@@ -398,8 +399,9 @@ local function junctionConnections(edges)
 				leftCount = math.max(1, math.floor(n / 3))
 				rightCount = leftCount
 			elseif #lefts > 0 and #rights > 0 then
+				-- a T: half the lanes each way, a single middle lane both ways
 				leftCount = math.ceil(n / 2)
-				rightCount = math.max(1, n - leftCount)
+				rightCount = leftCount
 			else
 				leftCount, rightCount = n, n
 			end

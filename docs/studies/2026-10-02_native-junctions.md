@@ -66,8 +66,8 @@ game's lane tool, other mods will have their own ideas, and some of the builder'
 defaults are arguably poor (turning across three lanes at a sharp highway junction).
 The bar is: never a junction the game cannot take, and lanes reasonably aligned. The
 rules (`planner.junctionConnections`): straight on lane to lane; turns from the lanes on
-their own side (a third each side when there is a way straight on, half each at a T),
-never across other traffic; no turns sharper than 135 degrees; a ramp lane to lane into
+their own side (a third each side when there is a way straight on, half each at a T, a single middle lane both ways),
+never across other traffic (lanes of one road never cross, they may meet where they land); no turns sharper than 135 degrees; a ramp lane to lane into
 the outer lanes on its side. `tests/junction_check.lua` checks every junction for
 completeness, allowed turns and uncrossed lanes; all 24 recorded junctions pass, 13 of
 them 100 % like the builder's, most others 80-88 %. Known: a ramp exactly in line with
