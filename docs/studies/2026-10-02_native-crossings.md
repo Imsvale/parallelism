@@ -39,6 +39,7 @@ Same bundle, reloaded each time, one straight drag with the mod through the seam
 |---|---|---|
 | 2 | built | The drawn track crossed first (native: 11 edges removed, 24 added, seams refitted). The extra track at 5 m then crossed the native's new pieces (6 crossings, 29-41 deg, pieces 9.2-10.2 m), no existing node had to go: 0 moved, 5 own nodes slid onto crossings. Our refit was not needed. |
 | 3 | built | Again 0 existing nodes moved: both extra tracks (5 and 10 m) crossed the native's refitted pieces (12 crossings, 25-43 deg) well clear of their nodes; 9 own nodes slid onto crossings. The native's 30 m refit pieces leave room for the next tracks. |
+| 6 | built | First use of our refit: the outer tracks reached seams the native had not refitted. Nodes 659 and 657 (each between two crossed edges) removed and the track refitted crossing to crossing: 10.2 m straying 0.029 m (bends at 69.5 m), 10.3 m straying 0.023 m (131 m). Four more nodes slid exactly onto crossings. 30 crossings, one command. Caveat: Tighter Curves had set every track's minimum radius to 1 m by a bug (fixed there), so the radius bound was not tested; 69.5 m is above the real 40 m anyway. |
 
 ## Compared with the mod
 
