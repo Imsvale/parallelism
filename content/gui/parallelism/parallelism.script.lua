@@ -292,6 +292,24 @@ local function judgeTogether(builderProposal, planned)
 		#messages > 0 and (", " .. table.concat(messages, "; ")) or "", builderEdges, ours_)
 end
 
+-- The builder shows only the refusal when there is one, the tooltip lines (e.g. Better
+-- Construction Tooltip's crossing angle) are gone then. With that mod's "Crossing angles"
+-- on, the refusal names the crossing angle itself.
+local function withAngle(message, stats)
+	if message == nil or stats == nil or stats.spacingAngle == nil then
+		return message
+	end
+	local on = false
+	pcall(function()
+		-- 1-based index of the chosen value: 1 Off, 2 On
+		on = api.engine.config.getModParams()["imsvale_better_construction_tooltip"].showCrossings == 2
+	end)
+	if not on then
+		return message
+	end
+	return message .. string.format(" [crossing at %.1f°]", stats.spacingAngle)
+end
+
 local function checkPlayerProposal(param)
 	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
 	if #drawn == 0 then
@@ -372,6 +390,7 @@ local function checkPlayerProposal(param)
 		message = string.format("Parallel %s crossing at %.0f degrees need at least %.1f m spacing", noun, stats.spacingAngle,
 			math.ceil(stats.spacingNeeded / step - 1e-6) * step)
 	end
+	message = withAngle(message, stats)
 	if message ~= lastRefusal then
 		lastRefusal = message
 		shared.log("check: " .. (message or "ok"))
@@ -419,6 +438,7 @@ local function checkPlayerProposal(param)
 				if blocking then
 					message = "Parallel " .. noun .. " cannot be built here (" .. tostring(gameMessage) .. ")"
 						.. (current.builder == shared.STREET_BUILDER and ". Junctions too close together? Try more spacing." or "")
+					message = withAngle(message, stats)
 					local errorMessages = {}
 					errorMessages[message] = true
 					result = { errorMessages = errorMessages, skipRender = false }
