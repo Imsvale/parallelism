@@ -31,6 +31,14 @@ that night (00:03-00:07 UTC); the parser used is `tests/study_native.py`.
 5. **Short pieces between crossings** were 5.9-13 m (crossings 5 m apart on parallel
    tracks at a shallow angle), consistent with the 5 m minimum.
 
+## The mod across the same seam (refit added 2026-10-02, c3cefad)
+
+Same bundle, reloaded each time, one straight drag with the mod through the seams.
+
+| Tracks | Result | Notes |
+|---|---|---|
+| 2 | built | The drawn track crossed first (native: 11 edges removed, 24 added, seams refitted). The extra track at 5 m then crossed the native's new pieces (6 crossings, 29-41 deg, pieces 9.2-10.2 m), no existing node had to go: 0 moved, 5 own nodes slid onto crossings. Our refit was not needed. |
+
 ## Compared with the mod
 
 The mod's rule (2026-10-01) keeps existing track exact: plain nodes may only slide along
