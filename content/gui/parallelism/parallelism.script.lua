@@ -376,6 +376,53 @@ local function checkPlayerProposal(param)
 	-- asked right here instead of waiting for the preview's (the builder asks only when
 	-- the drag changes, so a check waiting for the preview's verdict waited forever).
 	-- Logged only for now, to compare with the preview's verdicts.
+	-- The game's verdict on our part, asked right here: the same judgement the preview gets
+	-- (our plan against the world, before the drawn road exists), without its delay. A
+	-- drag released before the preview's verdict arrived was built in part (2026-10-03).
+	if result == nil and (stats.crossings + stats.anchored) > 0 then
+		local ok, err = pcall(function()
+			local planned = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, false,
+				{ reverse = current.reverse })
+			if planned then
+				local context = api.type.Context.new()
+				context.player = api.engine.util.getPlayer()
+				local data = api.engine.util.proposal.makeProposalData(planned, context)
+				-- town buildings in the way are bulldozed, as in the preview: judged again with them
+				local candidates = {}
+				pcall(function()
+					for __, e in ipairs(data.collisionInfo.collisionEntities) do
+						local c = planner.townBuildingCandidate(e.entity)
+						if c then
+							candidates[#candidates + 1] = c
+						end
+					end
+				end)
+				if #candidates > 0 then
+					planned.constructionsToRemove = planner.buildingsInTheWay(planned, candidates)
+					data = api.engine.util.proposal.makeProposalData(planned, context)
+				end
+				local gameMessage = #data.errorState.messages > 0 and tostring(data.errorState.messages[1]) or nil
+				-- same rule as for the preview: any message stops it, but a road Collision
+				-- without junctions (a road end the drawn road continues, judged before it exists)
+				local blocking = data.errorState.critical or (gameMessage ~= nil
+					and not (gameMessage == "Collision" and current.builder == shared.STREET_BUILDER and stats.crossings + stats.anchored == 0))
+				if blocking then
+					message = "Parallel " .. noun .. " cannot be built here (" .. tostring(gameMessage) .. ")"
+						.. (current.builder == shared.STREET_BUILDER and ". Junctions too close together? Try more spacing." or "")
+					local errorMessages = {}
+					errorMessages[message] = true
+					result = { errorMessages = errorMessages, skipRender = false }
+				end
+			end
+		end)
+		if not ok then
+			shared.log("check: the game's verdict could not be asked: " .. tostring(err))
+		end
+		if message ~= lastRefusal then
+			lastRefusal = message
+			shared.log("check: " .. (message or "ok"))
+		end
+	end
 	if result == nil and JUDGE_TOGETHER and (stats.crossings + stats.anchored) > 0 then
 		local ok, err = pcall(function()
 			local planned = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, false,
