@@ -580,8 +580,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		log = function(msg)
 			userLog(msg)
 			local text = tostring(msg)
-			if #stats.notes < 40 and (text:find("kept", 1, true) or text:find("not removed", 1, true)
-				or text:find("not moved", 1, true) or text:find("cannot", 1, true) or text:find("could not", 1, true)) then
+			if #stats.notes < 60 and (text:find("kept", 1, true) or text:find("removed", 1, true)
+				or text:find("moved", 1, true) or text:find("cannot", 1, true) or text:find("could not", 1, true)
+				or text:find("joined", 1, true) or text:find("refit", 1, true) or text:find("not done", 1, true)) then
 				stats.notes[#stats.notes + 1] = text
 			end
 		end
@@ -1657,6 +1658,89 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	end
 
 	local consumed = {}
+
+	-- A plain node (a seam) between two edges that are both crossed, too close to a
+	-- crossing: as the native builder, remove it and lay the old track between the
+	-- nearest crossing on each side as one arc-like cubic with the old directions there
+	-- (geometry.arcCubic), within REFIT_MAX_DEVIATION and the type's minimum radius.
+	-- part runs ... -> node -> other for which == 1 (other already oriented node -> far),
+	-- other -> node -> part ... for which == 0 (other far -> node). Returns true if done.
+	local function refitBetweenCrossings(part, which, split, otherEdge, far, endNode, own, other)
+		local first, second, firstCuts, secondCuts
+		if which == 1 then
+			first, second, firstCuts, secondCuts = part.edge, otherEdge, part.cuts, split.cuts
+		else
+			first, second, firstCuts, secondCuts = otherEdge, part.edge, split.cuts, part.cuts
+		end
+		local function nearest(cuts)
+			local best = nil
+			for __, cut in ipairs(cuts) do
+				if cut.zone == nil and (best == nil or geometry.horizontalDistance(cut.node.position, endNode.position)
+					< geometry.horizontalDistance(best.node.position, endNode.position)) then
+					best = cut
+				end
+			end
+			return best
+		end
+		local a, b = nearest(firstCuts), nearest(secondCuts)
+		if a == nil or b == nil then
+			return false
+		end
+		local uA = geometry.closestParameter(a.node.position, first)
+		local uB = geometry.closestParameter(b.node.position, second)
+		local firstKeep, firstShort = geometry.split(first, uA)
+		local secondShort, secondRest = geometry.split(second, uB)
+		local span = geometry.arcLength(firstShort) + geometry.arcLength(secondShort)
+		if span > 2 * REFIT_LENGTH then
+			return false
+		end
+		local refit = geometry.arcCubic(a.node.position, geometry.hermiteDerivative(first.p0, first.p1, first.t0, first.t1, uA),
+			b.node.position, geometry.hermiteDerivative(second.p0, second.p1, second.t0, second.t1, uB))
+		local deviation = geometry.mergeDeviation(firstShort, secondShort, refit)
+		local radius = geometry.minRadiusAlong(refit)
+		local limit = allowedRadius(part.comp.roadTemplate)
+		local note = string.format("refit %.1f m crossing to crossing strays %.3f m, bends at %.1f m, type needs %.0f m",
+			span, deviation, radius, limit)
+		if deviation > REFIT_MAX_DEVIATION or radius < limit then
+			log(string.format("  node %d between crossed edges %d and %d: %s, not done", endNode.entity, own, other, note))
+			return false
+		end
+		local function without(cuts, gone)
+			local result = {}
+			for __, cut in ipairs(cuts) do
+				if cut ~= gone then
+					result[#result + 1] = cut
+				end
+			end
+			return result
+		end
+		consumed[other] = true
+		if which == 1 then
+			-- part: start -> a; then a -> b (refit); other: b -> far with its other cuts
+			part.cuts = without(part.cuts, a)
+			part.edge = firstKeep
+			part.node1 = a.node
+			part.extra[#part.extra + 1] = { node0 = a.node, node1 = b.node, edge = refit, origins = { other } }
+			part.extra[#part.extra + 1] = { node0 = b.node, node1 = far, edge = secondRest, origins = { other },
+				cuts = without(split.cuts, b) }
+		else
+			-- other: far -> a with its other cuts; then a -> b (refit); part: b -> end
+			part.cuts = without(part.cuts, b)
+			part.edge = secondRest
+			part.node0 = b.node
+			part.extra[#part.extra + 1] = { node0 = far, node1 = a.node, edge = firstKeep, origins = { other },
+				cuts = without(split.cuts, a) }
+			part.extra[#part.extra + 1] = { node0 = a.node, node1 = b.node, edge = refit, origins = { other } }
+		end
+		part.endEdge[which] = nil
+		part.removeEdges[#part.removeEdges + 1] = other
+		part.removeNodes[#part.removeNodes + 1] = endNode.entity
+		stats.moved = stats.moved + 1
+		stats.refitted = (stats.refitted or 0) + 1
+		log(string.format("  node %d between crossed edges %d and %d removed: %s", endNode.entity, own, other, note))
+		return true
+	end
+
 	local function absorbNeighbour(part, which)
 		local endNode = which == 0 and part.node0 or part.node1
 		if reusedNodes[endNode.entity] or drawnNodes[endNode.entity] then
@@ -1761,6 +1845,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			end
 			local slideDeviation = mergeStray(mergeA, mergeB, merged2, part.comp.roadTemplate)
 			if slideDeviation > EXISTING_MAX_DEVIATION then
+				-- as the native builder: remove the node, refit from crossing to crossing
+				if refitBetweenCrossings(part, which, split, otherEdge, far, endNode, own, other) then
+					return false
+				end
 				log(string.format("  node %d between crossed edges %d and %d kept: joining would stray %.2f m, sliding %.2f m",
 					endNode.entity, own, other, deviation, slideDeviation))
 				return false
