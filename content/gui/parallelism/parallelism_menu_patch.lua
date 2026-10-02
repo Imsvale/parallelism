@@ -165,6 +165,8 @@ local function updatePreview(proposal)
 	preview.existingBend = stats.existingBend ~= nil
 	preview.junctions = stats.junctions > 0
 	preview.roadJunctions = preview.builder == shared.STREET_BUILDER and (stats.crossings + stats.anchored) > 0
+	-- the drag check waits for the game's verdict on plans like this (game script)
+	preview.needsVerdict = (stats.crossings + stats.anchored) > 0
 	preview.sharpCorner = stats.sharpCorner ~= nil
 	preview.shallow = stats.shallow
 	preview.signature = signature
@@ -380,6 +382,12 @@ local function makeViewer(index)
 						bulldozeBuildings = bulldozeBuildings,
 					})
 				end)
+				-- the drag check held this position until now: have the builder ask again
+				-- (once per position; done from the tooltip call, see nudgeBuilder)
+				if preview.needsVerdict and preview.nudgedSignature ~= preview.signature then
+					preview.nudgedSignature = preview.signature
+					preview.nudgeWanted = true
+				end
 				preview.warning = (not preview.failed[index] and message) or nil
 				preview.gameMessage = message
 				-- dev aid: what the game says about the preview, when that changes
@@ -478,6 +486,26 @@ local function requestRedraw()
 	end)
 	if not ok then
 		shared.log("preview redraw failed: " .. tostring(err))
+	end
+end
+
+-- Changes the hidden redraw param to a value of its own, so the builder makes its
+-- proposal again and asks the drag check anew (which waited for the game's verdict).
+local nudges = 0
+local function nudgeBuilder()
+	nudges = nudges + 1
+	local ok, err = pcall(function()
+		for __, ref in ipairs(paramRefs) do
+			local api_ = paramsApi(ref)
+			local info = api_ and api_.getParamByKey(shared.KEY_REDRAW)
+			if info then
+				api_.changeParam(info.index, -nudges)
+				return
+			end
+		end
+	end)
+	if not ok then
+		shared.log("builder nudge failed: " .. tostring(err))
 	end
 end
 
@@ -817,6 +845,10 @@ function patch.install()
 					local started = planner.clockMs()
 					updatePreview(proposal)
 					countPreviewCall(preview.version ~= version, started)
+					if preview.nudgeWanted then
+						preview.nudgeWanted = false
+						nudgeBuilder()
+					end
 					-- dev aid: a refused drag held still is one the player means, log its plan
 					-- once (a moving cursor passes many refused positions nobody wants built);
 					-- the tooltip is asked many times a second, also while the drag holds still

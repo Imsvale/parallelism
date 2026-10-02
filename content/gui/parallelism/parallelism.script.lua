@@ -209,7 +209,29 @@ local function checkPlayerProposal(param)
 		errorMessages[message] = true
 		return { errorMessages = errorMessages, skipRender = false }
 	end
+	-- A plan with crossings or junctions is only let through once the game has judged its
+	-- preview: released before that, a drag the game refuses went through on our plan
+	-- alone, and our part failed after the drawn road was built (2026-10-02, a 42 degree
+	-- road crossing). The menu nudges the builder to ask again when the verdict is in.
+	local function pending()
+		local message = "Parallel " .. shared.nounOf(current.builder) .. ": checking with the game..."
+		if message ~= lastRefusal then
+			lastRefusal = message
+			shared.log("check: verdict for this position not in yet")
+		end
+		local errorMessages = {}
+		errorMessages[message] = true
+		return { errorMessages = errorMessages, skipRender = false }
+	end
 	if signature == lastCheck.signature then
+		if lastCheck.result == nil and lastCheck.needsVerdict and previewVerdict.signature ~= signature then
+			return pending()
+		end
+		if lastCheck.needsVerdict and lastRefusal and lastRefusal:find("checking with the game", 1, true) then
+			-- dev aid: the builder asked again once the verdict was in (the menu's nudge)
+			lastRefusal = nil
+			shared.log("check: verdict in, asked again: ok")
+		end
 		return lastCheck.result
 	end
 	-- Every position is planned: the builder asks only when the drag changes, so an
@@ -262,7 +284,11 @@ local function checkPlayerProposal(param)
 		errorMessages[message] = true
 		result = { errorMessages = errorMessages, skipRender = false }
 	end
-	lastCheck = { signature = signature, result = result }
+	local needsVerdict = (stats.crossings + stats.anchored) > 0
+	lastCheck = { signature = signature, result = result, needsVerdict = needsVerdict }
+	if result == nil and needsVerdict and previewVerdict.signature ~= signature then
+		return pending()
+	end
 	return result
 end
 
