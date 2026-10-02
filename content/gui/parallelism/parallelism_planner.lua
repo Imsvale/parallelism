@@ -1173,7 +1173,14 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						log("  node " .. entity .. ": would branch off edge " .. edgeEntity .. ", road junctions are off")
 					elseif edgeEntity then
 						node = newNode(point)
-						anchorCuts[node.entity] = addSplit(edgeEntity, u, node)
+						-- roads: the angle of the T decides how much room it needs along the road
+						local angle = nil
+						if streets then
+							local other = toEdge(getEdgeComp(edgeEntity))
+							local a = geometry.angleBetween(tangent, geometry.hermiteDerivative(other.p0, other.p1, other.t0, other.t1, u))
+							angle = math.min(a, 180 - a)
+						end
+						anchorCuts[node.entity] = addSplit(edgeEntity, u, node, angle)
 						stats.anchored = stats.anchored + 1
 						log("  node " .. entity .. ": anchored on edge " .. edgeEntity .. string.format(" at u = %.3f ", u) .. shared.vecToString(point))
 					end
