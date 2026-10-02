@@ -43,6 +43,16 @@ local ROAD_MIN_PIECE_LENGTH = 10.0
 -- seen 2026-10-02: a T at 15 degrees refused with the next node 10 and 26 m away,
 -- passed with it moved away). A first guess.
 local ROAD_JUNCTION_CLEARANCE = 8.0
+-- A crossing this close to an existing junction of the other road goes through it.
+local JUNCTION_REUSE_DISTANCE = 0.3
+-- Room a road junction needs along the road, from its node to the next: half the
+-- crossing road's width plus this, divided by sin(angle) (the junction's footprint along
+-- the road grows as the crossing gets flatter). Seen 2026-10-03 at 33 degrees: a 16.2 m
+-- piece refused; the road builder itself removed nodes 12.7 and 12.9 m from such
+-- junctions and left 53 m. (16 m road: 16 m at 90 degrees, 29 m at 33, 62 m at 15.)
+local ROAD_JUNCTION_MARGIN = 8.0
+-- the width of the roads being planned (set per plan; nil for tracks)
+local planRoadWidth = nil
 -- an end of an offset track continues a loose end within this share of the distance
 -- between neighbouring tracks (below half, so never the neighbour's)
 local LOOSE_END_SHARE = 0.4
@@ -238,6 +248,10 @@ local function minPieceLength(cut)
 	end
 	if cut.angle == nil then
 		return pieceMinimum()
+	end
+	if isStreet(planRoadType) and planRoadWidth then
+		local s = math.sin(math.rad(math.max(cut.angle, 1)))
+		return math.max(pieceMinimum(), (planRoadWidth / 2 + ROAD_JUNCTION_MARGIN) / s)
 	end
 	local t = math.tan(math.rad(math.max(cut.angle, 1)))
 	local clearance = isStreet(planRoadType) and ROAD_JUNCTION_CLEARANCE or CROSSING_CLEARANCE
@@ -790,6 +804,10 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	compCache = shared.PERF_MEASURES and {} or nil
 	node2segmentsCache = nil
 	planRoadType = drawn[1] and drawn[1].comp.roadType or trackRoadType()
+	planRoadWidth = nil
+	pcall(function()
+		planRoadWidth = roadWidth(nonEmpty(drawn[1].comp.roadTemplate) or drawn[1].template)
+	end)
 	local streets = isStreet(planRoadType)
 	local noJunctions = streets and not ROAD_JUNCTIONS
 	-- the distance between neighbouring tracks: the nearest offset is one step out
@@ -1333,8 +1351,35 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 						-- track meet there, e.g. a leftover of an earlier crossing): cut just
 						-- inside the edge; the node is then merged away as for any cut next to
 						-- it, and the crossing placed on the merged curve. Once per node.
+						-- Roads: crossing right at an existing junction of the other road (e.g. a
+						-- T built earlier, now extended to an X): go through that node instead of
+						-- crossing a hair beside it (seen 2026-10-03: a crossing 0.10 m from a T's
+						-- node, refused as a 0.1 m piece).
+						local junctionNode = nil
+						if streets and math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT and isAwayFromEnds(oe.edge, x.pointA) then
+							for __, e in ipairs({ { other.p0, comp.node0 }, { other.p1, comp.node1 } }) do
+								if geometry.horizontalDistance(x.pointB, e[1]) < JUNCTION_REUSE_DISTANCE then
+									local segments = getNode2Segments()[e[2]]
+									if segments and #segments >= 3 and not drawnNodes[e[2]] then
+										junctionNode = { entity = e[2], position = e[1] }
+									end
+								end
+							end
+						end
 						local plainNode = nil
-						if math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
+						if junctionNode then
+							local key = "j" .. junctionNode.entity .. ":" .. tostring(oe)
+							if not crossingNodes[key] then
+								crossingNodes[key] = true
+								local node = { entity = junctionNode.entity, position = junctionNode.position }
+								oe.cuts[#oe.cuts + 1] = { u = geometry.closestParameter(node.position, oe.edge), node = node, angle = angle, entity = entity }
+								cutNodes[node.entity] = true
+								reusedNodes[node.entity] = true
+								stats.crossings = stats.crossings + 1
+								log(string.format("  through existing junction %d of edge %d, %.1f deg, %.2f m off our line", node.entity, entity,
+									angle, geometry.horizontalDistance(node.position, x.pointA)))
+							end
+						elseif math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
 							and isAwayFromEnds(oe.edge, x.pointA) and not isAwayFromEnds(other, x.pointB) then
 							local n = geometry.horizontalDistance(x.pointB, other.p0) <= EDGE_END_DISTANCE and comp.node0 or comp.node1
 							local segments = getNode2Segments()[n]
@@ -1343,7 +1388,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 								plainNode = n
 							end
 						end
-						if plainNode then
+						if junctionNode then
+							-- through the junction, above
+						elseif plainNode then
 							crossingNodes["w" .. plainNode .. ":" .. tostring(oe)] = true
 							if noJunctions then
 								stats.junctions = stats.junctions + 1
