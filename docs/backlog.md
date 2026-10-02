@@ -51,6 +51,26 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Open: roads
 
+- **Partial build by a race (2026-10-02, next up).** The drag check knows the game's
+  verdict on our plan only through the preview. Released before the preview of that
+  exact position was judged, the drag went through on our own plan alone; the game
+  then refused our part (a 42 degree crossing at 4 m spacing, Construction Not
+  Possible) after the drawn road was built. Seen where the game is at its limit. Ideas:
+  undo the drawn build when ours fails (it may have split roads: restore them); or
+  refuse while the verdict for the current position is pending (but the builder only
+  asks again when the drag changes, a pending refusal could stick); or judge our plan
+  in the game script itself (`api.engine.util.proposal.makeProposalData` wants a full
+  `Proposal`, not a `SimpleProposal`).
+- **Angled road T and crossings (2026-10-02).** T: each parallel's end slides along
+  itself to meet the road (searching the road's further pieces, up to 5x the offset,
+  not below 15 degrees), its first edge lengthened as one edge (a short piece before a
+  junction was refused) or cut exactly at the road. Reliable from 90 down to about 20
+  degrees at the road builder's 4 m spacing. Roads: 10 m minimum piece next to a
+  junction, 8 m / tan(angle) room along the road at flat angles (guesses). Angled
+  crossings at 4 m spacing are refused by the game: two junctions at 42 degrees 39 m
+  apart overlap (a junction takes about the crossing road's width / sin(angle) of the
+  road it crosses). The builder's own verdict flips between ok and Collision at 21-36
+  degrees. To test: angled crossings with more spacing.
 - **Road junctions: on, first tests passed (2026-10-02).** Crossings of two-way roads,
   a highway pair across a town road and a pair starting at a road built, no crash.
   Crosswalks now only over roads with sidewalks. Three crashes (`map_util.h`
