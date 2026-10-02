@@ -47,6 +47,11 @@ local MITER_MIN_ANGLE = 1.0
 -- (the corner lies offset * tan(kink / 2) along the roads: 21 m at 105 degrees for a
 -- 16 m road, 39 m at 135; an inside corner that eats a whole edge is refused anyway)
 local MITER_MAX_ANGLE = 135.0
+-- A drag starting or ending on a road at an angle (a T): each parallel's end slides
+-- along the parallel to meet that road, by at most this many times the offset (about
+-- 2.7 times at 20 degrees), and not for roads meeting flatter than BRANCH_MIN_ANGLE.
+local BRANCH_MAX_SLIDE = 3.0
+local BRANCH_MIN_ANGLE = 15.0
 -- dev switch: extra roads crossing or branching onto roads. Until 2026-10-02 every plan
 -- with such a junction crashed the game (map_util.h "it != map.end()", three times,
 -- while evaluating the preview): our junction nodes had no node config. Now they get
@@ -998,6 +1003,69 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			return node
 		end
 
+		-- The drawn road starts or ends on a road (a T, at any angle): the parallel's end,
+		-- offset sideways, misses that road unless the angle is square. Slide it along
+		-- the parallel's own direction until it meets the road (shortening or extending the
+		-- parallel), where it then branches off as usual. Returns the point, or nil.
+		local function branchPoint(entity, position, tangent, offsetPosition)
+			if not streets then
+				return nil
+			end
+			local roads = {}
+			for __, s in ipairs(getNode2Segments()[entity] or {}) do
+				if not drawnEntities[s] then
+					local comp = getEdgeComp(s)
+					if comp and isPlanned(comp) then
+						roads[#roads + 1] = toEdge(comp)
+					end
+				end
+			end
+			if #roads < 2 then
+				-- while dragging the drawn end is new and the road still whole in the world
+				local e = findEdgeAt(position)
+				if e and not drawnEntities[e] then
+					roads = { toEdge(getEdgeComp(e)) }
+				elseif #roads < 2 then
+					return nil -- not a T (a road end is a corner, see tryCorner)
+				end
+			end
+			local best, bestS = nil, math.huge
+			for __, road in ipairs(roads) do
+				-- the road may curve: intersect with its tangent line, project, repeat
+				local u = geometry.closestParameter(offsetPosition, road)
+				local point = nil
+				local s = nil
+				for __ = 1, 6 do
+					local q = geometry.hermite(road.p0, road.p1, road.t0, road.t1, u)
+					local t = geometry.hermiteDerivative(road.p0, road.p1, road.t0, road.t1, u)
+					if geometry.angleBetween(tangent, t) < BRANCH_MIN_ANGLE or geometry.angleBetween(tangent, t) > 180 - BRANCH_MIN_ANGLE then
+						s = nil
+						break
+					end
+					local along = geometry.lineIntersection(offsetPosition, tangent, q, t)
+					if along == nil then
+						s = nil
+						break
+					end
+					local len = math.sqrt(tangent.x * tangent.x + tangent.y * tangent.y)
+					s = along * len
+					local x = { x = offsetPosition.x + tangent.x * along, y = offsetPosition.y + tangent.y * along, z = offsetPosition.z }
+					u = geometry.closestParameter(x, road)
+					point = geometry.hermite(road.p0, road.p1, road.t0, road.t1, u)
+				end
+				if s and point and geometry.horizontalDistance(point, {
+					x = offsetPosition.x + tangent.x / math.sqrt(tangent.x ^ 2 + tangent.y ^ 2) * s,
+					y = offsetPosition.y + tangent.y / math.sqrt(tangent.x ^ 2 + tangent.y ^ 2) * s }) < 0.05
+					and math.abs(s) <= BRANCH_MAX_SLIDE * math.abs(offset) and math.abs(s) < math.abs(bestS) then
+					best, bestS = { x = point.x, y = point.y, z = offsetPosition.z }, s
+				end
+			end
+			if best then
+				log(string.format("  node %d: on a road at an angle, parallel end slid %.2f m along itself to meet it", entity, bestS))
+			end
+			return best
+		end
+
 		local function getNode(entity, position, tangent, atStart)
 			local node = nodes[entity]
 			if node == nil then
@@ -1007,6 +1075,9 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 				end
 				if useCount[entity] == 1 then
 					node = tryCorner(entity, position, tangent, atStart)
+					if node == nil then
+						newPosition = branchPoint(entity, position, tangent, newPosition) or newPosition
+					end
 				end
 				-- in the middle of the run only a node practically on the spot: a node of
 				-- another track half a meter off pulled the track onto it (seen in game: 7 m
