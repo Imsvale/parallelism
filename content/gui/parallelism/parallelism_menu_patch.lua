@@ -322,10 +322,50 @@ end
 -- as a builtin, a recipe of the mod's own there crashes the game.
 local function makeViewer(index)
 	local version = preview.version
+	-- what this viewer shows, for its verdict even if the preview has moved on by the
+	-- time the game has judged it (the builder can alternate between two drags, and a
+	-- verdict only for the current one never arrived, 2026-10-03)
+	local shown = {
+		signature = preview.signature,
+		roadJunctions = preview.roadJunctions and true or false,
+		bulldozeConstructions = {},
+		bulldozeBuildings = {},
+	}
+	do
+		local inList = {}
+		for __, c in ipairs(preview.bulldozeList) do
+			inList[c] = true
+		end
+		for __, c in ipairs(preview.bulldoze) do
+			if inList[c.construction] then
+				shown.bulldozeConstructions[#shown.bulldozeConstructions + 1] = c.construction
+				shown.bulldozeBuildings[#shown.bulldozeBuildings + 1] = c.building
+			end
+		end
+	end
+	local function sendVerdict(errorState)
+		pcall(function()
+			api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_PREVIEW_VERDICT, {
+				signature = shown.signature,
+				critical = errorState.critical and true or false,
+				message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil,
+				-- roads making junctions: the refusal suggests more spacing
+				roadJunctions = shown.roadJunctions,
+				-- the buildings the preview bulldozes, for the build
+				bulldozeConstructions = shown.bulldozeConstructions,
+				bulldozeBuildings = shown.bulldozeBuildings,
+			})
+		end)
+	end
 	return builtin.ProposalViewer{
 		simpleProposal = preview.proposals[index],
 		onCreateProposalData = function(proposalData)
-			if version == preview.version then
+			if version ~= preview.version then
+				-- the preview has moved on: the verdict still counts for the drag shown
+				sendVerdict(proposalData.errorState)
+				return
+			end
+			do
 				local errorState = proposalData.errorState
 				preview.costs[index] = proposalData.costs
 				-- town buildings in the way: plan again with them bulldozed, as the builder
@@ -358,30 +398,8 @@ local function makeViewer(index)
 					and not preview.roadJunctions
 				preview.failed[index] = errorState.critical or (message ~= nil and not roadEndArtifact)
 				-- the drag check (game script) refuses a drag the game would not build; the
-				-- build bulldozes what the preview does (two lists: plain values cross over)
-				local bulldozeConstructions, bulldozeBuildings = {}, {}
-				local inList = {}
-				for __, c in ipairs(preview.bulldozeList) do
-					inList[c] = true
-				end
-				for __, c in ipairs(preview.bulldoze) do
-					if inList[c.construction] then
-						bulldozeConstructions[#bulldozeConstructions + 1] = c.construction
-						bulldozeBuildings[#bulldozeBuildings + 1] = c.building
-					end
-				end
-				pcall(function()
-					api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_PREVIEW_VERDICT, {
-						signature = preview.signature,
-						critical = errorState.critical and true or false,
-						message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil,
-						-- roads making junctions: the refusal suggests more spacing
-						roadJunctions = preview.roadJunctions and true or false,
-						-- the buildings the preview bulldozes, for the build
-						bulldozeConstructions = bulldozeConstructions,
-						bulldozeBuildings = bulldozeBuildings,
-					})
-				end)
+				-- build bulldozes what the preview does
+				sendVerdict(errorState)
 				preview.warning = (not preview.failed[index] and message) or nil
 				preview.gameMessage = message
 				-- dev aid: what the game says about the preview, when that changes
