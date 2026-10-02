@@ -21,7 +21,15 @@ local function compare(name, edges, expected)
 	total = total + 1
 	if share == 1 then matched = matched + 1 end
 	if #problems > 0 then bad = bad + 1 end
-	print((#problems == 0 and "ok   " or "FAIL ") .. name .. string.format("  %d ours, %d builder's, %.0f %% in common", #got, #expected, 100 * share)
+	-- the builder's own against the same rules, for comparison
+	local theirs = {}
+	for __, s in ipairs(expected) do
+		local s0, l0, s1, l1 = s:match("(%d+)%.(%d+)%->(%d+)%.(%d+)")
+		theirs[#theirs + 1] = { segment0 = tonumber(s0), lane0 = tonumber(l0), segment1 = tonumber(s1), lane1 = tonumber(l1) }
+	end
+	local builderProblems = junctionCheck.junction(edges, theirs, nil)
+	print((#problems == 0 and "ok   " or "FAIL ") .. name .. string.format("  %d ours, %d builder's, %.0f %% in common; builder's: %s", #got, #expected, 100 * share,
+		#builderProblems == 0 and "ok" or table.concat(builderProblems, "; "))
 		.. (#problems > 0 and ("\n     " .. table.concat(problems, "\n     ")) or ""))
 end
 -- node 640 (01:11:08)

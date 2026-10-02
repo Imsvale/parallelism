@@ -84,22 +84,37 @@ function check.junction(edges, connections, native)
 				end
 			end
 		end
-		-- uncrossed: lanes as positions left to right
-		local pos = {}
-		for i, l in ipairs(ins[a.entity]) do
-			pos[l] = i
-		end
+		-- uncrossed (the user's rule, 2026-10-02): number the destinations left to right,
+		-- exits from the leftmost turn to the rightmost and each exit's lanes left to
+		-- right; a lane further left may only go to destinations at or before every
+		-- destination of a lane further right (meeting where they land is fine)
 		table.sort(exits, function(p, q) return turn(a, p) > turn(a, q) end)
-		local reach = 0
+		local destination = {}
+		local index = 0
 		for __, b in ipairs(exits) do
-			local lo, hi = math.huge, 0
-			for __, l in ipairs(pair[a.entity .. ">" .. b.entity] or {}) do
-				lo, hi = math.min(lo, pos[l] or 0), math.max(hi, pos[l] or 0)
+			for __, l in ipairs(outs[b.entity]) do
+				index = index + 1
+				destination[b.entity .. "." .. l] = index
 			end
-			if lo < reach then
-				problems[#problems + 1] = string.format("turns from %d cross (%d)", a.entity, b.entity)
+		end
+		local lowest, highest = {}, {}
+		for __, c in ipairs(connections) do
+			if c.segment0 == a.entity then
+				local d = destination[c.segment1 .. "." .. c.lane1]
+				if d then
+					lowest[c.lane0] = math.min(lowest[c.lane0] or math.huge, d)
+					highest[c.lane0] = math.max(highest[c.lane0] or 0, d)
+				end
 			end
-			reach = math.max(reach, hi == 0 and reach or hi)
+		end
+		local lanes = ins[a.entity]
+		for i = 1, #lanes do
+			for j = i + 1, #lanes do
+				local hi, lo = highest[lanes[i]], lowest[lanes[j]]
+				if hi and lo and hi > lo then
+					problems[#problems + 1] = string.format("lanes %d.%d and %d.%d cross", a.entity, lanes[i], a.entity, lanes[j])
+				end
+			end
 		end
 	end
 	for __, b in ipairs(edges) do
