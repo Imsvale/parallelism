@@ -103,7 +103,8 @@ function shared.maxCount(builder)
 			shared.loggedModParams = true
 			shared.log("mod option moreRoads = " .. tostring(moreRoads))
 		end
-		return moreRoads == 1 and shared.MAX_MORE_ROADS or shared.MAX_ROADS
+		-- the 1-based index of the chosen value: 1 = No, 2 = Yes
+		return moreRoads == 2 and shared.MAX_MORE_ROADS or shared.MAX_ROADS
 	end
 	return shared.MAX_COUNT
 end
