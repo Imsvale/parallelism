@@ -51,7 +51,9 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Open: roads
 
-- **Road junctions: on again, to test (2026-10-02).** Three crashes (`map_util.h`
+- **Road junctions: on, first tests passed (2026-10-02).** Crossings of two-way roads,
+  a highway pair across a town road and a pair starting at a road built, no crash.
+  Crosswalks now only over roads with sidewalks. Three crashes (`map_util.h`
   "it != map.end()", while the game evaluated the preview) came from plans where an
   extra road crossed or branched onto a road. Our junction nodes had no node config at
   all. Study of the road builder's junctions (`docs/studies/2026-10-02_native-junctions.md`):

@@ -78,5 +78,26 @@ compare("one-way across one-way", {
 }, { "539.1->774.2", "539.2->774.1", "670.1->774.2", "670.2->774.1", "539.2->552.1", "539.2->552.2",
 	"670.1->552.2", "670.2->552.1" })
 
+-- highways (2026-10-02 00:54-00:55): three lanes one way, shoulders with no modes
+local SHOULDER = {}
+local HIGHWAY = { lane(false, SHOULDER), lane(true, CAR), lane(true, CAR), lane(true, CAR), lane(true, SHOULDER) }
+
+-- (5) highway carriageway across a two-way road, node 431
+compare("highway across two-way", {
+	edge(731, false, 76.81, -2.75, HIGHWAY),  -- 433 -> 431, comes from the east
+	edge(776, true, -96.59, 3.46, HIGHWAY),   -- 431 -> 339, leaves west
+	edge(777, true, 1.48, 78.47, TWO_WAY),    -- 431 -> 375, leaves north
+	edge(778, false, -1.81, -95.94, TWO_WAY), -- 605 -> 431, leaves south
+}, { "731.1->776.3", "731.2->776.2", "731.3->776.1", "778.1->776.1", "778.1->776.2", "778.1->776.3", "731.3->778.2",
+	"778.1->777.2", "731.1->777.2", "777.1->778.2", "777.1->776.1", "777.1->776.2", "777.1->776.3" })
+
+-- (6) highway carriageway starting at a two-way road, node 512
+compare("highway leaving a two-way road (T)", {
+	edge(796, false, -1.00, -53.15, TWO_WAY), -- 517 -> 512, leaves south
+	edge(486, true, 1.07, 56.66, TWO_WAY),    -- 512 -> 790, leaves north
+	edge(411, true, 63.80, -1.20, HIGHWAY),   -- 512 -> 523, leaves east
+}, { "796.1->411.1", "796.1->411.2", "796.1->411.3", "796.1->486.2", "486.1->796.2", "486.1->411.1",
+	"486.1->411.2", "486.1->411.3" })
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

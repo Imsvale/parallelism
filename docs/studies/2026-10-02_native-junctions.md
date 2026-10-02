@@ -31,7 +31,21 @@ always goes out (`A.1 -> B.2` for every pair at the 4-way junction).
 - Into a two-lane one-way road from a single lane: into both lanes.
 - From a two-lane one-way road: a right turn from the right lane (into one lane) or lane
   to lane (into two); a left turn from the left lane, into all lanes.
-- Only `withRoad` connections on these roads (no trams); crosswalks on every edge.
+- Only `withRoad` connections on these roads (no trams).
+- Crosswalks only over edges with a sidewalk (a lane for PERSON): at a highway crossing
+  a town road only the two town road pieces get one, a highway dead end none.
+
+## Highways (00:54-00:55, built by the mod's tests)
+
+A three-lane highway carriageway across a two-way road (13 connections) and starting
+at one (8): the same rules hold. Straight on lane to lane, the right turn from the
+right lane, the left turn from the left lane, a single lane into all three.
+
+## The mod (2026-10-02)
+
+`planner.junctionConnections` reproduces all six junctions exactly
+(`tests/junction_test.lua`). In game, extra road pairs crossing a two-way road, a
+highway pair across a town road and a pair starting at a road (T) all built.
 
 ## What this means for the mod
 

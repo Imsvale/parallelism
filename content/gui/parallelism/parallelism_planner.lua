@@ -329,6 +329,21 @@ local function junctionConnections(edges)
 end
 planner.junctionConnections = junctionConnections
 
+-- true if a road with these lanes has a sidewalk (a lane for PERSON, transport mode 0)
+local function junctionHasSidewalk(lanes)
+	local found = false
+	pcall(function()
+		for __, lane in ipairs(lanes) do
+			for mode, on in pairs(lane.transportModes) do
+				if on and mode == 0 then
+					found = true
+				end
+			end
+		end
+	end)
+	return found
+end
+
 -- The smallest radius the game allows for a track or road type.
 local function allowedRadius(templateName)
 	local template = getTemplate(templateName)
@@ -2402,9 +2417,12 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					end
 					if #edges >= 3 then
 						local connections = junctionConnections(edges)
+						-- crosswalks only over roads with sidewalks (the builder gives a highway none)
 						local crosswalks = {}
 						for __, e in ipairs(edges) do
-							crosswalks[#crosswalks + 1] = e.entity
+							if junctionHasSidewalk(e.lanes) then
+								crosswalks[#crosswalks + 1] = e.entity
+							end
 						end
 						local ok, err = pcall(function()
 							local nc = api.type.BaseNodeLaneConnectionAndEntity.new()
@@ -2421,7 +2439,13 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 							toAdd[#toAdd + 1] = nc
 						end)
 						done[node] = true
-						log(string.format("  junction node %d: %d edges, %d lane connections%s", node, #edges, #connections,
+						local listed = {}
+						for __, c in ipairs(connections) do
+							listed[#listed + 1] = string.format("%d.%d->%d.%d%s%s", c.segment0, c.lane0, c.segment1, c.lane1,
+								c.withRoad and " road" or "", c.withTram and " tram" or "")
+						end
+						log(string.format("  junction node %d: %d edges, %d lane connections [%s], crosswalks [%s]%s", node, #edges,
+							#connections, table.concat(listed, ", "), table.concat(crosswalks, ", "),
 							ok and "" or (", config failed: " .. tostring(err))))
 						if not ok then
 							stats.junctionFailed = tostring(err)
