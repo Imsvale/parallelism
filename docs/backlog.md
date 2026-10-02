@@ -62,6 +62,12 @@ Open work first, then what was solved and how (kept for the reasoning).
   (`tests/junction_test.lua`); `ROAD_JUNCTIONS = true`. A junction whose config fails
   is refused, never sent. Untested in game; trams (`withTram`) and roads with more
   lanes not studied.
+- **Room between road junctions (2026-10-02).** Parallel roads crossing a road make
+  junctions a spacing apart along it; the game refuses them when they are too close
+  (with the road builder's own 4 m gap even near 90 degrees; from about 9-10 m most
+  angles work, and a sharper angle needs less, its junction being longer). Not one
+  number. For now a refused plan with junctions suggests more spacing. Possible later:
+  work out the spacing needed from the crossing angles and offer or apply it.
 - **Starting a drag from the extra road's end.** The new pair pivots around the other
   road, so its extra road lands beside or into the old pair; some angles are accepted,
   some refused (collision). Wanted: a drag from either end of a pair continues the pair.
