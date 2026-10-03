@@ -2218,7 +2218,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- two parts must not move nodes into each other: one keeps a node the other removes
 		-- (seen 2026-10-03: "the plan uses node 566, which it removes", two parallels
 		-- crossing the main road close together)
-		if movedNodes[far.entity] or farNodes[endNode.entity] then
+		-- (the part that moved or kept a node is noted: one part clears several nodes in a
+		-- row, each move's far node is its next end; 2026-10-03, 21.3 degree road X: a
+		-- builder node 30.5 m from our junction was left after the node beside it merged)
+		local movedBy, keptBy = movedNodes[far.entity], farNodes[endNode.entity]
+		if (movedBy and movedBy ~= part) or (keptBy and keptBy ~= part) then
 			log(prefix .. ", its neighbour is moved or kept by another crossing, not moved")
 			return
 		end
@@ -2341,7 +2345,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				part.endEdge[which] = nil
 				part.removeEdges[#part.removeEdges + 1] = other
 				part.removeNodes[#part.removeNodes + 1] = endNode.entity
-				movedNodes[endNode.entity], farNodes[far.entity] = true, true
+				movedNodes[endNode.entity], farNodes[far.entity] = part, part
 				stats.moved = stats.moved + 1
 				log(prefix .. (useAway and ", moved it away from the crossing" or ", moved it onto the crossing") .. slideNote)
 				-- the end is now the crossing, nothing more to clear on this side
@@ -2409,7 +2413,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				part.endEdge[which] = nil
 				part.removeEdges[#part.removeEdges + 1] = other
 				part.removeNodes[#part.removeNodes + 1] = endNode.entity
-				movedNodes[endNode.entity], farNodes[far.entity] = true, true
+				movedNodes[endNode.entity], farNodes[far.entity] = part, part
 				stats.moved = stats.moved + 1
 				stats.refitted = (stats.refitted or 0) + 1
 				log(prefix .. ", removed it and refitted the track from the crossing" .. refitNote .. slideNote)
@@ -2445,7 +2449,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		part.endEdge[which] = other
 		part.removeEdges[#part.removeEdges + 1] = other
 		part.removeNodes[#part.removeNodes + 1] = endNode.entity
-		movedNodes[endNode.entity], farNodes[far.entity] = true, true
+		movedNodes[endNode.entity], farNodes[far.entity] = part, part
 		stats.moved = stats.moved + 1
 		log(prefix .. ", removed it (merged with edge " .. other .. ")")
 		return true

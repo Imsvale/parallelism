@@ -175,6 +175,8 @@ local function updatePreview(proposal)
 	preview.existingBend = stats.existingBend ~= nil
 	preview.junctions = stats.junctions > 0
 	preview.roadJunctions = preview.builder == shared.STREET_BUILDER and (stats.crossings + stats.anchored) > 0
+	-- the crossing angle, for the refusal's text (Better Construction Tooltip's option)
+	preview.spacingAngle = stats.spacingAngle
 	-- the drag check waits for the game's verdict on plans like this (game script)
 	preview.needsVerdict = (stats.crossings + stats.anchored) > 0
 	preview.sharpCorner = stats.sharpCorner ~= nil
@@ -428,6 +430,7 @@ local function makeViewer(index)
 	local shown = {
 		signature = preview.signature,
 		roadJunctions = preview.roadJunctions and true or false,
+		spacingAngle = preview.spacingAngle,
 		bulldozeConstructions = {},
 		bulldozeBuildings = {},
 	}
@@ -451,6 +454,7 @@ local function makeViewer(index)
 				message = #errorState.messages > 0 and tostring(errorState.messages[1]) or nil,
 				-- roads making junctions: the refusal suggests more spacing
 				roadJunctions = shown.roadJunctions,
+				spacingAngle = shown.spacingAngle,
 				-- the buildings the preview bulldozes, for the build
 				bulldozeConstructions = shown.bulldozeConstructions,
 				bulldozeBuildings = shown.bulldozeBuildings,

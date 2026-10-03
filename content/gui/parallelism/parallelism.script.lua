@@ -431,6 +431,7 @@ local function checkPlayerProposal(param)
 		local message = "Parallel " .. shared.nounOf(current.builder) .. " cannot be built here"
 			.. (verdict.message and (" (" .. verdict.message .. ")") or "")
 			.. (verdict.roadJunctions and ". Junctions too close together? Try more spacing." or "")
+		message = withAngle(message, { spacingAngle = verdict.spacingAngle })
 		if message ~= lastRefusal then
 			lastRefusal = message
 			shared.log("check: " .. message)
@@ -914,7 +915,7 @@ return {
 				shared.log("preview verdict for the drag check: critical " .. tostring(param.critical) .. ", " .. tostring(param.message))
 			end
 			previewVerdict = { signature = param.signature, critical = param.critical, message = param.message,
-				roadJunctions = param.roadJunctions,
+				roadJunctions = param.roadJunctions, spacingAngle = param.spacingAngle,
 				bulldozeConstructions = param.bulldozeConstructions or {}, bulldozeBuildings = param.bulldozeBuildings or {} }
 			if param.signature then
 				if verdicts[param.signature] == nil then
