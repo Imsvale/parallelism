@@ -67,7 +67,7 @@ little. At small angles it approaches the main road's full width.
 | 60°   | 2.0 m | 10.5 m |                                                                      |
 | 45°   | 1.5 m | 13.5 m |                                                                      |
 | 30°   | 1.5 m | 16.0 m |                                                                      |
-| 20°   | N/A   |        | Angle too small. Won't build at any spacing (current mod version).   |
+| 20°   |       | ≤ 20 m | Builds at 20 m (2026-10-03, 3 roads); smaller not tried yet.         |
 
 ## Earlier notes (to re-validate against the new data)
 
@@ -105,3 +105,13 @@ At 33 and 25 degrees the same 53.0 / 62.1 m came back every time, which is what 
 node looks like.
 
 With the rule: the mod's T builds from 90 down to about 28-32 degrees (2026-10-03).
+
+### What made the 20° X build (2026-10-03, pairwise against native)
+
+The same 3-road X built natively next to the mod's refused one, both dumped in full:
+native leaves the main road between neighbouring junctions as one edge (105 m at 20°,
+20 m spacing) and keeps the next node at least corner + 26 m (71.3 m) out on the outer
+side. The mod's plan had a builder node 32.7 m from its junction on the inner side (the
+builder's cut pieces came untyped, so the planner would not move their nodes) and an
+11.7 m piece on the outer side (a crossing that became one end of a piece no longer
+counted for its other end). Both fixed, the 20° X builds at 20 m.
