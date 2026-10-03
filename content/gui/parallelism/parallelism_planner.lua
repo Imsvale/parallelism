@@ -3004,7 +3004,33 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	end
 	stats.removedNodes = nodesToRemove
 	local checkStart = clockMs()
-	stats.problems = geometry.checkPlan(stats.plan, nil, corners)
+	-- nodes where an existing edge stays attached are junctions, not nodes our road runs
+	-- through: two of our edges meeting there may turn (2026-10-03, a road T on an existing
+	-- node, our re-laid main road and the parallel met at 158.7 degrees, "track bends")
+	local skipBend = {}
+	for node in pairs(corners) do
+		skipBend[node] = true
+	end
+	do
+		local removed = {}
+		for __, e in ipairs(edgesToRemove) do
+			removed[e] = true
+		end
+		local seen = {}
+		for __, e in ipairs(stats.plan) do
+			for __, node in ipairs({ e.node0, e.node1 }) do
+				if not seen[node] then
+					seen[node] = true
+					for __, s in ipairs(getNode2Segments()[node] or {}) do
+						if not removed[s] then
+							skipBend[node] = true
+						end
+					end
+				end
+			end
+		end
+	end
+	stats.problems = geometry.checkPlan(stats.plan, nil, skipBend)
 	-- A drag turning in on itself makes the extra edges cross the drawn ones or each
 	-- other. Those crossings are not planned (no shared node), so the game would get two
 	-- edges running through each other.
