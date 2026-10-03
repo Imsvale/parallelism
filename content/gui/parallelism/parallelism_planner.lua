@@ -1533,6 +1533,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							-- the meeting point behind the end (inside the edge, but too far off it
 							-- to shorten): lengthening would run back over the edge
 							local far = atStart and natural.p0 or natural.p1
+							-- (at the end itself there is nothing to fit: 90 degree T ends land right
+							-- on the road, and the direction test there is rounding noise)
+							if geometry.horizontalDistance(x, far) <= JUNCTION_REUSE_DISTANCE then
+								return false
+							end
 							local t = atStart and natural.t0 or natural.t1
 							local dot = (x.x - far.x) * t.x + (x.y - far.y) * t.y
 							return (atStart and dot > 0) or (not atStart and dot < 0)
@@ -1863,6 +1868,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 									-- not without bending: the track would run through the other one
 									stats.missedCrossing = string.format("a crossing at own node %d could not be placed (on edge %d, nodes %d -> %d%s)",
 										node.entity, entity, comp.node0, comp.node1, (drawnNodes[comp.node0] or drawnNodes[comp.node1]) and ", at the drawn road" or "")
+									-- dev aid: where, and on which of our edges (2026-10-03: a node not in the
+									-- final plan, after a parallel was shortened to meet the road)
+									log(string.format("  could not place: own node %d at %s, %.3f m from edge %d at u = %.3f; our edge %s -> %s %s -> %s",
+										node.entity, shared.vecToString(node.position), distance, entity, u, tostring(oe.node0.entity),
+										tostring(oe.node1.entity), shared.vecToString(oe.edge.p0), shared.vecToString(oe.edge.p1)))
 									log("  " .. stats.missedCrossing)
 								end
 								break
