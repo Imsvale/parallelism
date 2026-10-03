@@ -3285,23 +3285,6 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			return s
 		end
 		local removedEdges, removedNodes = set(edgesToRemove), set(nodesToRemove)
-		-- only nodes our edges use: a node left without edges (a parallel shortened past it)
-		-- with a node config crashed the game in StreetShapeFactory (2026-10-03)
-		do
-			local used = {}
-			for __, e in ipairs(stats.plan) do
-				used[e.node0], used[e.node1] = true, true
-			end
-			local kept = {}
-			for __, n in ipairs(nodesToAdd) do
-				if used[n.entity] then
-					kept[#kept + 1] = n
-				else
-					log(string.format("  own node %d left without edges, not added", n.entity))
-				end
-			end
-			nodesToAdd = kept
-		end
 		local newNodes = {}
 		for __, n in ipairs(nodesToAdd) do
 			newNodes[n.entity] = true
@@ -3571,6 +3554,24 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	end
 
 	local proposal = nil
+	-- only nodes our edges use: a node left without edges (a parallel shortened past it)
+	-- crashed the game in StreetShapeFactory (2026-10-03); before the nodes are emitted and
+	-- their configs made
+	do
+		local used = {}
+		for __, e in ipairs(stats.plan) do
+			used[e.node0], used[e.node1] = true, true
+		end
+		local kept = {}
+		for __, n in ipairs(nodesToAdd) do
+			if used[n.entity] then
+				kept[#kept + 1] = n
+			else
+				log(string.format("  own node %d left without edges, not added", n.entity))
+			end
+		end
+		nodesToAdd = kept
+	end
 	if not planOnly then
 		local nodeAndEntities = {}
 		for __, node in ipairs(nodesToAdd) do
