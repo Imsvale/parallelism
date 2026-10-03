@@ -1104,7 +1104,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				or text:find("joined", 1, true) or text:find("refit", 1, true) or text:find("not done", 1, true)
 				or text:find("slid", 1, true) or text:find("anchored", 1, true) or text:find("crossing edge", 1, true)
 				or text:find("lengthened", 1, true) or text:find("junction node", 1, true) or text:find("cut ", 1, true)
-				or text:find("run end", 1, true) or text:find("through existing", 1, true)) then
+				or text:find("run end", 1, true) or text:find("through existing", 1, true)
+				or text:find("shortened", 1, true) or text:find("existing node", 1, true)) then
 				stats.notes[#stats.notes + 1] = text
 			end
 		end
@@ -1445,6 +1446,17 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					if noJunctions and segments and #segments >= 2 then
 						-- joining a road in the middle, not at its end
 						stats.junctions = stats.junctions + 1
+					elseif streets and useCount[entity] == 1 and segments and #segments >= 2 then
+						-- a T on an existing node of the road: a junction like an anchored one,
+						-- with the room its angle needs on our side too (2026-10-03: our own node
+						-- left 9.7 m from such a T, refused)
+						local comp = getEdgeComp(segments[1])
+						if comp then
+							local e = toEdge(comp)
+							local a = geometry.angleBetween(tangent, comp.node0 == node.entity and e.t0 or e.t1)
+							cutNodes[node.entity] = true
+							cutAt[node.entity] = cutAt[node.entity] or { node = node, angle = math.min(a, 180 - a) }
+						end
 					end
 				elseif useCount[entity] == 1 and streets then
 					-- an end of the run next to the loose end of a previous parallel: continue
