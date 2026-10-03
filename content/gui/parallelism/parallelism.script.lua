@@ -89,6 +89,9 @@ local pending = {}
 -- dev aid: measures the crossings in the builder's proposal while dragging, next to the
 -- game's verdict, to find out which crossings the game refuses
 local MEASURE_CROSSINGS = true
+-- dev aid (2026-10-03): the drag check's joined proposal in full before the game judges it;
+-- after a crash in StreetShapeFactory the last such dump is what crashed it. Verbose.
+local DUMP_BEFORE_JUDGING = true
 local lastMeasurement = nil
 
 local function angleBetween(a, b)
@@ -362,8 +365,12 @@ local function dumpOurs(label, simple, data)
 			messages[#messages + 1] = tostring(m)
 		end
 	end)
-	shared.log("dump " .. label .. ": costs = " .. tostring(data.costs) .. ", critical = " .. tostring(data.errorState.critical)
-		.. ", messages [" .. table.concat(messages, "; ") .. "]")
+	if data then
+		shared.log("dump " .. label .. ": costs = " .. tostring(data.costs) .. ", critical = " .. tostring(data.errorState.critical)
+			.. ", messages [" .. table.concat(messages, "; ") .. "]")
+	else
+		shared.log("dump " .. label)
+	end
 	for __, n in ipairs(street.nodesToAdd) do
 		shared.log("  + node " .. tostring(n.entity) .. " " .. shared.vecToString(n.comp.position))
 	end
@@ -525,6 +532,9 @@ local function checkPlayerProposal(param)
 				-- names the drag it was handed
 				shared.log(string.format("handing the game (drag check): drag %s, %d crossings%s", shared.fingerprint(signature),
 					stats.crossings + stats.anchored, stats.spacingAngle and string.format(", at %.1f deg", stats.spacingAngle) or ""))
+				if DUMP_BEFORE_JUDGING then
+					pcall(dumpOurs, "before judging (drag check)", planned, nil)
+				end
 				local data = api.engine.util.proposal.makeProposalData(planned, context)
 				-- town buildings in the way are bulldozed, as in the preview: judged again with them
 				local candidates = {}
