@@ -48,13 +48,6 @@ local ROAD_JUNCTION_CLEARANCE = 8.0
 local JUNCTION_REUSE_DISTANCE = 0.3
 -- an intersection this close to a node both edges share is where they meet, not a crossing
 local SHARED_NODE_MEETING_DISTANCE = 2.0
--- Room a road junction needs along the road, from its node to the next: half the
--- crossing road's width plus this, divided by sin(angle) (the junction's footprint along
--- the road grows as the crossing gets flatter). Seen 2026-10-03 at 33 degrees: a 16.2 m
--- piece refused; the road builder itself removed nodes 12.7 and 12.9 m from such
--- junctions and left 53 m. (16 m road: 16 m at 90 degrees, 29 m at 33, 62 m at 15.)
--- 8 m left a plain node 30.2 m from a 33 degree junction (refused, 2026-10-03); 12 m: 37 m.
-local ROAD_JUNCTION_MARGIN = 12.0
 -- how far beyond a junction's corner the road builder keeps the next node (fitted to its
 -- builds at 33 and 25 degrees, see minPieceLength)
 local ROAD_JUNCTION_BEYOND = 26.0
@@ -115,20 +108,13 @@ local CROSSING_CLEARANCE = 1.5
 local MAX_SWITCH_ZONE = 150.0
 -- two edges are only merged into one if that one strays no more than this from them
 local MAX_MERGE_DEVIATION = 0.2
--- Existing track may be reshaped only this much: a node slid onto a crossing (the bit
--- in between changes edge, e.g. a straight-to-curve transition moves a few meters) or
--- crossed pieces joined back. Whole edges are no longer merged on existing track (it
--- drifted off long stretches), except to clear a switch's zone, as the game does.
+-- Existing roads and tracks keep their shape (parallelism_chain): edges joined into one
+-- curve may stray this much from the old ones,
 local EXISTING_MAX_DEVIATION = 0.05
--- a slide onto a crossing that strays more than this tries sliding away from it instead
-local SEAM_DEVIATION = 0.005
--- When neither slide keeps the track within EXISTING_MAX_DEVIATION (a seam: a straight
--- meeting a curve), do as the native builder does (measured 2026-10-02, see
--- docs/studies/2026-10-02_native-crossings.md): remove the node and refit the old track
--- from the crossing to a new node this far on (arc length), or to the next node if that
--- is closer, as one arc-like cubic with the old track's directions at both ends. The
--- native refits strayed up to 0.38 m per build and curved down to the type's minimum.
-local REFIT_LENGTH = 30.0
+-- and where one curve cannot follow them (a seam: a straight meeting a curve), the old
+-- road is refitted as the native builder does (docs/studies/2026-10-02_native-crossings.md):
+-- an arc-like cubic from the junction with the old directions, straying up to this much
+-- (the native refits strayed up to 0.38 m per build).
 local REFIT_MAX_DEVIATION = 0.5
 -- smallest curve radius for extra tracks if the track template does not say
 local DEFAULT_MIN_RADIUS = 40.0
@@ -1190,6 +1176,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	local worldEdges = {}
 	-- the offset edges of each planned track
 	local tracks = {}
+	-- per track, its own nodes that only mirror the drawn road's (free to go)
+	local trackMovable = {}
 	-- existing parallels whose loose end moves to a corner: { entity, comp, looseNode,
 	-- node0, node1, edge }, and the corner nodes, where a kink is meant
 	local rebuilt = {}
@@ -1988,186 +1976,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		end
 
 		phase = lap("crossings", phase)
-		-- A crossing close to a node in the middle of the offset track would leave a short
-		-- piece there. Those nodes only mirror nodes of the drawn track, so drop them: merge
-		-- the two offset edges around it, the crossing takes its place.
-		local dropped = {}
-		-- nodes that stay because merging around them would bend the track
-		local keptNodes = {}
-		local function edgesAt(entity)
-			local result = {}
-			for i, oe in ipairs(offsetEdges) do
-				if oe.node0.entity == entity or oe.node1.entity == entity then
-					result[#result + 1] = i
-				end
-			end
-			return result
-		end
+		-- (own nodes near crossings are dealt with when the parallel is re-laid, see the emit)
 		local function reversed(oe)
 			return { node0 = oe.node1, node1 = oe.node0, edge = geometry.reverse(oe.edge), props = oe.props, cuts = oe.cuts }
-		end
-		local merging = true
-		while merging do
-			merging = false
-			for entity in pairs(movable) do
-				local at = edgesAt(entity)
-				-- a node whose merge was refused stays refused, no need to work it out again
-				if not dropped[entity] and not keptNodes[entity] and #at == 2 then
-					local a = offsetEdges[at[1]]
-					local b = offsetEdges[at[2]]
-					local position = a.node0.entity == entity and a.node0.position or a.node1.position
-					-- the cut most in need of room: distance short of its minimum piece
-					local nearest = math.huge
-					local tooClose = false
-					for __, oe in ipairs({ a, b }) do
-						for __, cut in ipairs(oe.cuts) do
-							local d = geometry.horizontalDistance(cut.node.position, position)
-							nearest = math.min(nearest, d)
-							if d < minPieceLength(cut) then
-								tooClose = true
-							end
-						end
-						-- a crossing at the far end of the edge counts too: since nodes slide
-						-- onto crossings, edges often end at one (seen in game: an own node
-						-- kept 0.96 m from a crossing, the game refused the piece)
-						local far = oe.node0.entity == entity and oe.node1 or oe.node0
-						if cutNodes[far.entity] or crossingAtNode[far.entity] then
-							local d = geometry.horizontalDistance(far.position, position)
-							nearest = math.min(nearest, d)
-							-- the room of that crossing, as for one on the edge (2026-10-03, a
-							-- 41 degree road X: a 12.4 m piece next to our junction, which kept
-							-- only the 10 m minimum; native keeps corner + 26 m, 47 m there)
-							local farCut = cutAt[far.entity]
-							if d < (farCut and minPieceLength(farCut) or pieceMinimum()) then
-								tooClose = true
-							end
-						end
-					end
-					local slid = false
-					if tooClose
-						and a.props.comp.type == b.props.comp.type and a.props.comp.typeIndex == b.props.comp.typeIndex then
-						if a.node1.entity ~= entity then
-							a = reversed(a)
-						end
-						if b.node0.entity ~= entity then
-							b = reversed(b)
-						end
-						-- First choice: slide the node onto the nearest crossing. Only the short
-						-- bit between node and crossing is merged into the edge beyond the node,
-						-- the rest keeps its exact shape (merging the two whole edges bent the
-						-- track too much and strayed metres, seen in game: Too Much Curvature).
-						local nearestCut, onB = nil, false
-						for __, side in ipairs({ { a, false }, { b, true } }) do
-							for __, cut in ipairs(side[1].cuts) do
-								if nearestCut == nil or geometry.horizontalDistance(cut.node.position, position)
-									< geometry.horizontalDistance(nearestCut.node.position, position) then
-									nearestCut, onB = cut, side[2]
-								end
-							end
-						end
-						if nearestCut then
-							local newA, newB, short, mergedPart, merged
-							if onB then
-								local u = geometry.closestParameter(nearestCut.node.position, b.edge)
-								short, newB = geometry.split(b.edge, u)
-								merged = geometry.merge(a.edge, short)
-								mergedPart = { a.edge, short }
-								newA = merged
-							else
-								local u = geometry.closestParameter(nearestCut.node.position, a.edge)
-								newA, short = geometry.split(a.edge, u)
-								merged = geometry.merge(short, b.edge)
-								mergedPart = { short, b.edge }
-								newB = merged
-							end
-							if mergeStray(mergedPart[1], mergedPart[2], merged, templateOf(a.props)) <= MAX_MERGE_DEVIATION then
-								local joint = nearestCut.node
-								local edgeA = { node0 = a.node0, node1 = joint, edge = newA, props = a.props, cuts = {} }
-								local edgeB = { node0 = joint, node1 = b.node1, edge = newB, props = a.props, cuts = {} }
-								-- the other cuts go to whichever new edge they lie on
-								for __, side in ipairs({ a, b }) do
-									for __, cut in ipairs(side.cuts) do
-										if cut ~= nearestCut then
-											local __, da = geometry.closestParameter(cut.node.position, newA)
-											local __, db = geometry.closestParameter(cut.node.position, newB)
-											table.insert(da <= db and edgeA.cuts or edgeB.cuts, cut)
-										end
-									end
-								end
-								offsetEdges[at[1]] = edgeA
-								offsetEdges[at[2]] = edgeB
-								dropped[entity] = true
-								stats.dropped = stats.dropped + 1
-								log(string.format("  own node %d is %.2f m from a crossing, moved it onto the crossing", entity, nearest))
-								merging = true
-								slid = true
-							end
-						end
-					end
-					if slid then
-						break
-					end
-					if tooClose
-						and a.props.comp.type == b.props.comp.type and a.props.comp.typeIndex == b.props.comp.typeIndex then
-						-- one curve cannot follow every shape two can (e.g. a long stretch of a
-						-- tight spiral): keep the node if the merged curve would stray
-						local merged = geometry.merge(a.edge, b.edge)
-						local deviation = mergeStray(a.edge, b.edge, merged, templateOf(a.props))
-						if deviation > MAX_MERGE_DEVIATION then
-							if not keptNodes[entity] then
-								keptNodes[entity] = true
-								log(string.format("  own node %d is %.2f m from a crossing, kept it: merging would stray %.2f m", entity, nearest, deviation))
-							end
-						else
-							local cuts = {}
-							for __, cut in ipairs(a.cuts) do
-								cuts[#cuts + 1] = cut
-							end
-							for __, cut in ipairs(b.cuts) do
-								cuts[#cuts + 1] = cut
-							end
-							offsetEdges[at[1]] = { node0 = a.node0, node1 = b.node1, edge = merged, props = a.props, cuts = cuts }
-							table.remove(offsetEdges, at[2])
-							dropped[entity] = true
-							stats.dropped = stats.dropped + 1
-							log(string.format("  own node %d is %.2f m from a crossing, dropped it", entity, nearest))
-							merging = true
-							break
-						end
-					end
-				end
-			end
-		end
-		if next(dropped) ~= nil then
-			local kept = {}
-			for __, node in ipairs(nodesToAdd) do
-				if not dropped[node.entity] then
-					kept[#kept + 1] = node
-				end
-			end
-			nodesToAdd = kept
-		end
-		-- Dropping or sliding our own nodes merged our edges, which may stray from the old
-		-- curve; the crossing nodes on them were placed on the old one. Put each where our
-		-- edge now crosses the existing one, a node off the curve bends the pieces next to
-		-- it (seen in game: the crossing point drifted along the crossed track).
-		for __, oe in ipairs(offsetEdges) do
-			for __, cut in ipairs(oe.cuts) do
-				local comp = cut.entity and getEdgeComp(cut.entity)
-				if comp then
-					local other = worldEdges[cut.entity] or toEdge(comp)
-					local best = nil
-					for __, x in ipairs(geometry.intersections(oe.edge, other)) do
-						local d = geometry.horizontalDistance(x.pointA, cut.node.position)
-						if d < 1 and (best == nil or d < best.d) then
-							best = { d = d, point = x.pointA }
-						end
-					end
-					if best and best.d > 1e-4 then
-						cut.node.position = { x = best.point.x, y = best.point.y, z = cut.node.position.z }
-					end
-				end
-			end
 		end
 		if options.reverse then
 			for i, oe in ipairs(offsetEdges) do
@@ -2181,6 +1992,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 		end
 		tracks[#tracks + 1] = offsetEdges
+		trackMovable[#tracks] = movable
 		lap("merges", phase)
 	end
 	local emitStart = clockMs()
@@ -2247,32 +2059,6 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		end
 	end
 
-	-- adds the edge cut into pieces between its end nodes and the cut nodes
-	local function addCut(edge, node0, node1, cuts, props)
-		table.sort(cuts, function(a, b) return a.u < b.u end)
-		local us = {}
-		local chain = { node0 }
-		for __, cut in ipairs(cuts) do
-			us[#us + 1] = cut.u
-			chain[#chain + 1] = cut.node
-		end
-		chain[#chain + 1] = node1
-		for i, piece in ipairs(geometry.splitMany(edge, us)) do
-			addSegment(chain[i], chain[i + 1], piece, props)
-			-- a piece next to a crossing or branch that could not be made long enough: the
-			-- game refuses it at best, and crashed on it for roads
-			-- (also an edge with no cut of its own that ends at a crossing: own nodes slide
-			-- onto crossings, then edges run crossing to crossing; seen in game: 1.35 m)
-			if #chain > 2 or cutNodes[chain[i].entity] or cutNodes[chain[i + 1].entity] then
-				local length = geometry.arcLength({ p0 = chain[i].position, p1 = chain[i + 1].position, t0 = piece.t0, t1 = piece.t1 })
-				if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
-					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
-						length, shared.vecToString(chain[i].position), pieceMinimum())
-					stats.problemAt = chain[i].position
-				end
-			end
-		end
-	end
 
 	local nodesToRemove = {}
 
@@ -2488,14 +2274,163 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		stats.moved = stats.moved + 1
 	end
 
-	for __, offsetEdges in ipairs(tracks) do
-		for __, oe in ipairs(offsetEdges) do
-			-- crossing nodes may have moved onto a merged existing track, see above
-			for __, cut in ipairs(oe.cuts) do
-				cut.u = geometry.closestParameter(cut.node.position, oe.edge)
+	-- Our own parallels: their nodes only mirror the drawn road's, so they are plain nodes
+	-- of a chain like any other and are re-laid around the crossings and junctions on the
+	-- parallel by the same rule (parallelism_chain). Edges with nothing near them are
+	-- added as they are.
+	for ti, runEdges in ipairs(tracks) do
+		local movable = trackMovable[ti]
+		local edgesAt = {}
+		for i, oe in ipairs(runEdges) do
+			for __, n in ipairs({ oe.node0, oe.node1 }) do
+				edgesAt[n.entity] = edgesAt[n.entity] or {}
+				table.insert(edgesAt[n.entity], i)
 			end
-			addCut(oe.edge, oe.node0, oe.node1, oe.cuts, oe.props)
-			stats.edges = stats.edges + 1
+		end
+		local used = {}
+		-- the run in order from a node, as far as it goes through nodes with two edges
+		local function followRun(start)
+			local c = { nodes = { { id = start.entity, position = start.position, fixed = not movable[start.entity] } }, edges = {} }
+			local current = start
+			while true do
+				local index = nil
+				for __, i in ipairs(edgesAt[current.entity]) do
+					if not used[i] then
+						index = i
+						break
+					end
+				end
+				if index == nil then
+					break
+				end
+				used[index] = true
+				local oe = runEdges[index]
+				local forward = oe.node0.entity == current.entity
+				local other = forward and oe.node1 or oe.node0
+				c.edges[#c.edges + 1] = { id = index, edge = forward and oe.edge or geometry.reverse(oe.edge), reversed = not forward }
+				c.nodes[#c.nodes + 1] = { id = other.entity, position = other.position, fixed = not movable[other.entity] }
+				current = other
+				if #edgesAt[current.entity] ~= 2 then
+					break
+				end
+			end
+			return c
+		end
+		local runs = {}
+		for __, oe in ipairs(runEdges) do
+			for __, n in ipairs({ oe.node0, oe.node1 }) do
+				if #edgesAt[n.entity] ~= 2 then
+					local c = followRun(n)
+					if #c.edges > 0 then
+						runs[#runs + 1] = c
+					end
+				end
+			end
+		end
+		for i, oe in ipairs(runEdges) do
+			if not used[i] then
+				-- a closed run: from any of its nodes
+				local c = followRun(oe.node0)
+				if #c.edges > 0 then
+					runs[#runs + 1] = c
+				end
+			end
+		end
+		for __, c in ipairs(runs) do
+			local nodeById = {}
+			local nodeIndex = {}
+			for i, n in ipairs(c.nodes) do
+				nodeIndex[n.id] = i
+			end
+			for __, e in ipairs(c.edges) do
+				local oe = runEdges[e.id]
+				nodeById[oe.node0.entity], nodeById[oe.node1.entity] = oe.node0, oe.node1
+			end
+			local junctions = {}
+			local function addJunction(cut, j, keep)
+				keep = keep or minPieceLength(cut)
+				j.keepBefore, j.keepAfter = keep, keep
+				if streets and planRoadWidth and cut.angle then
+					j.corner = chainModule.corner(planRoadWidth, cut.angle)
+				end
+				junctions[#junctions + 1] = j
+			end
+			for i, e in ipairs(c.edges) do
+				for __, cut in ipairs(runEdges[e.id].cuts) do
+					nodeById[cut.node.entity] = nodeById[cut.node.entity] or cut.node
+					addJunction(cut, { id = cut.node.entity, position = cut.node.position, node = nodeIndex[cut.node.entity],
+						edge = not nodeIndex[cut.node.entity] and i or nil })
+				end
+			end
+			-- nodes of ours that are junctions themselves: a crossing right at the node, a T
+			-- anchored on a road or on one of its nodes
+			for i, n in ipairs(c.nodes) do
+				local cut = cutAt[n.id]
+				if cut then
+					local already = false
+					for __, j in ipairs(junctions) do
+						already = already or j.id == n.id
+					end
+					if not already then
+						-- (a switch's zone lies along the track it branches off, not along ours)
+						addJunction(cut, { id = n.id, node = i }, cut.zone and pieceMinimum() or nil)
+					end
+				end
+			end
+			local relayStart = clockMs()
+			local result = chainModule.relay(c, junctions, {
+				joinTolerance = MAX_MERGE_DEVIATION,
+				refitTolerance = MAX_MERGE_DEVIATION,
+				junctionGap = streets and chainModule.ROAD_JUNCTION_GAP or 0,
+				newNode = function(position)
+					local n = newNode(position)
+					nodeById[n.entity] = n
+					return n.entity
+				end,
+				accept = accept,
+			})
+			if relayStart then
+				timing.relay = timing.relay + clockMs() - relayStart
+			end
+			if #result.removedNodes > 0 or #result.problems > 0 then
+				log(string.format("  re-laid our parallel: %d junctions, %d own nodes dropped, %d pieces", #junctions,
+					#result.removedNodes, #result.pieces))
+			end
+			for __, problem in ipairs(result.problems) do
+				log("  " .. problem)
+				stats.relayProblem = stats.relayProblem or problem
+			end
+			stats.dropped = stats.dropped + #result.removedNodes
+			local function emitOwn(n0, n1, edge, props)
+				addSegment(n0, n1, edge, props)
+				stats.edges = stats.edges + 1
+				if cutNodes[n0.entity] or cutNodes[n1.entity] then
+					local length = geometry.arcLength(edge)
+					if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
+						stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
+							length, shared.vecToString(n0.position), pieceMinimum())
+						stats.problemAt = n0.position
+					end
+				end
+			end
+			for __, p in ipairs(result.pieces) do
+				-- runs the way the parallel's own edge ran (one-way roads, the reverse option)
+				local n0, n1, edge = nodeById[p.node0], nodeById[p.node1], p.edge
+				if p.reversed then
+					n0, n1, edge = n1, n0, geometry.reverse(edge)
+				end
+				emitOwn(n0, n1, edge, runEdges[p.origins[1]].props)
+			end
+			local relaid = {}
+			for __, id in ipairs(result.removedEdges) do
+				relaid[id] = true
+			end
+			for __, e in ipairs(c.edges) do
+				if not relaid[e.id] then
+					local oe = runEdges[e.id]
+					emitOwn(oe.node0, oe.node1, oe.edge, oe.props)
+				end
+			end
 		end
 	end
 

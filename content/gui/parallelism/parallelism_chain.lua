@@ -229,11 +229,11 @@ function chain.relay(c, junctions, opts)
 			if curve == nil and opts.newNode then
 				-- a node just outside the keep-out of the junction at one end, the old curve
 				-- beyond it kept exactly (native: the next node at corner + 26 m)
-				local jAt, other, keep, s = nil, nil, nil, nil
+				local jAt, s = nil, nil
 				if p0.junction and (p0.junction.keepAfter or 0) > 0 then
-					jAt, other, keep, s = p0, p1, p0.junction.keepAfter, p0.s + p0.junction.keepAfter
+					jAt, s = p0, p0.s + p0.junction.keepAfter
 				elseif p1.junction and (p1.junction.keepBefore or 0) > 0 then
-					jAt, other, keep, s = p1, p0, p1.junction.keepBefore, p1.s - p1.junction.keepBefore
+					jAt, s = p1, p1.s - p1.junction.keepBefore
 				end
 				if jAt and s > math.min(p0.s, p1.s) + EPS and s < math.max(p0.s, p1.s) - EPS and not insideKeepOut(s) then
 					local i, along = locate(s)
