@@ -2142,6 +2142,18 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 		end
 		if nearest == nil then
+			-- dev aid: a node near a crossing left where it is, and the room it was measured
+			-- against (a builder node 32.7 m from our junction at 20 degrees was left, the
+			-- game refused, 2026-10-03)
+			for __, cut in ipairs(part.cuts) do
+				local d = geometry.horizontalDistance(cut.node.position, endNode.position)
+				if d < 80 then
+					local inner = isInner(cut, endNode)
+					log(string.format("  node %d kept: %.2f m from a cut at %s degrees, room %.1f m (%s; road width %s)",
+						endNode.entity, d, tostring(cut.angle and string.format("%.1f", cut.angle)), minPieceLength(cut, inner),
+						inner and "inner" or "outer", tostring(planRoadWidth)))
+				end
+			end
 			return
 		end
 		local prefix = string.format("  cut %.2f m from node %d", nearest, endNode.entity)
