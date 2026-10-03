@@ -239,8 +239,9 @@ local function setOverlay(streetProposal)
 		o.pins[#o.pins + 1] = typed
 		local comp = typed.comp
 		local p0, p1 = vec(comp.position0), vec(comp.position1)
-		vec(comp.tangent0)
-		vec(comp.tangent1)
+		-- the plain geometry once: searches test it many times per plan
+		o.plain = o.plain or {}
+		o.plain[s.entity] = { p0 = p0, p1 = p1, t0 = vec(comp.tangent0), t1 = vec(comp.tangent1) }
 		o.edges[s.entity] = comp
 		o.edgeList[#o.edgeList + 1] = s.entity
 		-- a circle around the edge, to skip it quickly in searches
@@ -301,25 +302,32 @@ local function nodePosition(entity)
 end
 
 -- edges / nodes within radius of center (Vec2f), the overlay's included
+-- dev aid: time spent in the game's spatial index and the overlay's part (planner timing)
+local searchTiming = { octree = 0, overlay = 0 }
+
 local function edgesInCircle(center, radius)
 	local result = {}
+	local started = clockMs and clockMs()
 	for __, e in ipairs(api.engine.util.octree.findEntitiesInCircle(center, radius, api.type.ComponentType.BASE_EDGE)) do
 		if not (overlay and overlay.hiddenEdges[e]) then
 			result[#result + 1] = e
 		end
 	end
+	local octreeDone = clockMs and clockMs()
 	if overlay then
 		local c = { x = center.x, y = center.y, z = 0 }
 		for __, e in ipairs(overlay.edgeList) do
 			local b = overlay.bounds[e]
 			if math.sqrt((b.x - c.x) ^ 2 + (b.y - c.y) ^ 2) <= radius + b.r then
-				local comp = overlay.edges[e]
-				local edge = { p0 = plain(comp.position0), p1 = plain(comp.position1), t0 = plain(comp.tangent0), t1 = plain(comp.tangent1) }
-				if geometry.distanceToEdge(c, edge) <= radius then
+				if geometry.distanceToEdge(c, overlay.plain[e]) <= radius then
 					result[#result + 1] = e
 				end
 			end
 		end
+	end
+	if started and octreeDone then
+		searchTiming.octree = searchTiming.octree + octreeDone - started
+		searchTiming.overlay = searchTiming.overlay + clockMs() - octreeDone
 	end
 	return result
 end
@@ -1068,6 +1076,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	local looseEndRadius = math.min(MIN_PIECE_LENGTH * 1.5, LOOSE_END_SHARE * step)
 	geometry.fastIntersections = shared.PERF_MEASURES
 	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0, relay = 0, segments = 0, configs = 0 }
+	searchTiming.octree, searchTiming.overlay = 0, 0
 	local function lap(name, since)
 		local t = clockMs()
 		if t and since then
@@ -2208,6 +2217,13 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						local tangent = endIndex == 1 and c.edges[1].edge.t0 or c.edges[#c.edges].edge.t1
 						local a = angleAt(n.id, tangent, own)
 						if a then
+							-- dev aid: what makes it a junction (2026-10-03: a refusal named a node the
+							-- player knew of no junction at)
+							local names = {}
+							for __, s in ipairs(segments) do
+								names[#names + 1] = tostring(s) .. (own[s] and " (this road)" or "")
+							end
+							log(string.format("  re-laid road ends at junction %d, %.1f deg: edges %s", n.id, a, table.concat(names, ", ")))
 							local keep = chainModule.roadKeepOut(planRoadWidth, a)
 							junctions[#junctions + 1] = { id = n.id, node = endIndex, keepBefore = endIndex == 1 and 0 or keep,
 								keepAfter = endIndex == 1 and keep or 0, corner = chainModule.corner(planRoadWidth, a) }
@@ -3001,9 +3017,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	planRoadType = nil
 	local finished = clockMs()
 	if finished and timing.start then
-		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f, crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f",
+		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f, crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f; searches: game index %.0f, builder's edges %.0f",
 			finished - timing.start, (timing.firstTrack or timing.start) - timing.start, timing.offsets, timing.crossings, timing.merges,
-			checkStart - emitStart, timing.relay, timing.segments, timing.configs, finished - checkStart)
+			checkStart - emitStart, timing.relay, timing.segments, timing.configs, finished - checkStart, searchTiming.octree, searchTiming.overlay)
 	end
 	return proposal, stats
 end
