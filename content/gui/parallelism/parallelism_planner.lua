@@ -1498,9 +1498,13 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 
 		-- offset edges: { node0, node1, edge, props, cuts }
 		local offsetEdges = {}
+		-- ends slid back past the start of their edge (a T at a small angle shortens a
+		-- parallel by more than one edge, 2026-10-03: 86 m at 22.6 degrees)
+		local pastEnds = {}
 		for __, d in ipairs(drawn) do
 			local node0 = getNode(d.node0, d.edge.p0, d.edge.t0, true)
 			local node1 = getNode(d.node1, d.edge.p1, d.edge.t1, false)
+			local skipEdge = false
 			if node0 and node1 then
 				-- the parallel as it would run, then cut or lengthened to an end slid onto a
 				-- road (branchPoint): cut exactly where it meets the road, lengthened by a
@@ -1542,9 +1546,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							local dot = (x.x - far.x) * t.x + (x.y - far.y) * t.y
 							return (atStart and dot > 0) or (not atStart and dot < 0)
 						end)() then
-							stats.unfitEnd = string.format(
-								"the end of a parallel at node %d could not be fitted to the road (%.2f m off its line)", slid.entity, distance)
-							log("  " .. stats.unfitEnd)
+							-- shortened by more than this edge: the edge goes, the one before it is
+							-- shortened instead (see pastEnds below)
+							pastEnds[#pastEnds + 1] = { slid = slid, x = x, atStart = atStart,
+								other = atStart and node1 or node0, distance = distance }
+							skipEdge = true
 						elseif (function()
 							-- lengthened as one edge: the road builder leaves a junction with one
 							-- edge, a short straight piece before a node there was refused (seen
@@ -1602,14 +1608,16 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if dx * ex + dy * ey <= 0 then
 					radius = 0
 				end
-				stats.minRadius = math.min(stats.minRadius, radius)
-				offsetEdges[#offsetEdges + 1] = {
-					node0 = node0,
-					node1 = node1,
-					edge = edge,
-					props = props,
-					cuts = {},
-				}
+				if not skipEdge then
+					stats.minRadius = math.min(stats.minRadius, radius)
+					offsetEdges[#offsetEdges + 1] = {
+						node0 = node0,
+						node1 = node1,
+						edge = edge,
+						props = props,
+						cuts = {},
+					}
+				end
 				-- a switch reaches as far along the base track as its branch takes to clear it
 				-- (a road branching off makes a junction, which has no such zone)
 				for __, node in ipairs({ node0, node1 }) do
@@ -1619,6 +1627,49 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						log(string.format("  switch at node %d keeps the base track clear for %.1f m", node.entity, cut.zone))
 					end
 				end
+			end
+		end
+
+		-- each end slid past its edge's start: the edges before it are walked back to the
+		-- one the meeting point lies on, which is cut there and ends at the slid node; the
+		-- edges and nodes in between go
+		for __, pe in ipairs(pastEnds) do
+			local other, fitted = pe.other, false
+			for __ = 1, 10 do
+				local index = nil
+				for i, oe in ipairs(offsetEdges) do
+					if (pe.atStart and oe.node0 == other) or (not pe.atStart and oe.node1 == other) then
+						index = i
+					end
+				end
+				if index == nil then
+					break
+				end
+				local oe = offsetEdges[index]
+				local u, distance = geometry.closestParameter(pe.x, oe.edge)
+				if distance < JUNCTION_REUSE_DISTANCE + 0.05 and u > 0.001 and u < 0.999 then
+					local first, second = geometry.split(oe.edge, u)
+					if pe.atStart then
+						second.p0 = pe.x
+						oe.edge, oe.node0 = second, pe.slid
+					else
+						first.p1 = pe.x
+						oe.edge, oe.node1 = first, pe.slid
+					end
+					movable[other.entity] = nil
+					log(string.format("  node %d: the parallel shortened past its node %d, onto the edge before", pe.slid.entity, other.entity))
+					fitted = true
+					break
+				end
+				-- not on this one either: it goes too, on to the next
+				table.remove(offsetEdges, index)
+				movable[other.entity] = nil
+				other = pe.atStart and oe.node1 or oe.node0
+			end
+			if not fitted then
+				stats.unfitEnd = string.format("the end of a parallel at node %d could not be fitted to the road (%.2f m off its line)",
+					pe.slid.entity, pe.distance)
+				log("  " .. stats.unfitEnd)
 			end
 		end
 
