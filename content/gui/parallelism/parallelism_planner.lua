@@ -3107,6 +3107,68 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		end
 	end
 	stats.problems = geometry.checkPlan(stats.plan, nil, skipBend)
+	-- Roads: the finished plan against the native rules, whatever placed its nodes
+	-- (2026-10-03: nodes left near junctions by one mechanism or another kept turning up as
+	-- the game's "Construction Not Possible", and corners overlapping crashed the game in
+	-- StreetShapeFactory). A plain node of ours next to a junction must be beyond the
+	-- junction's room; two junctions joined by one edge must not overlap at their corners.
+	if isStreet(planRoadType) and planRoadWidth then
+		local half = planRoadWidth / 2
+		local function corner(cut)
+			local a = math.rad(math.max(cut.angle or 90, 1))
+			return half / math.sin(a) + half / math.tan(a)
+		end
+		local edgesAtNode = {}
+		for __, e in ipairs(stats.plan) do
+			for __, n in ipairs({ e.node0, e.node1 }) do
+				edgesAtNode[n] = (edgesAtNode[n] or 0) + 1
+			end
+		end
+		-- a plain node: two edges in all (ours and existing ones that stay), not a junction
+		local removedSet = {}
+		for __, id in ipairs(edgesToRemove) do
+			removedSet[id] = true
+		end
+		local function plainOurs(n)
+			if cutAt[n] or drawnNodes[n] then
+				return false
+			end
+			local count = edgesAtNode[n] or 0
+			for __, s in ipairs(getNode2Segments()[n] or {}) do
+				if not removedSet[s] then
+					count = count + 1
+				end
+			end
+			return count == 2
+		end
+		for __, e in ipairs(stats.plan) do
+			local length = geometry.arcLength(e.edge)
+			local c0, c1 = e.node0 and cutAt[e.node0], e.node1 and cutAt[e.node1]
+			if c0 and c1 and c0.angle and c1.angle then
+				local need = corner(c0) + corner(c1)
+				if length < need then
+					stats.junctionsOverlap = stats.junctionsOverlap or string.format(
+						"junctions %d and %d only %.1f m apart, their corners need %.1f m", e.node0, e.node1, length, need)
+				end
+			end
+			for __, pair in ipairs({ { c0, e.node1 }, { c1, e.node0 } }) do
+				local cut, other = pair[1], pair[2]
+				if cut and cut.angle and plainOurs(other) and length < minPieceLength(cut) - 0.5 then
+					stats.nodeInRoom = stats.nodeInRoom or string.format(
+						"node %d left %.1f m from junction %d, inside its %.1f m room", other, length,
+						e.node0 == other and e.node1 or e.node0, minPieceLength(cut))
+				end
+			end
+		end
+		if stats.nodeInRoom then
+			log("  plan problem: " .. stats.nodeInRoom)
+			table.insert(stats.problems, 1, stats.nodeInRoom)
+		end
+		if stats.junctionsOverlap then
+			log("  plan problem: " .. stats.junctionsOverlap)
+			table.insert(stats.problems, 1, stats.junctionsOverlap)
+		end
+	end
 	-- A drag turning in on itself makes the extra edges cross the drawn ones or each
 	-- other. Those crossings are not planned (no shared node), so the game would get two
 	-- edges running through each other.
