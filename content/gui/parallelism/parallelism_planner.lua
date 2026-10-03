@@ -164,6 +164,9 @@ local compCache = nil
 
 -- the component as it is in the world now, for everything outside a plan
 local function readEdgeComp(entity)
+	if entity < 0 then
+		return nil
+	end
 	return api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE)
 end
 
@@ -247,6 +250,9 @@ local function getEdgeComp(entity)
 			return nil
 		end
 	end
+	if entity < 0 then
+		return nil
+	end
 	if compCache ~= nil then
 		local cached = compCache[entity]
 		if cached == nil then
@@ -267,6 +273,9 @@ local function nodePosition(entity)
 		if overlay.hiddenNodes[entity] or entity < 0 then
 			return nil
 		end
+	end
+	if entity < 0 then
+		return nil
 	end
 	local comp = api.engine.getComponent(entity, api.type.ComponentType.BASE_NODE)
 	return comp and plain(comp.position) or nil
@@ -315,6 +324,9 @@ local function nodesInCircle(center, radius)
 end
 
 local function getPlayerOwned(entity)
+	if entity < 0 then
+		return nil
+	end
 	local ok, result = pcall(function()
 		return api.engine.getComponent(entity, api.type.ComponentType.PLAYER_OWNED)
 	end)
@@ -3268,6 +3280,17 @@ end
 -- what an entity is, for the log
 local function describeEntity(entity)
 	local parts = { tostring(entity) }
+	-- negative ids are the builder's proposal (not in the world): asking the engine about
+	-- one can crash the game outright (2026-10-03, after "preview removes edge -7")
+	if type(entity) ~= "number" or entity < 0 then
+		local edge = overlay and overlay.edges[entity]
+		if edge then
+			parts[#parts + 1] = "proposal edge " .. tostring(edge.node0) .. " -> " .. tostring(edge.node1)
+		else
+			parts[#parts + 1] = "(in the builder's proposal)"
+		end
+		return table.concat(parts, " ")
+	end
 	local ok = pcall(function()
 		local edge = getEdgeComp(entity)
 		if edge then
@@ -3313,6 +3336,9 @@ local function describeEntity(entity)
 end
 -- The bounding box of an entity, nil if it has none.
 local function bboxOf(entity)
+	if entity < 0 then
+		return nil
+	end
 	local bbox = nil
 	pcall(function()
 		local bv = api.engine.getComponent(entity, api.type.ComponentType.BOUNDING_VOLUME)
@@ -3376,6 +3402,9 @@ end
 -- The town building a collision report names, as a candidate for buildingsInTheWay;
 -- nil for anything else (industries, stations and the like stay in the way).
 local function townBuildingCandidate(entity)
+	if entity < 0 then
+		return nil
+	end
 	local candidate = nil
 	pcall(function()
 		local building = api.engine.getComponent(entity, api.type.ComponentType.TOWN_BUILDING)
