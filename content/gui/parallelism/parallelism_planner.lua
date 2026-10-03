@@ -178,12 +178,35 @@ end
 -- world without the drawn road differed: partial builds at 20 degrees, 2026-10-03).
 local overlay = nil
 
+-- The elements of a proposal's lists (and their comp) are references into the native
+-- proposal, and lua does not keep the list they point into alive: a list read once,
+-- then let go, is freed whenever lua collects garbage, and a comp kept from it then reads
+-- freed memory ("bad allocation" from reading roadTemplate, then a hard crash while
+-- dragging 6 roads over 6, 2026-10-03). Whatever keeps such references beyond a loop over
+-- the list gets them from here: the list and its elements as a lua array, with the list
+-- and elements added to pins (a table the holder keeps as long as it uses them).
+function planner.pinned(container, pins)
+	pins[#pins + 1] = container
+	local list = {}
+	for __, x in ipairs(container) do
+		list[#list + 1] = x
+		pins[#pins + 1] = x
+	end
+	return list
+end
+
 local function setOverlay(streetProposal)
 	if streetProposal == nil then
 		overlay = nil
 		return
 	end
 	local o = { edges = {}, hiddenEdges = {}, nodes = {}, hiddenNodes = {}, configs = {}, edgeList = {}, nodeList = {} }
+	-- The parts of the proposal kept below are references into it: lua does not keep what
+	-- they point into alive, so it is kept here (see pinned).
+	o.pins = { streetProposal }
+	local function pinned(container)
+		return planner.pinned(container, o.pins)
+	end
 	local function real(id)
 		return id < 0 and (-id - 1) or id
 	end
@@ -208,7 +231,7 @@ local function setOverlay(streetProposal)
 		end
 		return r
 	end
-	for __, s in ipairs(streetProposal.addedSegments) do
+	for __, s in ipairs(pinned(streetProposal.addedSegments)) do
 		local comp = s.comp
 		local p0, p1 = vec(comp.position0), vec(comp.position1)
 		vec(comp.tangent0)
@@ -227,14 +250,14 @@ local function setOverlay(streetProposal)
 	-- the type of the pieces of a cut edge, which can come without one: from the edge they
 	-- were cut from (they share a node with it)
 	o.typeOf = {}
-	for __, s in ipairs(streetProposal.removedSegments) do
+	for __, s in ipairs(pinned(streetProposal.removedSegments)) do
 		local c = s.comp
 		for __, n in ipairs({ c.node0, c.node1 }) do
 			o.typeOf[n] = o.typeOf[n] or c
 		end
 	end
 	pcall(function()
-		for __, nc in ipairs(streetProposal.nodeConfigsToAdd) do
+		for __, nc in ipairs(pinned(streetProposal.nodeConfigsToAdd)) do
 			o.configs[nc.entity] = nc.comp
 		end
 	end)
@@ -757,11 +780,13 @@ local function collectDrawnSegments(streetProposal, roadType)
 	end
 
 	local drawn = {}
-	for __, segment in ipairs(streetProposal.addedSegments) do
+	-- each drawn segment keeps its comp, a reference into the proposal (see planner.pinned)
+	local pins = { streetProposal }
+	for __, segment in ipairs(planner.pinned(streetProposal.addedSegments, pins)) do
 		if segment.comp.roadType == roadType then
 			local edge = toEdge(segment.comp)
 			if not geometry.liesOnAny(edge, removed, REMNANT_TOLERANCE) then
-				drawn[#drawn + 1] = { entity = segment.entity, segmentType = segment.type, comp = segment.comp, edge = edge }
+				drawn[#drawn + 1] = { entity = segment.entity, segmentType = segment.type, comp = segment.comp, edge = edge, pins = pins }
 			end
 		end
 	end
@@ -3451,36 +3476,41 @@ end
 -- replaces a config the builder gives); our part on top.
 local function joinWithBuilder(streetProposal, planned, templateName)
 	local ours = planned.streetProposal
+	-- elements are kept past their loops (cutFrom, the lists to add): see planner.pinned
+	local pins = { streetProposal, planned, ours }
+	local function pinned(container)
+		return planner.pinned(container, pins)
+	end
 	local function real(id)
 		return id < 0 and (-id - 1) or id
 	end
 	local builderEdge, builderNode, builderConfig = {}, {}, {}
-	for __, s in ipairs(streetProposal.addedSegments) do
+	for __, s in ipairs(pinned(streetProposal.addedSegments)) do
 		builderEdge[s.entity] = true
 	end
-	for __, n in ipairs(streetProposal.addedNodes) do
+	for __, n in ipairs(pinned(streetProposal.addedNodes)) do
 		if n.entity < 0 then
 			builderNode[n.entity] = true
 		end
 	end
-	for __, nc in ipairs(streetProposal.nodeConfigsToAdd) do
+	for __, nc in ipairs(pinned(streetProposal.nodeConfigsToAdd)) do
 		builderConfig[nc.entity] = true
 	end
 	local dropEdge, dropNode, dropConfig = {}, {}, {}
 	local cutFrom = {}
-	for __, s in ipairs(streetProposal.removedSegments) do
+	for __, s in ipairs(pinned(streetProposal.removedSegments)) do
 		local c = s.comp
 		cutFrom[c.node0] = cutFrom[c.node0] or c
 		cutFrom[c.node1] = cutFrom[c.node1] or c
 	end
 	local edgesToRemove, nodesToRemove, configsToRemove = {}, {}, {}
 	local removing = {}
-	for __, s in ipairs(streetProposal.removedSegments) do
+	for __, s in ipairs(pinned(streetProposal.removedSegments)) do
 		local id = real(s.entity)
 		removing[id] = true
 		edgesToRemove[#edgesToRemove + 1] = id
 	end
-	for __, id in ipairs(ours.edgesToRemove) do
+	for __, id in ipairs(pinned(ours.edgesToRemove)) do
 		if builderEdge[id] then
 			dropEdge[id] = true
 		elseif not removing[id] then
@@ -3488,20 +3518,20 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			edgesToRemove[#edgesToRemove + 1] = id
 		end
 	end
-	for __, n in ipairs(streetProposal.removedNodes) do
+	for __, n in ipairs(pinned(streetProposal.removedNodes)) do
 		nodesToRemove[#nodesToRemove + 1] = real(n.entity)
 	end
-	for __, id in ipairs(ours.nodesToRemove) do
+	for __, id in ipairs(pinned(ours.nodesToRemove)) do
 		if builderNode[id] then
 			dropNode[id] = true
 		else
 			nodesToRemove[#nodesToRemove + 1] = id
 		end
 	end
-	for __, id in ipairs(streetProposal.nodeConfigsToRemove) do
+	for __, id in ipairs(pinned(streetProposal.nodeConfigsToRemove)) do
 		configsToRemove[#configsToRemove + 1] = real(id)
 	end
-	for __, id in ipairs(ours.nodeConfigsToRemove) do
+	for __, id in ipairs(pinned(ours.nodeConfigsToRemove)) do
 		if builderConfig[id] then
 			dropConfig[id] = true
 		else
@@ -3509,7 +3539,7 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 		end
 	end
 	local nodesToAdd, edgesToAdd, configsToAdd = {}, {}, {}
-	for __, n in ipairs(streetProposal.addedNodes) do
+	for __, n in ipairs(pinned(streetProposal.addedNodes)) do
 		if n.entity < 0 and not dropNode[n.entity] then
 			local node = api.type.NodeAndEntity.new()
 			node.entity = n.entity
@@ -3517,7 +3547,7 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			nodesToAdd[#nodesToAdd + 1] = node
 		end
 	end
-	for __, s in ipairs(streetProposal.addedSegments) do
+	for __, s in ipairs(pinned(streetProposal.addedSegments)) do
 		if not dropEdge[s.entity] then
 			-- the live proposal's segments can come without track type or lane configs in
 			-- the middle of a drag; an edge without lane configs crashes the game
@@ -3527,7 +3557,7 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			if source == nil and nonEmpty(comp.roadTemplate) == nil then
 				-- a middle piece (an edge cut twice) shares no node with it: by position
 				local mid = geometry.hermite(plain(comp.position0), plain(comp.position1), plain(comp.tangent0), plain(comp.tangent1), 0.5)
-				for __, r in ipairs(streetProposal.removedSegments) do
+				for __, r in ipairs(pinned(streetProposal.removedSegments)) do
 					if source == nil and geometry.distanceToEdge(mid, toEdge(r.comp)) < 0.5 then
 						source = r.comp
 					end
@@ -3555,18 +3585,18 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			edgesToAdd[#edgesToAdd + 1] = s
 		end
 	end
-	for __, nc in ipairs(streetProposal.nodeConfigsToAdd) do
+	for __, nc in ipairs(pinned(streetProposal.nodeConfigsToAdd)) do
 		if not dropConfig[nc.entity] then
 			configsToAdd[#configsToAdd + 1] = nc
 		end
 	end
-	for __, n in ipairs(ours.nodesToAdd) do
+	for __, n in ipairs(pinned(ours.nodesToAdd)) do
 		nodesToAdd[#nodesToAdd + 1] = n
 	end
-	for __, s in ipairs(ours.edgesToAdd) do
+	for __, s in ipairs(pinned(ours.edgesToAdd)) do
 		edgesToAdd[#edgesToAdd + 1] = s
 	end
-	for __, nc in ipairs(ours.nodeConfigsToAdd) do
+	for __, nc in ipairs(pinned(ours.nodeConfigsToAdd)) do
 		configsToAdd[#configsToAdd + 1] = nc
 	end
 	local joined = api.type.SimpleProposal.new()

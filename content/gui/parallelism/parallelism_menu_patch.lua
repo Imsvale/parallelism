@@ -106,13 +106,16 @@ local function updatePreview(proposal)
 	-- the node configs the builder made for the drawn nodes, which ours copy (while
 	-- dragging the drawn nodes are not in the world yet)
 	local nodeConfigs = {}
+	-- the comps are references into the proposal: kept alive while planning (planner.pinned)
+	local pins = { proposal }
 	pcall(function()
-		for __, nc in ipairs(proposal.proposal.nodeConfigsToAdd) do
+		for __, nc in ipairs(planner.pinned(proposal.proposal.nodeConfigsToAdd, pins)) do
 			nodeConfigs[nc.entity] = nc.comp
 		end
 	end)
 	local planned, stats = planner.makeProposal(drawn, geometry.offsets(preview.count, preview.side, distance), nil, false,
 		{ reverse = preview.reverse, nodeConfigs = nodeConfigs, wireframe = preview.wireframe, overlay = proposal.proposal })
+	pins = nil
 	preview.wireframeEdges = preview.wireframe and stats.wireframe or nil
 	-- the cost decides whether the next changes are all planned; slow ones are logged
 	if started then
