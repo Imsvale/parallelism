@@ -133,4 +133,22 @@ function shared.vecToString(v)
 	return string.format("(%.2f, %.2f, %.2f)", v.x, v.y, v.z)
 end
 
+-- true when the game already refuses the builder's own proposal (the drawn road): the
+-- drag cannot be built, so the mod neither plans nor judges nor shows its part. Those are
+-- the fragile cases: at 14.4 degrees, with the drawn road colliding, the game crashed in
+-- StreetShapeFactory (2026-10-03).
+function shared.builderRefuses(proposalData)
+	local refuses = false
+	pcall(function()
+		-- the game's own messages only: ours (the drag check's refusals, "Parallel ...")
+		-- reach the builder's data too, and the preview must stay up for those
+		for __, m in ipairs(proposalData.errorState.messages) do
+			if tostring(m):sub(1, 9) ~= "Parallel " then
+				refuses = true
+			end
+		end
+	end)
+	return refuses
+end
+
 return shared

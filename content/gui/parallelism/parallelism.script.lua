@@ -408,6 +408,9 @@ local function withAngle(message, stats)
 end
 
 local function checkPlayerProposal(param)
+	if shared.builderRefuses(param[2]) then
+		return nil
+	end
 	local drawn = planner.collectDrawnSegments(param[1].proposal, shared.roadTypeOf(current.builder))
 	if #drawn == 0 then
 		return nil

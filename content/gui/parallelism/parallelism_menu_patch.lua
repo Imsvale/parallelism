@@ -942,6 +942,14 @@ function patch.install()
 				local ok, err = pcall(function()
 					local version = preview.version
 					local started = planner.clockMs()
+					if shared.builderRefuses(proposalData) then
+						-- the drawn road itself is refused: nothing of ours to show or judge
+						if #preview.proposals > 0 then
+							clearPreview()
+							requestRedraw()
+						end
+						return
+					end
 					updatePreview(proposal)
 					countPreviewCall(preview.version ~= version, started)
 					-- dev aid: a refused drag held still is one the player means, log its plan
