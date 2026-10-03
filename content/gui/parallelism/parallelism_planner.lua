@@ -3483,6 +3483,15 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			local comp = s.comp
 			-- a piece of a cut edge: the type of that edge
 			local source = cutFrom[comp.node0] or cutFrom[comp.node1]
+			if source == nil and nonEmpty(comp.roadTemplate) == nil then
+				-- a middle piece (an edge cut twice) shares no node with it: by position
+				local mid = geometry.hermite(plain(comp.position0), plain(comp.position1), plain(comp.tangent0), plain(comp.tangent1), 0.5)
+				for __, r in ipairs(streetProposal.removedSegments) do
+					if source == nil and geometry.distanceToEdge(mid, toEdge(r.comp)) < 0.5 then
+						source = r.comp
+					end
+				end
+			end
 			if nonEmpty(comp.roadTemplate) == nil and source and nonEmpty(source.roadTemplate) then
 				comp.roadTemplate = source.roadTemplate
 				comp.roadStyle = source.roadStyle
