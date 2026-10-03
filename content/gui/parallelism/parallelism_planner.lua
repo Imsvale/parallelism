@@ -2151,6 +2151,15 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	-- no plain node within a junction's keep-out, one edge for each stretch between the
 	-- nodes that stay, refitted the native way where one curve cannot follow the old one.
 	local segmentType = drawn[1].segmentType
+	-- the segment type of an existing edge we rebuild: the drawn one's for the same kind,
+	-- else street 0 / track 1 (a track re-laid at a level crossing as a street segment made
+	-- the game refuse to judge the plan, 2026-10-04)
+	local function segmentTypeOf(comp)
+		if comp.roadType == drawn[1].comp.roadType then
+			return segmentType
+		end
+		return isStreet(comp.roadType) and 0 or 1
+	end
 	local node2segments = getNode2Segments()
 	-- the longest keep-out of any junction: how far to follow a road past its last crossing
 	local reach = 0
@@ -2347,7 +2356,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				end
 				local origin = p.origins[1]
 				addSegment(n0, n1, edge,
-					{ comp = compOf[origin], segmentType = segmentType, playerOwned = getPlayerOwned(origin), origins = p.origins })
+					{ comp = compOf[origin], segmentType = segmentTypeOf(compOf[origin]), playerOwned = getPlayerOwned(origin), origins = p.origins })
 				local length = geometry.arcLength(edge)
 				if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
 					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",

@@ -198,6 +198,10 @@ function chain.relay(c, junctions, opts)
 
 	-- one curve for the old pieces, or nil and how far the best try strays
 	local function oneCurve(pieces, p0, p1)
+		if #pieces == 0 then
+			-- two points of the chain at one spot (a junction on a node): nothing to lay
+			return nil, 0
+		end
 		if #pieces == 1 then
 			return pieces[1], 0
 		end
