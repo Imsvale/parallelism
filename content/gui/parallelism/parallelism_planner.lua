@@ -1855,7 +1855,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 										.. shared.vecToString(node.position))
 								else
 									-- not without bending: the track would run through the other one
-									stats.missedCrossing = string.format("a crossing at own node %d could not be placed", node.entity)
+									stats.missedCrossing = string.format("a crossing at own node %d could not be placed (on edge %d, nodes %d -> %d%s)",
+										node.entity, entity, comp.node0, comp.node1, (drawnNodes[comp.node0] or drawnNodes[comp.node1]) and ", at the drawn road" or "")
 									log("  " .. stats.missedCrossing)
 								end
 								break
