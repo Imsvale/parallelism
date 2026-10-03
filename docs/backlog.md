@@ -127,10 +127,10 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Open: features
 
-- **Level crossings (2026-10-03).** Parallel roads over a track (and parallel tracks over
-  a road) are not handled: only crossings with the planned road type are looked for, so
-  three roads drawn across a single track collide with it. The native builders make a
-  level crossing (a shared node); the mod should too, or refuse with a clear reason.
+- **Level crossings (2026-10-03): built, to test.** Roads over tracks and tracks over
+  roads get a shared node down to 6 degrees, the native room on both (fitted on one flat
+  build, docs/studies/2026-10-03_native-level-crossings.md: check the constant at a second
+  angle), and the road's lanes straight through as the node's config.
 - **Translations.** The strings are English only. Easy to add at any time.
 - **Undo.** To be started here, where it can be built in context, and moved to its own
   mod later.
