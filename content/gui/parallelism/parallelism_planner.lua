@@ -65,6 +65,12 @@ local ROAD_CORNER_GAP = 2.5
 -- (on again: only on the outer side of a junction; moving the nodes between our junction
 -- and the drawn road's made the game refuse a 33 degree T)
 local ROAD_ROOM_BY_ANGLE = true
+-- The same room between our junction and the drawn road's on the same road: native leaves
+-- no plain node between neighbouring junctions (2026-10-03: a builder node 53.3 / 40.6 m
+-- between two T junctions 94 m apart at 22.5 degrees, outside the 40.2 m corner, refused).
+-- The drawn road's junction node itself is never moved, so junctions closer than the room
+-- (90 degrees at tight spacing) are not refused by it.
+local ROAD_INNER_ROOM = true
 -- the width of the roads being planned (set per plan; nil for tracks)
 local planRoadWidth = nil
 -- an end of an offset track continues a loose end within this share of the distance
@@ -425,7 +431,7 @@ end
 -- more the flatter it is: the two tracks run side by side for a while (fitted to builds
 -- in game: at 6.1 degrees 7.7 m next to a crossing failed, 14.9 m worked).
 -- inner: the node lies between this junction and the drawn road's crossing of the same
--- road (the room by angle applies only on the outer side, see ROAD_ROOM_BY_ANGLE)
+-- road (the room by angle applies there too since 2026-10-03, see ROAD_INNER_ROOM)
 local function minPieceLength(cut, inner)
 	if cut.zone ~= nil then
 		return math.max(pieceMinimum(), cut.zone)
@@ -433,7 +439,7 @@ local function minPieceLength(cut, inner)
 	if cut.angle == nil then
 		return pieceMinimum()
 	end
-	if ROAD_ROOM_BY_ANGLE and not inner and isStreet(planRoadType) and planRoadWidth then
+	if ROAD_ROOM_BY_ANGLE and (ROAD_INNER_ROOM or not inner) and isStreet(planRoadType) and planRoadWidth then
 		-- the junction's corner (where the edges of the two roads meet) lies
 		-- w/2 / sin + w/2 / tan along the road from its centre; the road builder keeps the
 		-- next node a fixed distance beyond that (2026-10-03, 16 m roads: 53.0 m at 33
