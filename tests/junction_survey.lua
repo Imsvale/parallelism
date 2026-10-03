@@ -3,7 +3,7 @@
 local here = arg and arg[0] and arg[0]:match("(.*)[/\\]") or "."
 package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
 rawset(_G, "api", rawget(_G, "api") or {})
-for __, name in ipairs({ "parallelism_shared", "parallelism_geometry" }) do
+for __, name in ipairs({ "parallelism_shared", "parallelism_geometry", "parallelism_chain" }) do
 	package.preload[name .. ".lua"] = function() return require(name) end
 end
 local planner = require "parallelism_planner"
