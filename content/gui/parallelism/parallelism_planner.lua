@@ -3683,8 +3683,15 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			edgesToAdd[#edgesToAdd + 1] = copy
 		end
 	end
+	-- the builder's configs for nodes our plan takes away (a node it moves, a builder node
+	-- it replaces) go with them: a config for a node that is not there crashed the game
+	-- (20 degree road X, 2026-10-03); our plan configures the nodes it puts in their place
+	local goneNode = {}
+	for __, id in ipairs(nodesToRemove) do
+		goneNode[id] = true
+	end
 	for __, nc in ipairs(pinned(streetProposal.nodeConfigsToAdd)) do
-		if not dropConfig[nc.entity] then
+		if not dropConfig[nc.entity] and not dropNode[nc.entity] and not goneNode[nc.entity] then
 			configsToAdd[#configsToAdd + 1] = nc
 		end
 	end
@@ -3695,6 +3702,9 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 		edgesToAdd[#edgesToAdd + 1] = s
 	end
 	for __, nc in ipairs(pinned(ours.nodeConfigsToAdd)) do
+		if goneNode[nc.entity] or dropNode[nc.entity] then
+			error("the plan gives a config to node " .. tostring(nc.entity) .. ", which it takes away", 0)
+		end
 		configsToAdd[#configsToAdd + 1] = nc
 	end
 	local problem = proposalProblem(nodesToAdd, edgesToAdd, edgesToRemove, nodesToRemove, configsToAdd)
