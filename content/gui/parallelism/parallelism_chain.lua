@@ -60,11 +60,7 @@ end
 
 -- how far curve strays from the pieces it replaces
 local function strays(curve, pieces)
-	local worst = 0
-	for __, p in ipairs(pieces) do
-		worst = math.max(worst, geometry.mergeDeviation(p, p, curve))
-	end
-	return worst
+	return geometry.straysFrom(curve, pieces)
 end
 
 local function mergeAll(pieces)

@@ -1081,7 +1081,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	end
 	local looseEndRadius = math.min(MIN_PIECE_LENGTH * 1.5, LOOSE_END_SHARE * step)
 	geometry.fastIntersections = shared.PERF_MEASURES
-	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0 }
+	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0, relay = 0, segments = 0, configs = 0 }
 	local function lap(name, since)
 		local t = clockMs()
 		if t and since then
@@ -2208,6 +2208,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		if planOnly then
 			return
 		end
+		local segmentStart = clockMs()
 		local segment = api.type.SegmentAndEntity.new()
 		segment.entity = entity
 		segment.type = props.segmentType
@@ -2241,6 +2242,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end)
 		end
 		edgesToAdd[#edgesToAdd + 1] = segment
+		if segmentStart then
+			timing.segments = timing.segments + clockMs() - segmentStart
+		end
 	end
 
 	-- adds the edge cut into pieces between its end nodes and the cut nodes
@@ -2425,6 +2429,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					end
 				end
 			end
+			local relayStart = clockMs()
 			local result = chainModule.relay(c, junctions, {
 				joinTolerance = EXISTING_MAX_DEVIATION,
 				refitTolerance = REFIT_MAX_DEVIATION,
@@ -2436,6 +2441,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				end,
 				accept = accept,
 			})
+			if relayStart then
+				timing.relay = timing.relay + clockMs() - relayStart
+			end
 			local ids = {}
 			for __, e in ipairs(c.edges) do
 				ids[#ids + 1] = tostring(e.id)
@@ -3004,7 +3012,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		proposal.streetProposal.nodesToRemove = nodesToRemove
 		if NODE_CONFIGS then
 			local ok, err = pcall(function()
+				local configsStart = clockMs()
 				local toAdd, toRemove = makeNodeConfigs()
+				if configsStart then
+					timing.configs = timing.configs + clockMs() - configsStart
+				end
 				proposal.streetProposal.nodeConfigsToAdd = toAdd
 				proposal.streetProposal.nodeConfigsToRemove = toRemove
 				stats.nodeConfigs = #toAdd
@@ -3045,9 +3057,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	planRoadType = nil
 	local finished = clockMs()
 	if finished and timing.start then
-		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f, crossings %.0f, merges %.0f, emit %.0f, check %.0f",
+		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f, crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f",
 			finished - timing.start, (timing.firstTrack or timing.start) - timing.start, timing.offsets, timing.crossings, timing.merges,
-			checkStart - emitStart, finished - checkStart)
+			checkStart - emitStart, timing.relay, timing.segments, timing.configs, finished - checkStart)
 	end
 	return proposal, stats
 end

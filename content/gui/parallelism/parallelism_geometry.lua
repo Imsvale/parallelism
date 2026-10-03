@@ -596,6 +596,38 @@ function geometry.mergeDeviation(a, b, merged)
 	return worst
 end
 
+-- How far a curve strays from the pieces it replaces (any number of them): the curve
+-- sampled once, each piece checked against it.
+function geometry.straysFrom(curve, pieces)
+	local n = math.max(32, math.min(400, math.ceil(horizontalDistance(curve.p0, curve.p1) / 0.5)))
+	local line = {}
+	for i = 0, n do
+		line[i] = geometry.hermite(curve.p0, curve.p1, curve.t0, curve.t1, i / n)
+	end
+	local worst = 0
+	for _, piece in ipairs(pieces) do
+		for i = 0, 6 do
+			local p = geometry.hermite(piece.p0, piece.p1, piece.t0, piece.t1, i / 6)
+			local best = math.huge
+			for j = 0, n - 1 do
+				local q0, q1 = line[j], line[j + 1]
+				local dx, dy = q1.x - q0.x, q1.y - q0.y
+				local len2 = dx * dx + dy * dy
+				local s = 0
+				if len2 > 1e-12 then
+					s = math.max(0, math.min(1, ((p.x - q0.x) * dx + (p.y - q0.y) * dy) / len2))
+				end
+				local d = length2d(p.x - (q0.x + s * dx), p.y - (q0.y + s * dy))
+				if d < best then
+					best = d
+				end
+			end
+			worst = math.max(worst, best)
+		end
+	end
+	return worst
+end
+
 local angleBetween = geometry.angleBetween
 
 -- Puts segments { node0, node1, edge } of a run in order along it, all running the same
