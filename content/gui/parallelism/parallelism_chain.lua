@@ -201,6 +201,28 @@ function chain.relay(c, junctions, opts)
 		if #pieces == 1 then
 			return pieces[1], 0
 		end
+		-- all on one straight line: one straight, exactly (most roads; no sampling needed)
+		local first, lastOne = pieces[1].p0, pieces[#pieces].p1
+		local dx, dy = lastOne.x - first.x, lastOne.y - first.y
+		local length = math.sqrt(dx * dx + dy * dy)
+		if length > EPS then
+			local onLine = true
+			local function off(v)
+				local l = math.sqrt(v.x * v.x + v.y * v.y)
+				return l < 1e-9 or math.abs(v.x * dy - v.y * dx) / (l * length) > 1e-4 or v.x * dx + v.y * dy <= 0
+			end
+			for __, piece in ipairs(pieces) do
+				local toEnd = { x = piece.p1.x - first.x, y = piece.p1.y - first.y }
+				if off(piece.t0) or off(piece.t1) or math.abs(toEnd.x * dy - toEnd.y * dx) / length > 0.001 then
+					onLine = false
+					break
+				end
+			end
+			if onLine then
+				local t = { x = lastOne.x - first.x, y = lastOne.y - first.y, z = lastOne.z - first.z }
+				return { p0 = first, p1 = lastOne, t0 = t, t1 = { x = t.x, y = t.y, z = t.z } }, 0
+			end
+		end
 		local merged = mergeAll(pieces)
 		local d = strays(merged, pieces)
 		if d <= joinTolerance and (opts.accept == nil or opts.accept(merged, pieces)) then

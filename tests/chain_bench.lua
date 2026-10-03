@@ -25,7 +25,8 @@ end
 local junctions = {}
 for k = 0, 5 do
 	local s = 400 + k * 12
-	junctions[#junctions + 1] = { id = "J" .. k, position = (at(s)), keepBefore = 5, keepAfter = 5 }
+	-- (the planner always says which edge a junction is on)
+	junctions[#junctions + 1] = { id = "J" .. k, position = (at(s)), edge = math.floor(s / step) + 1, keepBefore = 5, keepAfter = 5 }
 end
 
 local made = 0

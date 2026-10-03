@@ -562,66 +562,60 @@ function geometry.liesOnAny(edge, others, tolerance)
 	return true
 end
 
--- How far the merged curve strays from the two pieces it replaces, by sampling both.
+-- How far the merged curve strays from the two pieces it replaces (see straysFrom).
 function geometry.mergeDeviation(a, b, merged)
-	-- the merged curve sampled once, the pieces checked against that polyline; about a
-	-- segment per half meter: with 32 the polyline itself cut 4.7 mm inside a 50 m edge
-	-- of a 66 m radius, more than the merges it was judging
-	local n = math.max(32, math.min(400, math.ceil(horizontalDistance(merged.p0, merged.p1) / 0.5)))
-	local line = {}
-	for i = 0, n do
-		line[i] = geometry.hermite(merged.p0, merged.p1, merged.t0, merged.t1, i / n)
+	if a == b then
+		return geometry.straysFrom(merged, { a })
 	end
-	local worst = 0
-	for _, piece in ipairs({ a, b }) do
-		for i = 0, 6 do
-			local p = geometry.hermite(piece.p0, piece.p1, piece.t0, piece.t1, i / 6)
-			local best = math.huge
-			for j = 0, n - 1 do
-				local q0, q1 = line[j], line[j + 1]
-				local dx, dy = q1.x - q0.x, q1.y - q0.y
-				local len2 = dx * dx + dy * dy
-				local s = 0
-				if len2 > 1e-12 then
-					s = math.max(0, math.min(1, ((p.x - q0.x) * dx + (p.y - q0.y) * dy) / len2))
-				end
-				local d = length2d(p.x - (q0.x + s * dx), p.y - (q0.y + s * dy))
-				if d < best then
-					best = d
-				end
-			end
-			worst = math.max(worst, best)
-		end
-	end
-	return worst
+	return geometry.straysFrom(merged, { a, b })
 end
 
--- How far a curve strays from the pieces it replaces (any number of them): the curve
--- sampled once, each piece checked against it.
+-- How far a curve strays from the pieces it replaces (any number of them, in order along
+-- it): the curve sampled once, each piece checked against it. The nearest segment of the
+-- curve moves along with the piece, so the search goes on from the last one found within a
+-- window instead of over the whole curve (the pieces follow the curve closely: that is
+-- what is being checked; a sample further off than the window is measured fully).
 function geometry.straysFrom(curve, pieces)
 	local n = math.max(32, math.min(400, math.ceil(horizontalDistance(curve.p0, curve.p1) / 0.5)))
 	local line = {}
 	for i = 0, n do
 		line[i] = geometry.hermite(curve.p0, curve.p1, curve.t0, curve.t1, i / n)
 	end
+	local function toSegment(p, j)
+		local q0, q1 = line[j], line[j + 1]
+		local dx, dy = q1.x - q0.x, q1.y - q0.y
+		local len2 = dx * dx + dy * dy
+		local s = 0
+		if len2 > 1e-12 then
+			s = math.max(0, math.min(1, ((p.x - q0.x) * dx + (p.y - q0.y) * dy) / len2))
+		end
+		return length2d(p.x - (q0.x + s * dx), p.y - (q0.y + s * dy))
+	end
+	local segment = math.max(horizontalDistance(curve.p0, curve.p1) / n, 1e-6)
+	local at = 0
 	local worst = 0
 	for _, piece in ipairs(pieces) do
+		-- as far as the nearest point moves between two samples of this piece, and some
+		local window = math.ceil(horizontalDistance(piece.p0, piece.p1) / 6 / segment * 1.5) + 4
 		for i = 0, 6 do
 			local p = geometry.hermite(piece.p0, piece.p1, piece.t0, piece.t1, i / 6)
-			local best = math.huge
-			for j = 0, n - 1 do
-				local q0, q1 = line[j], line[j + 1]
-				local dx, dy = q1.x - q0.x, q1.y - q0.y
-				local len2 = dx * dx + dy * dy
-				local s = 0
-				if len2 > 1e-12 then
-					s = math.max(0, math.min(1, ((p.x - q0.x) * dx + (p.y - q0.y) * dy) / len2))
-				end
-				local d = length2d(p.x - (q0.x + s * dx), p.y - (q0.y + s * dy))
+			local best, bestJ = math.huge, at
+			for j = math.max(0, at - 2), math.min(n - 1, at + window) do
+				local d = toSegment(p, j)
 				if d < best then
-					best = d
+					best, bestJ = d, j
 				end
 			end
+			if best > 0.5 then
+				-- off the window's reach: the whole curve
+				for j = 0, n - 1 do
+					local d = toSegment(p, j)
+					if d < best then
+						best, bestJ = d, j
+					end
+				end
+			end
+			at = bestJ
 			worst = math.max(worst, best)
 		end
 	end
