@@ -1930,18 +1930,33 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			return node.position
 		end
 
+		-- (each node of ours is checked once, though two of our edges share it)
+		local nodeChecked = {}
+		-- a rough distance from the edge's chord, to skip edges far from the node before the
+		-- exact search (a curve stays within about a quarter of its chord from the chord)
+		local function nearChord(position, e)
+			local dx, dy = e.p1.x - e.p0.x, e.p1.y - e.p0.y
+			local len2 = dx * dx + dy * dy
+			local t = len2 > 1e-9 and math.max(0, math.min(1, ((position.x - e.p0.x) * dx + (position.y - e.p0.y) * dy) / len2)) or 0
+			local ox, oy = position.x - (e.p0.x + t * dx), position.y - (e.p0.y + t * dy)
+			return math.sqrt(ox * ox + oy * oy) <= 0.3 * math.sqrt(len2) + 1
+		end
 		for __, oe in ipairs(offsetEdges) do
 			for which, node in ipairs({ oe.node0, oe.node1 }) do
-				if movable[node.entity] and not crossingAtNode[node.entity] then
+				if movable[node.entity] and not crossingAtNode[node.entity] and not nodeChecked[node.entity] then
+					nodeChecked[node.entity] = true
 					local center = api.type.Vec2f.new(node.position.x, node.position.y)
 					for __, entity in ipairs(edgesInCircle(center, EDGE_SEARCH_RADIUS)) do
 						local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
-						if comp and isPlanned(comp) and not crossingNodes[node.entity .. ":" .. entity] then
-							local other = worldEdges[entity] or toEdge(comp)
-							local u, distance = geometry.closestParameter(node.position, other)
-							local point = geometry.hermite(other.p0, other.p1, other.t0, other.t1, u)
-							-- a crossing already found near the node, with this edge
-							local found = false
+						local other = comp and isPlanned(comp) and not crossingNodes[node.entity .. ":" .. entity] and (worldEdges[entity] or toEdge(comp)) or nil
+						local u, distance, point = nil, math.huge, nil
+						if other and nearChord(node.position, other) then
+							u, distance = geometry.closestParameter(node.position, other)
+							point = geometry.hermite(other.p0, other.p1, other.t0, other.t1, u)
+						end
+						-- a crossing already found near the node, with this edge
+						local found = false
+						if distance < 0.15 then
 							for __, e in ipairs(offsetEdges) do
 								for __, cut in ipairs(e.cuts) do
 									if cut.entity == entity and geometry.horizontalDistance(cut.node.position, node.position) < 1 then
@@ -1949,6 +1964,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 									end
 								end
 							end
+						end
+						if other then
 							if not found and distance < 0.15 and isAwayFromEnds(other, point)
 								and math.abs(point.z - node.position.z) < NODE_SNAP_HEIGHT then
 								crossingNodes[node.entity .. ":" .. entity] = true
