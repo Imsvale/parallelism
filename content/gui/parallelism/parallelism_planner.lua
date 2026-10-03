@@ -175,6 +175,8 @@ end
 -- built after the player's part, so the preview and the drag check judge that one (the
 -- world without the drawn road differed: partial builds at 20 degrees, 2026-10-03).
 local overlay = nil
+-- cell size of the grid the builder's edges are sorted into for searches (m)
+local OVERLAY_CELL = 50
 
 -- The elements of a proposal's lists (and their comp) are references into the native
 -- proposal, and lua does not keep the list they point into alive: a list read once,
@@ -258,6 +260,19 @@ local function setOverlay(streetProposal)
 			o.configs[nc.entity] = nc.comp
 		end
 	end)
+	-- the builder's edges in a grid of cells, so a search looks only at the cells it touches
+	-- (a 12-track drag over 12 tracks: hundreds of edges, searched some 300 times a plan)
+	o.grid = {}
+	for __, e in ipairs(o.edgeList) do
+		local bound = o.bounds[e]
+		for cx = math.floor((bound.x - bound.r) / OVERLAY_CELL), math.floor((bound.x + bound.r) / OVERLAY_CELL) do
+			for cy = math.floor((bound.y - bound.r) / OVERLAY_CELL), math.floor((bound.y + bound.r) / OVERLAY_CELL) do
+				local key = cx .. ":" .. cy
+				o.grid[key] = o.grid[key] or {}
+				table.insert(o.grid[key], e)
+			end
+		end
+	end
 	overlay = o
 end
 
@@ -316,11 +331,18 @@ local function edgesInCircle(center, radius)
 	local octreeDone = clockMs and clockMs()
 	if overlay then
 		local c = { x = center.x, y = center.y, z = 0 }
-		for __, e in ipairs(overlay.edgeList) do
-			local b = overlay.bounds[e]
-			if math.sqrt((b.x - c.x) ^ 2 + (b.y - c.y) ^ 2) <= radius + b.r then
-				if geometry.distanceToEdge(c, overlay.plain[e]) <= radius then
-					result[#result + 1] = e
+		local seen = {}
+		for cx = math.floor((c.x - radius) / OVERLAY_CELL), math.floor((c.x + radius) / OVERLAY_CELL) do
+			for cy = math.floor((c.y - radius) / OVERLAY_CELL), math.floor((c.y + radius) / OVERLAY_CELL) do
+				for __, e in ipairs(overlay.grid[cx .. ":" .. cy] or {}) do
+					if not seen[e] then
+						seen[e] = true
+						local b = overlay.bounds[e]
+						if math.sqrt((b.x - c.x) ^ 2 + (b.y - c.y) ^ 2) <= radius + b.r
+							and geometry.distanceToEdge(c, overlay.plain[e]) <= radius then
+							result[#result + 1] = e
+						end
+					end
 				end
 			end
 		end
