@@ -112,7 +112,7 @@ local function updatePreview(proposal)
 		end
 	end)
 	local planned, stats = planner.makeProposal(drawn, geometry.offsets(preview.count, preview.side, distance), nil, false,
-		{ reverse = preview.reverse, nodeConfigs = nodeConfigs, wireframe = preview.wireframe })
+		{ reverse = preview.reverse, nodeConfigs = nodeConfigs, wireframe = preview.wireframe, overlay = proposal.proposal })
 	preview.wireframeEdges = preview.wireframe and stats.wireframe or nil
 	-- the cost decides whether the next changes are all planned; slow ones are logged
 	if started then
@@ -125,10 +125,17 @@ local function updatePreview(proposal)
 	end
 	-- a plan with problems is not shown: the game can crash drawing it
 	if stats.edges > 0 and #stats.problems == 0 then
-		proposals[1] = planned
 		preview.bulldozeList = planner.buildingsInTheWay(planned, preview.bulldoze)
 		if #preview.bulldozeList > 0 then
 			planned.constructionsToRemove = preview.bulldozeList
+		end
+		-- planned against the world after the drawn road: shown and judged together with it
+		-- (the builder's part is then drawn twice, the same geometry)
+		local ok, joined = pcall(planner.joinWithBuilder, proposal.proposal, planned, preview.resName)
+		if ok then
+			proposals[1] = joined
+		else
+			shared.log("preview: joining with the builder's proposal failed: " .. tostring(joined))
 		end
 	else
 		preview.bulldozeList = {}

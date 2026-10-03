@@ -167,7 +167,54 @@ local function readEdgeComp(entity)
 	return api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE)
 end
 
+-- The world as it will be after the player's build (set for a plan made while dragging,
+-- see setOverlay): the builder's live proposal laid over the world. Its removed edges and
+-- nodes are gone, its added ones there (with the builder's own, made-up entity numbers),
+-- its node configs in place. Planning against it gives the plan that will really be
+-- built after the player's part, so the preview and the drag check judge that one (the
+-- world without the drawn road differed: partial builds at 20 degrees, 2026-10-03).
+local overlay = nil
+
+local function setOverlay(streetProposal)
+	if streetProposal == nil then
+		overlay = nil
+		return
+	end
+	local o = { edges = {}, hiddenEdges = {}, nodes = {}, hiddenNodes = {}, configs = {}, edgeList = {}, nodeList = {} }
+	local function real(id)
+		return id < 0 and (-id - 1) or id
+	end
+	for __, s in ipairs(streetProposal.removedSegments) do
+		o.hiddenEdges[real(s.entity)] = true
+	end
+	for __, n in ipairs(streetProposal.removedNodes) do
+		o.hiddenNodes[real(n.entity)] = true
+	end
+	for __, s in ipairs(streetProposal.addedSegments) do
+		o.edges[s.entity] = s.comp
+		o.edgeList[#o.edgeList + 1] = s.entity
+	end
+	for __, n in ipairs(streetProposal.addedNodes) do
+		o.nodes[n.entity] = { x = n.comp.position.x, y = n.comp.position.y, z = n.comp.position.z }
+		o.nodeList[#o.nodeList + 1] = n.entity
+	end
+	pcall(function()
+		for __, nc in ipairs(streetProposal.nodeConfigsToAdd) do
+			o.configs[nc.entity] = nc.comp
+		end
+	end)
+	overlay = o
+end
+
 local function getEdgeComp(entity)
+	if overlay then
+		if overlay.edges[entity] then
+			return overlay.edges[entity]
+		end
+		if overlay.hiddenEdges[entity] or entity < 0 then
+			return nil
+		end
+	end
 	if compCache ~= nil then
 		local cached = compCache[entity]
 		if cached == nil then
@@ -177,6 +224,59 @@ local function getEdgeComp(entity)
 		return cached or nil
 	end
 	return api.engine.getComponent(entity, api.type.ComponentType.BASE_EDGE)
+end
+
+-- a node's position, from the overlay or the world; nil if there is none
+local function nodePosition(entity)
+	if overlay then
+		if overlay.nodes[entity] then
+			return overlay.nodes[entity]
+		end
+		if overlay.hiddenNodes[entity] or entity < 0 then
+			return nil
+		end
+	end
+	local comp = api.engine.getComponent(entity, api.type.ComponentType.BASE_NODE)
+	return comp and plain(comp.position) or nil
+end
+
+-- edges / nodes within radius of center (Vec2f), the overlay's included
+local function edgesInCircle(center, radius)
+	local result = {}
+	for __, e in ipairs(api.engine.util.octree.findEntitiesInCircle(center, radius, api.type.ComponentType.BASE_EDGE)) do
+		if not (overlay and overlay.hiddenEdges[e]) then
+			result[#result + 1] = e
+		end
+	end
+	if overlay then
+		local c = { x = center.x, y = center.y, z = 0 }
+		for __, e in ipairs(overlay.edgeList) do
+			local comp = overlay.edges[e]
+			local edge = { p0 = plain(comp.position0), p1 = plain(comp.position1), t0 = plain(comp.tangent0), t1 = plain(comp.tangent1) }
+			if geometry.distanceToEdge(c, edge) <= radius then
+				result[#result + 1] = e
+			end
+		end
+	end
+	return result
+end
+
+local function nodesInCircle(center, radius)
+	local result = {}
+	for __, n in ipairs(api.engine.util.octree.findEntitiesInCircle(center, radius, api.type.ComponentType.BASE_NODE)) do
+		if not (overlay and (overlay.hiddenNodes[n] or overlay.nodes[n])) then
+			result[#result + 1] = n
+		end
+	end
+	if overlay then
+		for __, n in ipairs(overlay.nodeList) do
+			local p = overlay.nodes[n]
+			if math.sqrt((p.x - center.x) ^ 2 + (p.y - center.y) ^ 2) <= radius then
+				result[#result + 1] = n
+			end
+		end
+	end
+	return result
 end
 
 local function getPlayerOwned(entity)
@@ -686,12 +786,10 @@ end
 local function findExistingNode(position, maxDistance)
 	maxDistance = maxDistance or NODE_SNAP_DISTANCE
 	local center = api.type.Vec2f.new(position.x, position.y)
-	local candidates = api.engine.util.octree.findEntitiesInCircle(center, math.max(maxDistance, 0.01), api.type.ComponentType.BASE_NODE)
-	for __, entity in ipairs(candidates) do
-		local comp = api.engine.getComponent(entity, api.type.ComponentType.BASE_NODE)
-		if comp and geometry.horizontalDistance(plain(comp.position), position) < maxDistance
-			and math.abs(comp.position.z - position.z) < NODE_SNAP_HEIGHT then
-			return { entity = entity, position = plain(comp.position) }
+	for __, entity in ipairs(nodesInCircle(center, math.max(maxDistance, 0.01))) do
+		local p = nodePosition(entity)
+		if p and geometry.horizontalDistance(p, position) < maxDistance and math.abs(p.z - position.z) < NODE_SNAP_HEIGHT then
+			return { entity = entity, position = p }
 		end
 	end
 	return nil
@@ -701,6 +799,14 @@ end
 -- game about such an entity is an error ("Invalid entity"), e.g. drawn nodes while
 -- dragging.
 local function worldNodeConfig(node)
+	if overlay then
+		if overlay.configs[node] then
+			return overlay.configs[node]
+		end
+		if overlay.hiddenNodes[node] then
+			return nil
+		end
+	end
 	if node < 0 then
 		return nil
 	end
@@ -716,7 +822,36 @@ local node2segmentsCache = nil
 
 local function getNode2Segments()
 	if node2segmentsCache == nil then
-		node2segmentsCache = api.engine.system.streetSystem.getNode2SegmentMap()
+		local world = api.engine.system.streetSystem.getNode2SegmentMap()
+		if overlay == nil then
+			node2segmentsCache = world
+		else
+			-- the world's lists without the overlay's removed edges, plus its added ones
+			local added = {}
+			for __, e in ipairs(overlay.edgeList) do
+				local comp = overlay.edges[e]
+				for __, n in ipairs({ comp.node0, comp.node1 }) do
+					added[n] = added[n] or {}
+					table.insert(added[n], e)
+				end
+			end
+			local o = overlay
+			node2segmentsCache = setmetatable({}, { __index = function(t, node)
+				local list = {}
+				local w = node >= 0 and not o.hiddenNodes[node] and world[node] or nil
+				for __, e in ipairs(w or {}) do
+					if not o.hiddenEdges[e] then
+						list[#list + 1] = e
+					end
+				end
+				for __, e in ipairs(added[node] or {}) do
+					list[#list + 1] = e
+				end
+				local result = #list > 0 and list or nil
+				rawset(t, node, result or false)
+				return result
+			end })
+		end
 	end
 	return node2segmentsCache
 end
@@ -728,15 +863,15 @@ end
 local function findLooseEnd(position, radius)
 	local center = api.type.Vec2f.new(position.x, position.y)
 	local best, bestDistance = nil, math.huge
-	for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(center, radius, api.type.ComponentType.BASE_NODE)) do
-		local comp = api.engine.getComponent(entity, api.type.ComponentType.BASE_NODE)
-		if comp and math.abs(comp.position.z - position.z) < NODE_SNAP_HEIGHT then
-			local distance = geometry.horizontalDistance(plain(comp.position), position)
+	for __, entity in ipairs(nodesInCircle(center, radius)) do
+		local p = nodePosition(entity)
+		if p and math.abs(p.z - position.z) < NODE_SNAP_HEIGHT then
+			local distance = geometry.horizontalDistance(p, position)
 			local segments = getNode2Segments()[entity]
 			if distance < radius and distance < bestDistance and segments and #segments == 1 then
 				local edge = getEdgeComp(segments[1])
 				if edge and isPlanned(edge) then
-					best, bestDistance = { entity = entity, position = plain(comp.position) }, distance
+					best, bestDistance = { entity = entity, position = p }, distance
 				end
 			end
 		end
@@ -753,8 +888,7 @@ end
 -- neighbour of the track a branch was drawn from.
 local function findEdgeAt(position)
 	local center = api.type.Vec2f.new(position.x, position.y)
-	local candidates = api.engine.util.octree.findEntitiesInCircle(center, EDGE_SEARCH_RADIUS, api.type.ComponentType.BASE_EDGE)
-	for __, entity in ipairs(candidates) do
+	for __, entity in ipairs(edgesInCircle(center, EDGE_SEARCH_RADIUS)) do
 		local comp = getEdgeComp(entity)
 		if comp and isPlanned(comp) then
 			local edge = toEdge(comp)
@@ -774,7 +908,7 @@ local function findEdgesNear(edge)
 	local cx, cy = (edge.p0.x + edge.p1.x) / 2, (edge.p0.y + edge.p1.y) / 2
 	-- the chord plus some room for the bulge of a curve
 	local radius = geometry.horizontalDistance(edge.p0, edge.p1) * 0.75 + 5
-	return api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(cx, cy), radius, api.type.ComponentType.BASE_EDGE)
+	return edgesInCircle(api.type.Vec2f.new(cx, cy), radius)
 end
 
 -- The first crossing of a planned edge with a drawn edge or another planned edge, as a
@@ -822,7 +956,7 @@ end
 -- planOnly just nil and the stats, e.g. to check a drag before it is built.
 -- options.reverse: the extra edges run against the drawn ones (the other carriageway of
 -- a split highway: a one-way road's lanes run along its edge).
-local function makeProposal(drawn, offsets, log, planOnly, options)
+local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	if type(offsets) == "number" then
 		offsets = { offsets }
 	end
@@ -1564,7 +1698,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			for which, node in ipairs({ oe.node0, oe.node1 }) do
 				if movable[node.entity] and not crossingAtNode[node.entity] then
 					local center = api.type.Vec2f.new(node.position.x, node.position.y)
-					for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(center, EDGE_SEARCH_RADIUS, api.type.ComponentType.BASE_EDGE)) do
+					for __, entity in ipairs(edgesInCircle(center, EDGE_SEARCH_RADIUS)) do
 						local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
 						if comp and isPlanned(comp) and not crossingNodes[node.entity .. ":" .. entity] then
 							local other = worldEdges[entity] or toEdge(comp)
@@ -1806,7 +1940,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	local edgesToAdd = {}
 	local edgesToRemove = {}
 	-- (options.edgeIdBase: ids clear of another proposal's, see judgeTogether)
-	local nextEdgeId = options.edgeIdBase or -1
+	local nextEdgeId = options.edgeIdBase or (overlay and -300000) or -1
 	-- every edge added, with the existing edges it replaces (origins), for node configs
 	local pieces = {}
 
@@ -2714,7 +2848,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 			local result = {}
 			for __, s in ipairs(getNode2Segments()[node] or {}) do
 				if not leaveOut[s] then
-					local comp = readEdgeComp(s)
+					local comp = getEdgeComp(s)
 					if comp then
 						result[#result + 1] = { entity = s, dir = comp.node0 == node and plain(comp.tangent0) or neg(plain(comp.tangent1)) }
 					end
@@ -2842,7 +2976,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 					if not newNodes[node] then
 						for __, s in ipairs(getNode2Segments()[node] or {}) do
 							if not removedEdges[s] then
-								local comp = readEdgeComp(s)
+								local comp = getEdgeComp(s)
 								if comp then
 									local atStart = comp.node0 == node
 									edges[#edges + 1] = { entity = s, atStart = atStart, lanes = comp.laneConfigs,
@@ -2932,7 +3066,7 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 		for __, p in ipairs(pieces) do
 			if p.origins then
 				for __, node in ipairs({ p.node0, p.node1 }) do
-					if node >= 0 and not removedNodes[node] and not done[node] then
+					if (node >= 0 or overlay ~= nil) and not removedNodes[node] and not done[node] then
 						local cfg = worldNodeConfig(node)
 						if cfg then
 							local map = {}
@@ -3215,7 +3349,137 @@ planner.parallelDistance = parallelDistance
 planner.formatRadius = formatRadius
 planner.collectDrawnSegments = collectDrawnSegments
 planner.isApplied = isApplied
+-- options.overlay: the builder's live street proposal; the plan is made against the
+-- world as it will be after it (see setOverlay). Such a plan refers to the builder's
+-- made-up entities: build or judge it only joined with the builder's part
+-- (planner.joinWithBuilder).
+local function makeProposal(drawn, offsets, log, planOnly, options)
+	setOverlay(options and options.overlay)
+	node2segmentsCache = nil
+	local ok, proposal, stats = pcall(makeProposalIn, drawn, offsets, log, planOnly, options)
+	setOverlay(nil)
+	node2segmentsCache = nil
+	if not ok then
+		error(proposal, 0)
+	end
+	return proposal, stats
+end
+
+-- One SimpleProposal: the builder's live street proposal and our plan made against it
+-- (options.overlay). The builder's removals by real id, its new edges and nodes as they
+-- are, except those our plan takes away again (it splits a piece the builder adds, it
+-- replaces a config the builder gives); our part on top.
+local function joinWithBuilder(streetProposal, planned, templateName)
+	local ours = planned.streetProposal
+	local function real(id)
+		return id < 0 and (-id - 1) or id
+	end
+	local builderEdge, builderNode, builderConfig = {}, {}, {}
+	for __, s in ipairs(streetProposal.addedSegments) do
+		builderEdge[s.entity] = true
+	end
+	for __, n in ipairs(streetProposal.addedNodes) do
+		if n.entity < 0 then
+			builderNode[n.entity] = true
+		end
+	end
+	for __, nc in ipairs(streetProposal.nodeConfigsToAdd) do
+		builderConfig[nc.entity] = true
+	end
+	local dropEdge, dropNode, dropConfig = {}, {}, {}
+	local edgesToRemove, nodesToRemove, configsToRemove = {}, {}, {}
+	local removing = {}
+	for __, s in ipairs(streetProposal.removedSegments) do
+		local id = real(s.entity)
+		removing[id] = true
+		edgesToRemove[#edgesToRemove + 1] = id
+	end
+	for __, id in ipairs(ours.edgesToRemove) do
+		if builderEdge[id] then
+			dropEdge[id] = true
+		elseif not removing[id] then
+			removing[id] = true
+			edgesToRemove[#edgesToRemove + 1] = id
+		end
+	end
+	for __, n in ipairs(streetProposal.removedNodes) do
+		nodesToRemove[#nodesToRemove + 1] = real(n.entity)
+	end
+	for __, id in ipairs(ours.nodesToRemove) do
+		if builderNode[id] then
+			dropNode[id] = true
+		else
+			nodesToRemove[#nodesToRemove + 1] = id
+		end
+	end
+	for __, id in ipairs(streetProposal.nodeConfigsToRemove) do
+		configsToRemove[#configsToRemove + 1] = real(id)
+	end
+	for __, id in ipairs(ours.nodeConfigsToRemove) do
+		if builderConfig[id] then
+			dropConfig[id] = true
+		else
+			configsToRemove[#configsToRemove + 1] = id
+		end
+	end
+	local nodesToAdd, edgesToAdd, configsToAdd = {}, {}, {}
+	for __, n in ipairs(streetProposal.addedNodes) do
+		if n.entity < 0 and not dropNode[n.entity] then
+			local node = api.type.NodeAndEntity.new()
+			node.entity = n.entity
+			node.comp.position = n.comp.position
+			nodesToAdd[#nodesToAdd + 1] = node
+		end
+	end
+	for __, s in ipairs(streetProposal.addedSegments) do
+		if not dropEdge[s.entity] then
+			-- the live proposal's segments can come without track type or lane configs in
+			-- the middle of a drag; an edge without lane configs crashes the game
+			local comp = s.comp
+			local name = nonEmpty(comp.roadTemplate) or templateName
+			if nonEmpty(comp.roadTemplate) == nil and name then
+				comp.roadTemplate = name
+				local template = getTemplate(name)
+				if template and nonEmpty(comp.roadStyle) == nil then
+					comp.roadStyle = template.streetStyle
+				end
+			end
+			if comp.laneConfigs == nil or sizeOf(comp.laneConfigs) == 0 then
+				comp.laneConfigs = laneConfigsOf(comp, name)
+			end
+			s.comp = comp
+			edgesToAdd[#edgesToAdd + 1] = s
+		end
+	end
+	for __, nc in ipairs(streetProposal.nodeConfigsToAdd) do
+		if not dropConfig[nc.entity] then
+			configsToAdd[#configsToAdd + 1] = nc
+		end
+	end
+	for __, n in ipairs(ours.nodesToAdd) do
+		nodesToAdd[#nodesToAdd + 1] = n
+	end
+	for __, s in ipairs(ours.edgesToAdd) do
+		edgesToAdd[#edgesToAdd + 1] = s
+	end
+	for __, nc in ipairs(ours.nodeConfigsToAdd) do
+		configsToAdd[#configsToAdd + 1] = nc
+	end
+	local joined = api.type.SimpleProposal.new()
+	joined.streetProposal.nodesToAdd = nodesToAdd
+	joined.streetProposal.edgesToAdd = edgesToAdd
+	joined.streetProposal.edgesToRemove = edgesToRemove
+	joined.streetProposal.nodesToRemove = nodesToRemove
+	joined.streetProposal.nodeConfigsToAdd = configsToAdd
+	joined.streetProposal.nodeConfigsToRemove = configsToRemove
+	pcall(function()
+		joined.constructionsToRemove = planned.constructionsToRemove
+	end)
+	return joined
+end
+
 planner.makeProposal = makeProposal
+planner.joinWithBuilder = joinWithBuilder
 planner.planToString = planToString
 planner.signatureOf = signatureOf
 planner.newDebounce = newDebounce

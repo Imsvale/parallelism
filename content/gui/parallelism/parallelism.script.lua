@@ -356,7 +356,7 @@ local function checkPlayerProposal(param)
 	local distance = planner.parallelDistance(current.resName, current.spacing)
 	-- only the verdict is needed here, not the game objects of a proposal
 	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, shared.PERF_MEASURES,
-		{ reverse = current.reverse })
+		{ reverse = current.reverse, overlay = param[1].proposal })
 	if started then
 		local took = planner.clockMs() - started
 		perf.planned = perf.planned + 1
@@ -411,8 +411,10 @@ local function checkPlayerProposal(param)
 	if result == nil and (stats.crossings + stats.anchored) > 0 then
 		local ok, err = pcall(function()
 			local planned = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, false,
-				{ reverse = current.reverse })
+				{ reverse = current.reverse, overlay = param[1].proposal })
 			if planned then
+				-- judged together with the builder's part: it was planned against it
+				planned = planner.joinWithBuilder(param[1].proposal, planned, current.resName)
 				local context = api.type.Context.new()
 				context.player = api.engine.util.getPlayer()
 				local data = api.engine.util.proposal.makeProposalData(planned, context)
