@@ -51,15 +51,14 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Open: roads
 
-- **Tests still to run (2026-10-03).** The 2026-10-03 round passed track and road
-  bundles and a 90 degree crossing (6 roads over one main road at 4 m spacing). Still
-  to do, after the crash fixes:
-  - a 20 degree X (primary plus one parallel on each side): builds at 20 m since
-    2026-10-03 (after the crash fixes and the room fixes found by pairwise testing),
-    down to about 12.4 degrees, the native limit (below it the drawn road itself
-    collides); still to find the smallest spacing at 20 degrees (native: 16 m);
-  - the T sweep from 90 degrees down to about 30;
-  - a 30 degree X.
+- **Road tests (2026-10-03).** Passed: track and road bundles; a 90 degree crossing (6
+  roads over one main road at 4 m); the 3-road X down to about 12.4 degrees at 20 m (the
+  native limit: below it the drawn road itself collides); at 20 degrees down to 16.0 m,
+  as native (15.5 refused); a 30 degree X. The T sweep (3 roads) had dead spots at 47.2
+  and 53 degrees (a parallel's end met the road at an existing node and was also taken
+  for a crossing beside it; fixed, to re-test) and at 20.5 degrees (a parallel's node
+  lay on an existing road, likely one of the earlier 20 degree X's: a real conflict,
+  but the refusal should say so: "would run along an existing road").
 
 - **Partial build by a race (2026-10-02, next up).** The drag check knows the game's
   verdict on our plan only through the preview. Released before the preview of that
@@ -126,6 +125,10 @@ Open work first, then what was solved and how (kept for the reasoning).
 
 ## Open: features
 
+- **Level crossings (2026-10-03).** Parallel roads over a track (and parallel tracks over
+  a road) are not handled: only crossings with the planned road type are looked for, so
+  three roads drawn across a single track collide with it. The native builders make a
+  level crossing (a shared node); the mod should too, or refuse with a clear reason.
 - **Translations.** The strings are English only. Easy to add at any time.
 - **Undo.** To be started here, where it can be built in context, and moved to its own
   mod later.
