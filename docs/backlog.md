@@ -55,8 +55,9 @@ Open work first, then what was solved and how (kept for the reasoning).
   bundles and a 90 degree crossing (6 roads over one main road at 4 m spacing). Still
   to do, after the crash fixes:
   - a 20 degree X (primary plus one parallel on each side): builds at 20 m since
-    2026-10-03 (after the crash fixes and the room fixes found by pairwise testing);
-    still to find the smallest spacing (native: 16 m);
+    2026-10-03 (after the crash fixes and the room fixes found by pairwise testing),
+    down to about 12.4 degrees, the native limit (below it the drawn road itself
+    collides); still to find the smallest spacing at 20 degrees (native: 16 m);
   - the T sweep from 90 degrees down to about 30;
   - a 30 degree X.
 

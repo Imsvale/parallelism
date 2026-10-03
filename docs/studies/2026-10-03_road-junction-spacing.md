@@ -68,6 +68,7 @@ little. At small angles it approaches the main road's full width.
 | 45°   | 1.5 m | 13.5 m |                                                                      |
 | 30°   | 1.5 m | 16.0 m |                                                                      |
 | 20°   |       | ≤ 20 m | Builds at 20 m (2026-10-03, 3 roads); smaller not tried yet.         |
+| 12.4° |       | ≤ 20 m | Lowest at 20 m (3 roads); below it the drawn road itself collides.   |
 
 ## Earlier notes (to re-validate against the new data)
 
@@ -115,3 +116,13 @@ side. The mod's plan had a builder node 32.7 m from its junction on the inner si
 builder's cut pieces came untyped, so the planner would not move their nodes) and an
 11.7 m piece on the outer side (a crossing that became one end of a piece no longer
 counted for its other end). Both fixed, the 20° X builds at 20 m.
+
+### The lower limit (2026-10-03)
+
+With the fixes above, the mod's 3-road X at 20 m builds from wide angles down to about
+12.4 degrees (built in game at 12.3). Below that the game refuses with Collision, and it
+is the drawn road itself that collides (solid red in the preview): a native T or X
+there collides the same way. Native builds below 12.4 degrees succeeded only now and
+then (a 10.0 degree X on one of three test roads, likely where its nodes happened to
+fall), so about 12.4 degrees is the practical native limit on these roads, and the
+mod reaches it. The 10 degree native X in the table above was such a lucky spot.
