@@ -231,8 +231,15 @@ local function setOverlay(streetProposal)
 		end
 		return r
 	end
+	-- the builder's pieces of a cut edge typed like it (see planner.typedSegment)
+	local removedComps = {}
+	for __, s in ipairs(pinned(streetProposal.removedSegments)) do
+		removedComps[#removedComps + 1] = s.comp
+	end
 	for __, s in ipairs(pinned(streetProposal.addedSegments)) do
-		local comp = s.comp
+		local typed = planner.typedSegment(s, removedComps, nil)
+		o.pins[#o.pins + 1] = typed
+		local comp = typed.comp
 		local p0, p1 = vec(comp.position0), vec(comp.position1)
 		vec(comp.tangent0)
 		vec(comp.tangent1)
@@ -246,15 +253,6 @@ local function setOverlay(streetProposal)
 	for __, n in ipairs(streetProposal.addedNodes) do
 		o.nodes[n.entity] = vec(n.comp.position)
 		o.nodeList[#o.nodeList + 1] = n.entity
-	end
-	-- the type of the pieces of a cut edge, which can come without one: from the edge they
-	-- were cut from (they share a node with it)
-	o.typeOf = {}
-	for __, s in ipairs(pinned(streetProposal.removedSegments)) do
-		local c = s.comp
-		for __, n in ipairs({ c.node0, c.node1 }) do
-			o.typeOf[n] = o.typeOf[n] or c
-		end
 	end
 	pcall(function()
 		for __, nc in ipairs(pinned(streetProposal.nodeConfigsToAdd)) do
@@ -3470,6 +3468,84 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	return proposal, stats
 end
 
+-- A copy of one of the builder's segments with its road type filled in. Pieces of an
+-- edge the builder cuts can come without type, style or lane configs in the middle of a
+-- drag: they get those of that edge (removedComps: the comps of the builder's removed
+-- segments), the one sharing a node with the piece, or for a middle piece (an edge cut
+-- twice) the one it lies on. templateName: the type when there is none (the join; the
+-- overlay passes nil). A copy: s is the builder's live data, which the builder goes on
+-- using (writing to it changed the drag under the builder's feet).
+-- Untyped, the overlay's pieces looked like another road type to the planner, which then
+-- would not move their nodes: a builder node 31.7 m from our junction, inside its corner,
+-- stayed and the game refused the 20 degree X (2026-10-03).
+function planner.typedSegment(s, removedComps, templateName)
+	local copy = api.type.SegmentAndEntity.new()
+	copy.entity = s.entity
+	copy.type = s.type
+	local from = s.comp
+	local comp = copy.comp
+	comp.node0 = from.node0
+	comp.node1 = from.node1
+	comp.position0 = from.position0
+	comp.position1 = from.position1
+	comp.tangent0 = from.tangent0
+	comp.tangent1 = from.tangent1
+	comp.type = from.type
+	comp.typeIndex = from.typeIndex
+	comp.roadType = from.roadType
+	comp.roadTemplate = from.roadTemplate
+	comp.roadStyle = from.roadStyle
+	if from.laneConfigs ~= nil and sizeOf(from.laneConfigs) > 0 then
+		comp.laneConfigs = from.laneConfigs
+	end
+	pcall(function()
+		comp.distance = from.distance
+	end)
+	pcall(function()
+		if from.edgeDecorations ~= nil then
+			comp.edgeDecorations = from.edgeDecorations
+		end
+	end)
+	pcall(function()
+		copy.playerOwned = s.playerOwned
+	end)
+	-- a piece of a cut edge: the type of that edge
+	local source = nil
+	for __, r in ipairs(removedComps) do
+		if source == nil and (r.node0 == comp.node0 or r.node0 == comp.node1 or r.node1 == comp.node0 or r.node1 == comp.node1) then
+			source = r
+		end
+	end
+	if source == nil and nonEmpty(comp.roadTemplate) == nil then
+		-- a middle piece (an edge cut twice) shares no node with it: by position
+		local mid = geometry.hermite(plain(comp.position0), plain(comp.position1), plain(comp.tangent0), plain(comp.tangent1), 0.5)
+		for __, r in ipairs(removedComps) do
+			if source == nil and geometry.distanceToEdge(mid, toEdge(r)) < 0.5 then
+				source = r
+			end
+		end
+	end
+	if nonEmpty(comp.roadTemplate) == nil and source and nonEmpty(source.roadTemplate) then
+		comp.roadTemplate = source.roadTemplate
+		comp.roadStyle = source.roadStyle
+		if comp.laneConfigs == nil or sizeOf(comp.laneConfigs) == 0 then
+			comp.laneConfigs = source.laneConfigs
+		end
+	end
+	local name = nonEmpty(comp.roadTemplate) or templateName
+	if nonEmpty(comp.roadTemplate) == nil and name then
+		comp.roadTemplate = name
+		local template = getTemplate(name)
+		if template and nonEmpty(comp.roadStyle) == nil then
+			comp.roadStyle = template.streetStyle
+		end
+	end
+	if name and (comp.laneConfigs == nil or sizeOf(comp.laneConfigs) == 0) then
+		comp.laneConfigs = laneConfigsOf(comp, name)
+	end
+	return copy
+end
+
 -- What is wrong with a street proposal made of these lists, nil if nothing: every edge on
 -- nodes that are there (added, or in the world and not removed), no node taken away under
 -- an edge that stays, no id twice, configs on nodes that are there. Handed a proposal
@@ -3544,7 +3620,7 @@ end
 -- replaces a config the builder gives); our part on top.
 local function joinWithBuilder(streetProposal, planned, templateName)
 	local ours = planned.streetProposal
-	-- elements are kept past their loops (cutFrom, the lists to add): see planner.pinned
+	-- elements are kept past their loops (removedComps, the lists to add): see planner.pinned
 	local pins = { streetProposal, planned, ours }
 	local function pinned(container)
 		return planner.pinned(container, pins)
@@ -3565,11 +3641,9 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 		builderConfig[nc.entity] = true
 	end
 	local dropEdge, dropNode, dropConfig = {}, {}, {}
-	local cutFrom = {}
+	local removedComps = {}
 	for __, s in ipairs(pinned(streetProposal.removedSegments)) do
-		local c = s.comp
-		cutFrom[c.node0] = cutFrom[c.node0] or c
-		cutFrom[c.node1] = cutFrom[c.node1] or c
+		removedComps[#removedComps + 1] = s.comp
 	end
 	local edgesToRemove, nodesToRemove, configsToRemove = {}, {}, {}
 	local removing = {}
@@ -3621,65 +3695,7 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			-- the middle of a drag; an edge without lane configs crashes the game.
 			-- Filled in on a copy: s is the builder's own live data, which the builder
 			-- goes on using (writing to it changed the drag under the builder's feet).
-			local copy = api.type.SegmentAndEntity.new()
-			copy.entity = s.entity
-			copy.type = s.type
-			local from = s.comp
-			local comp = copy.comp
-			comp.node0 = from.node0
-			comp.node1 = from.node1
-			comp.position0 = from.position0
-			comp.position1 = from.position1
-			comp.tangent0 = from.tangent0
-			comp.tangent1 = from.tangent1
-			comp.type = from.type
-			comp.typeIndex = from.typeIndex
-			comp.roadType = from.roadType
-			comp.roadTemplate = from.roadTemplate
-			comp.roadStyle = from.roadStyle
-			if from.laneConfigs ~= nil and sizeOf(from.laneConfigs) > 0 then
-				comp.laneConfigs = from.laneConfigs
-			end
-			pcall(function()
-				comp.distance = from.distance
-			end)
-			pcall(function()
-				if from.edgeDecorations ~= nil then
-					comp.edgeDecorations = from.edgeDecorations
-				end
-			end)
-			pcall(function()
-				copy.playerOwned = s.playerOwned
-			end)
-			-- a piece of a cut edge: the type of that edge
-			local source = cutFrom[comp.node0] or cutFrom[comp.node1]
-			if source == nil and nonEmpty(comp.roadTemplate) == nil then
-				-- a middle piece (an edge cut twice) shares no node with it: by position
-				local mid = geometry.hermite(plain(comp.position0), plain(comp.position1), plain(comp.tangent0), plain(comp.tangent1), 0.5)
-				for __, r in ipairs(pinned(streetProposal.removedSegments)) do
-					if source == nil and geometry.distanceToEdge(mid, toEdge(r.comp)) < 0.5 then
-						source = r.comp
-					end
-				end
-			end
-			if nonEmpty(comp.roadTemplate) == nil and source and nonEmpty(source.roadTemplate) then
-				comp.roadTemplate = source.roadTemplate
-				comp.roadStyle = source.roadStyle
-				if comp.laneConfigs == nil or sizeOf(comp.laneConfigs) == 0 then
-					comp.laneConfigs = source.laneConfigs
-				end
-			end
-			local name = nonEmpty(comp.roadTemplate) or templateName
-			if nonEmpty(comp.roadTemplate) == nil and name then
-				comp.roadTemplate = name
-				local template = getTemplate(name)
-				if template and nonEmpty(comp.roadStyle) == nil then
-					comp.roadStyle = template.streetStyle
-				end
-			end
-			if comp.laneConfigs == nil or sizeOf(comp.laneConfigs) == 0 then
-				comp.laneConfigs = laneConfigsOf(comp, name)
-			end
+			local copy = planner.typedSegment(s, removedComps, templateName)
 			edgesToAdd[#edgesToAdd + 1] = copy
 		end
 	end
