@@ -2235,8 +2235,22 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				nearestCut = cut
 			end
 		end
+		-- a slide hands the bit beyond the crossing to the neighbouring edge, whose far node
+		-- then lies that close to the crossing: if that is inside the crossing's room, merge
+		-- instead (the crossing stays inside the part, the far node is the next end to clear)
+		-- (2026-10-03, 19 and 20.6 degree road X: a builder node 32-37 m from our junction,
+		-- inside its 45-48 m corner, after a node 1-2 m from the junction slid onto it)
+		local farTooClose = false
+		if nearestCut and not endCut then
+			local d = geometry.horizontalDistance(far.position, nearestCut.node.position)
+			farTooClose = d < minPieceLength(nearestCut, isInner(nearestCut, far))
+		end
 		local slideNote = nil
-		if endCut then
+		if farTooClose then
+			slideNote = string.format(" (the next node %d would be %.2f m from the crossing, inside its room)", far.entity,
+				geometry.horizontalDistance(far.position, nearestCut.node.position))
+			nearestCut = nil
+		elseif endCut then
 			-- the part runs from that crossing to this node only (its other end slid onto
 			-- the crossing): merged with the next edge, the junction reaches the far node
 			-- with nothing between, as the native builder leaves it (2026-10-03, 20 degree
@@ -2404,7 +2418,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			slideNote = slideNote .. refitNote
 		end
 
-		if not endCut and not (nearestCut and nearestCut.zone ~= nil) then
+		if not endCut and not farTooClose and not (nearestCut and nearestCut.zone ~= nil) then
 			-- no whole-edge merge on existing track for a crossing: the piece stays short and
 			-- the plan is refused
 			log(prefix .. ", not removed: sliding it onto the crossing would reshape the track" .. (slideNote or ""))
