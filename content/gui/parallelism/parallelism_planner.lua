@@ -45,6 +45,8 @@ local ROAD_MIN_PIECE_LENGTH = 10.0
 local ROAD_JUNCTION_CLEARANCE = 8.0
 -- A crossing this close to an existing junction of the other road goes through it.
 local JUNCTION_REUSE_DISTANCE = 0.3
+-- an intersection this close to a node both edges share is where they meet, not a crossing
+local SHARED_NODE_MEETING_DISTANCE = 2.0
 -- Room a road junction needs along the road, from its node to the next: half the
 -- crossing road's width plus this, divided by sin(angle) (the junction's footprint along
 -- the road grows as the crossing gets flatter). Seen 2026-10-03 at 33 degrees: a 16.2 m
@@ -1597,6 +1599,26 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- crossings with existing tracks on the same level get a shared node
 		-- (own node .. ":" .. existing edge) of crossings made at one of our nodes
 		local crossingNodes = {}
+		-- An offset edge that ends on a node of the other edge meets it there, it does not
+		-- cross it: an intersection right beside that node is the same meeting (2026-10-03,
+		-- road T at 47 and 53 degrees: a parallel lengthened onto existing node 567 also
+		-- "crossed" its edge 0.19 m short of it, leaving a 0.2 m piece).
+		local function awayFromSharedNode(xs, oe, comp)
+			local result = {}
+			for __, x in ipairs(xs) do
+				local beside = false
+				for __, n in ipairs({ oe.node0, oe.node1 }) do
+					if (n.entity == comp.node0 or n.entity == comp.node1)
+						and geometry.horizontalDistance(x.pointA, n.position) < SHARED_NODE_MEETING_DISTANCE then
+						beside = true
+					end
+				end
+				if not beside then
+					result[#result + 1] = x
+				end
+			end
+			return result
+		end
 		for __, oe in ipairs(offsetEdges) do
 			for __, entity in ipairs(findEdgesNear(oe.edge)) do
 				local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
@@ -1608,7 +1630,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						other = toEdge(comp)
 						worldEdges[entity] = other
 					end
-					for __, x in ipairs(geometry.intersections(oe.edge, other)) do
+					for __, x in ipairs(awayFromSharedNode(geometry.intersections(oe.edge, other), oe, comp)) do
 						local angle = geometry.crossingAngle(oe.edge, x.ua, other, x.ub)
 						-- (a crossing right at one of our own nodes, at the end of both offset
 						-- edges there, is not reported here at all; see below)
