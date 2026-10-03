@@ -293,6 +293,102 @@ local function judgeTogether(builderProposal, planned)
 		#messages > 0 and (", " .. table.concat(messages, "; ")) or "", builderEdges, ours_)
 end
 
+-- One segment of a proposal for the log, the same for the builder's and ours (to compare
+-- a refused build of ours with the native build of the same thing)
+local function logSegment(prefix, s)
+	local v = shared.vecToString
+	local c = s.comp
+	shared.log("  " .. prefix .. " edge " .. tostring(s.entity)
+		.. " nodes " .. tostring(c.node0) .. " -> " .. tostring(c.node1)
+		.. " p " .. v(c.position0) .. " -> " .. v(c.position1)
+		.. " t " .. v(c.tangent0) .. " -> " .. v(c.tangent1)
+		.. " type " .. tostring(s.type) .. "/" .. tostring(c.type) .. "/" .. tostring(c.typeIndex)
+		.. " objects " .. tostring(c.objects and #c.objects or "nil")
+		.. " " .. tostring(c.roadTemplate))
+	-- roads: the lanes the junction configs refer to (index, direction, width, modes)
+	if current.builder == shared.STREET_BUILDER then
+		pcall(function()
+			local lanes = {}
+			for i, lc in ipairs(c.laneConfigs) do
+				local modes = {}
+				pcall(function()
+					for mode, on in pairs(lc.transportModes) do
+						if on then
+							modes[#modes + 1] = tostring(mode)
+						end
+					end
+				end)
+				lanes[#lanes + 1] = string.format("%d:%s %.1f {%s}", i, lc.forward and "fwd" or "back", lc.width,
+					table.concat(modes, ","))
+			end
+			shared.log("    lanes " .. table.concat(lanes, "; "))
+		end)
+	end
+end
+
+local function logNodeConfig(nc)
+	local c = nc.comp
+	shared.log("  + nodeConfig " .. tostring(nc.entity)
+		.. " laneConnections " .. tostring(c.laneConnections and #c.laneConnections or "nil")
+		.. " doubleSlipSwitch " .. tostring(c.doubleSlipSwitch))
+	-- in full for roads: junctions are what the mod still has to learn to build
+	if current.builder == shared.STREET_BUILDER then
+		pcall(function()
+			local parts = {}
+			for __, l in ipairs(c.laneConnections) do
+				parts[#parts + 1] = string.format("%s.%s->%s.%s%s%s", tostring(l.segment0), tostring(l.lane0),
+					tostring(l.segment1), tostring(l.lane1), l.withRoad and " road" or "", l.withTram and " tram" or "")
+			end
+			local crosswalks = {}
+			for __, e in ipairs(c.crosswalks) do
+				crosswalks[#crosswalks + 1] = tostring(e)
+			end
+			shared.log("    lanes [" .. table.concat(parts, ", ") .. "] crosswalks [" .. table.concat(crosswalks, ", ")
+				.. "] trafficLightPreference " .. tostring(c.trafficLightPreference)
+				.. " userModified " .. tostring(c.userModifiedLaneConnections))
+		end)
+	end
+end
+
+-- The street part of a SimpleProposal of ours that the game refused, in the format of
+-- the builder's dumps (dumpProposal): built natively next to it, the difference shows
+-- (pairwise testing, 2026-10-03). data: its ProposalData.
+local dumpedRefusals, dumpedCount = {}, 0
+local function dumpOurs(label, simple, data)
+	local street = simple.streetProposal
+	local messages = {}
+	pcall(function()
+		for __, m in ipairs(data.errorState.messages) do
+			messages[#messages + 1] = tostring(m)
+		end
+	end)
+	shared.log("dump " .. label .. ": costs = " .. tostring(data.costs) .. ", critical = " .. tostring(data.errorState.critical)
+		.. ", messages [" .. table.concat(messages, "; ") .. "]")
+	for __, n in ipairs(street.nodesToAdd) do
+		shared.log("  + node " .. tostring(n.entity) .. " " .. shared.vecToString(n.comp.position))
+	end
+	for __, id in ipairs(street.nodesToRemove) do
+		shared.log("  - node " .. planner.describeEntity(id))
+	end
+	for __, id in ipairs(street.edgesToRemove) do
+		shared.log("  - edge " .. planner.describeEntity(id))
+	end
+	for __, s in ipairs(street.edgesToAdd) do
+		logSegment("+", s)
+	end
+	for __, nc in ipairs(street.nodeConfigsToAdd) do
+		logNodeConfig(nc)
+	end
+	for __, id in ipairs(street.nodeConfigsToRemove) do
+		shared.log("  - nodeConfig " .. tostring(id))
+	end
+	pcall(function()
+		for __, e in ipairs(data.collisionInfo.collisionEntities) do
+			shared.log("  collides with " .. planner.describeEntity(e.entity))
+		end
+	end)
+end
+
 -- The builder shows only the refusal when there is one, the tooltip lines (e.g. Better
 -- Construction Tooltip's crossing angle) are gone then. With that mod's "Crossing angles"
 -- on, the refusal names the crossing angle itself.
@@ -441,6 +537,15 @@ local function checkPlayerProposal(param)
 				local blocking = data.errorState.critical or (gameMessage ~= nil
 					and not (gameMessage == "Collision" and current.builder == shared.STREET_BUILDER and stats.crossings + stats.anchored == 0))
 				if blocking then
+					-- in full, once per drag position, to compare with the native build
+					if not dumpedRefusals[signature] then
+						dumpedRefusals[signature] = true
+						dumpedCount = dumpedCount + 1
+						if dumpedCount > 200 then
+							dumpedRefusals, dumpedCount = {}, 0
+						end
+						pcall(dumpOurs, "refused (ours joined with the builder's)", planned, data)
+					end
 					message = "Parallel " .. noun .. " cannot be built here (" .. tostring(gameMessage) .. ")"
 						.. (current.builder == shared.STREET_BUILDER and ". Junctions too close together? Try more spacing." or "")
 					message = withAngle(message, stats)
@@ -493,35 +598,6 @@ local function dumpProposal(id, param)
 	for __, n in ipairs(street.removedNodes) do
 		shared.log("  - node " .. tostring(n.entity) .. " " .. v(n.comp.position))
 	end
-	local function logSegment(prefix, s)
-		local c = s.comp
-		shared.log("  " .. prefix .. " edge " .. tostring(s.entity)
-			.. " nodes " .. tostring(c.node0) .. " -> " .. tostring(c.node1)
-			.. " p " .. v(c.position0) .. " -> " .. v(c.position1)
-			.. " t " .. v(c.tangent0) .. " -> " .. v(c.tangent1)
-			.. " type " .. tostring(s.type) .. "/" .. tostring(c.type) .. "/" .. tostring(c.typeIndex)
-			.. " objects " .. tostring(c.objects and #c.objects or "nil")
-			.. " " .. tostring(c.roadTemplate))
-		-- roads: the lanes the junction configs refer to (index, direction, width, modes)
-		if current.builder == shared.STREET_BUILDER then
-			pcall(function()
-				local lanes = {}
-				for i, lc in ipairs(c.laneConfigs) do
-					local modes = {}
-					pcall(function()
-						for mode, on in pairs(lc.transportModes) do
-							if on then
-								modes[#modes + 1] = tostring(mode)
-							end
-						end
-					end)
-					lanes[#lanes + 1] = string.format("%d:%s %.1f {%s}", i, lc.forward and "fwd" or "back", lc.width,
-						table.concat(modes, ","))
-				end
-				shared.log("    lanes " .. table.concat(lanes, "; "))
-			end)
-		end
-	end
 	for __, s in ipairs(street.removedSegments) do
 		logSegment("-", s)
 	end
@@ -529,27 +605,7 @@ local function dumpProposal(id, param)
 		logSegment("+", s)
 	end
 	for __, nc in ipairs(street.nodeConfigsToAdd) do
-		local c = nc.comp
-		shared.log("  + nodeConfig " .. tostring(nc.entity)
-			.. " laneConnections " .. tostring(c.laneConnections and #c.laneConnections or "nil")
-			.. " doubleSlipSwitch " .. tostring(c.doubleSlipSwitch))
-		-- in full for roads: junctions are what the mod still has to learn to build
-		if current.builder == shared.STREET_BUILDER then
-			pcall(function()
-				local parts = {}
-				for __, l in ipairs(c.laneConnections) do
-					parts[#parts + 1] = string.format("%s.%s->%s.%s%s%s", tostring(l.segment0), tostring(l.lane0),
-						tostring(l.segment1), tostring(l.lane1), l.withRoad and " road" or "", l.withTram and " tram" or "")
-				end
-				local crosswalks = {}
-				for __, e in ipairs(c.crosswalks) do
-					crosswalks[#crosswalks + 1] = tostring(e)
-				end
-				shared.log("    lanes [" .. table.concat(parts, ", ") .. "] crosswalks [" .. table.concat(crosswalks, ", ")
-					.. "] trafficLightPreference " .. tostring(c.trafficLightPreference)
-					.. " userModified " .. tostring(c.userModifiedLaneConnections))
-			end)
-		end
+		logNodeConfig(nc)
 	end
 	for __, entity in ipairs(street.nodeConfigsToRemove) do
 		shared.log("  - nodeConfig " .. tostring(entity))
