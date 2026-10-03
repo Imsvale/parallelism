@@ -2699,6 +2699,79 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		return true
 	end
 
+	-- An uncut plain edge between this part's crossing and a crossing on the edge beyond
+	-- it, with each of its two nodes inside one of those crossings' room: no node can stay
+	-- on it, so it is joined into the part (the crossed edge beyond follows on the next
+	-- call). Native leaves the road between neighbouring junctions as one edge (2026-10-03,
+	-- road T at 15.7 degrees: junctions 133 m apart, a node 1.2 m from one of them).
+	local function bridgeUncut(part, which, endNode, own, other)
+		local otherComp = getEdgeComp(other)
+		if otherComp == nil or not isPlanned(otherComp) or otherComp.roadTemplate ~= part.comp.roadTemplate
+			or otherComp.type ~= part.comp.type or (otherComp.objects and #otherComp.objects > 0) then
+			return false
+		end
+		local otherEdge = toEdge(otherComp)
+		local far
+		if which == 0 then
+			if otherComp.node1 == endNode.entity then
+				far = { entity = otherComp.node0, position = otherEdge.p0 }
+			else
+				otherEdge = geometry.reverse(otherEdge)
+				far = { entity = otherComp.node1, position = otherEdge.p0 }
+			end
+		else
+			if otherComp.node0 == endNode.entity then
+				far = { entity = otherComp.node1, position = otherEdge.p1 }
+			else
+				otherEdge = geometry.reverse(otherEdge)
+				far = { entity = otherComp.node0, position = otherEdge.p1 }
+			end
+		end
+		if reusedNodes[far.entity] or drawnNodes[far.entity] then
+			return false
+		end
+		local farSegments = node2segments[far.entity]
+		if farSegments == nil or #farSegments ~= 2 then
+			return false
+		end
+		local nextEntity = farSegments[1] == other and farSegments[2] or farSegments[1]
+		local nextSplit = splits[nextEntity]
+		if nextSplit == nil or consumed[nextEntity] or drawnEntities[nextEntity] then
+			return false
+		end
+		local function within(cuts, position)
+			for __, cut in ipairs(cuts) do
+				if geometry.horizontalDistance(cut.node.position, position) < minPieceLength(cut) then
+					return true
+				end
+			end
+			return false
+		end
+		if not (within(part.cuts, endNode.position) and within(nextSplit.cuts, far.position)) then
+			return false
+		end
+		local merged = which == 0 and geometry.merge(otherEdge, part.edge) or geometry.merge(part.edge, otherEdge)
+		local deviation = which == 0 and mergeStray(otherEdge, part.edge, merged, part.comp.roadTemplate)
+			or mergeStray(part.edge, otherEdge, merged, part.comp.roadTemplate)
+		if deviation > EXISTING_MAX_DEVIATION then
+			log(string.format("  plain edge %d between crossings kept: joining would stray %.2f m", other, deviation))
+			return false
+		end
+		consumed[other] = true
+		part.edge = merged
+		if which == 0 then
+			part.node0 = far
+		else
+			part.node1 = far
+		end
+		part.endEdge[which] = other
+		part.removeEdges[#part.removeEdges + 1] = other
+		part.removeNodes[#part.removeNodes + 1] = endNode.entity
+		stats.moved = stats.moved + 1
+		log(string.format("  joined plain edge %d between crossings, removing node %d", other, endNode.entity))
+		return true
+	end
+
 	local function absorbNeighbour(part, which)
 		local endNode = which == 0 and part.node0 or part.node1
 		if reusedNodes[endNode.entity] or drawnNodes[endNode.entity] then
@@ -2720,6 +2793,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		local own = part.endEdge[which]
 		local other = segments[1] == own and segments[2] or segments[1]
 		local split = splits[other]
+		if split == nil and not consumed[other] and not drawnEntities[other] then
+			return bridgeUncut(part, which, endNode, own, other)
+		end
 		if split == nil or consumed[other] or drawnEntities[other] then
 			return false
 		end
