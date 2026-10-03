@@ -3285,6 +3285,23 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			return s
 		end
 		local removedEdges, removedNodes = set(edgesToRemove), set(nodesToRemove)
+		-- only nodes our edges use: a node left without edges (a parallel shortened past it)
+		-- with a node config crashed the game in StreetShapeFactory (2026-10-03)
+		do
+			local used = {}
+			for __, e in ipairs(stats.plan) do
+				used[e.node0], used[e.node1] = true, true
+			end
+			local kept = {}
+			for __, n in ipairs(nodesToAdd) do
+				if used[n.entity] then
+					kept[#kept + 1] = n
+				else
+					log(string.format("  own node %d left without edges, not added", n.entity))
+				end
+			end
+			nodesToAdd = kept
+		end
 		local newNodes = {}
 		for __, n in ipairs(nodesToAdd) do
 			newNodes[n.entity] = true
@@ -3955,6 +3972,7 @@ local function proposalProblem(nodesToAdd, edgesToAdd, edgesToRemove, nodesToRem
 		return not removedNode[n] and api.engine.getComponent(n, api.type.ComponentType.BASE_NODE) ~= nil
 	end
 	local edgeSeen = {}
+	local usedNode = {}
 	for __, s in ipairs(edgesToAdd) do
 		local c = s.comp
 		if edgeSeen[s.entity] or c.node0 == c.node1 then
@@ -3965,6 +3983,13 @@ local function proposalProblem(nodesToAdd, edgesToAdd, edgesToRemove, nodesToRem
 			if not nodeThere(n) then
 				return "edge " .. tostring(s.entity) .. " on node " .. tostring(n) .. ", which is not there"
 			end
+			usedNode[n] = true
+		end
+	end
+	-- a new node without edges crashed the game (StreetShapeFactory, 2026-10-03)
+	for id in pairs(added) do
+		if not usedNode[id] then
+			return "node " .. tostring(id) .. " added without any edge"
 		end
 	end
 	for id in pairs(removedNode) do
@@ -4099,6 +4124,26 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			error("the plan gives a config to node " .. tostring(nc.entity) .. ", which it takes away", 0)
 		end
 		configsToAdd[#configsToAdd + 1] = nc
+	end
+	-- builder nodes whose edges our plan all replaced go too, with their configs (a node
+	-- without edges crashed the game, 2026-10-03)
+	do
+		local used = {}
+		for __, s in ipairs(edgesToAdd) do
+			used[s.comp.node0], used[s.comp.node1] = true, true
+		end
+		local keptNodes, keptConfigs = {}, {}
+		for __, n in ipairs(nodesToAdd) do
+			if used[n.entity] or not builderNode[n.entity] then
+				keptNodes[#keptNodes + 1] = n
+			end
+		end
+		for __, nc in ipairs(configsToAdd) do
+			if used[nc.entity] or nc.entity >= 0 or not builderNode[nc.entity] then
+				keptConfigs[#keptConfigs + 1] = nc
+			end
+		end
+		nodesToAdd, configsToAdd = keptNodes, keptConfigs
 	end
 	local problem = proposalProblem(nodesToAdd, edgesToAdd, edgesToRemove, nodesToRemove, configsToAdd)
 	if problem then

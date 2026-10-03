@@ -136,6 +136,19 @@ local function updatePreview(proposal)
 		-- (the builder's part is then drawn twice, the same geometry)
 		local ok, joined = pcall(planner.joinWithBuilder, proposal.proposal, planned, preview.resName)
 		if ok then
+			-- shown only if the game can judge it: the drag check's judgement of a proposal
+			-- threw, then showing the same one crashed the game (StreetShapeFactory, 2026-10-03)
+			local judged, err = pcall(function()
+				local context = api.type.Context.new()
+				context.player = api.engine.util.getPlayer()
+				api.engine.util.proposal.makeProposalData(joined, context)
+			end)
+			if not judged then
+				ok = false
+				joined = "the game could not judge it: " .. tostring(err)
+			end
+		end
+		if ok then
 			proposals[1] = joined
 			-- dev aid: see the drag check's "handing the game" line
 			shared.log(string.format("handing the game (preview): drag %s, %d crossings%s", shared.fingerprint(signature),
