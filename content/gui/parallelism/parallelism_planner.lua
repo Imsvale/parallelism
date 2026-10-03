@@ -1134,6 +1134,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	local splits = {}
 	-- every node where we cross or branch off an existing edge (its pieces need room)
 	local cutNodes = {}
+	-- the cut at each crossing node, for the room an edge ending there needs
+	local cutAt = {}
 	local function addSplit(entity, u, node, angle)
 		local split = splits[entity]
 		if split == nil then
@@ -1144,6 +1146,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		local cut = { u = u, node = node, angle = angle }
 		split.cuts[#split.cuts + 1] = cut
 		cutNodes[node.entity] = true
+		cutAt[node.entity] = cutAt[node.entity] or cut
 		return cut
 	end
 	-- the cuts of switches (anchors), by their node, to give them their zone once the
@@ -1636,6 +1639,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								local node = { entity = junctionNode.entity, position = junctionNode.position }
 								oe.cuts[#oe.cuts + 1] = { u = geometry.closestParameter(node.position, oe.edge), node = node, angle = angle, entity = entity }
 								cutNodes[node.entity] = true
+								cutAt[node.entity] = cutAt[node.entity] or oe.cuts[#oe.cuts]
 								reusedNodes[node.entity] = true
 								stats.crossings = stats.crossings + 1
 								log(string.format("  through existing junction %d of edge %d, %.1f deg, %.2f m off our line", node.entity, entity,
@@ -1871,7 +1875,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						if cutNodes[far.entity] or crossingAtNode[far.entity] then
 							local d = geometry.horizontalDistance(far.position, position)
 							nearest = math.min(nearest, d)
-							if d < pieceMinimum() then
+							-- the room of that crossing, as for one on the edge (2026-10-03, a
+							-- 41 degree road X: a 12.4 m piece next to our junction, which kept
+							-- only the 10 m minimum; native keeps corner + 26 m, 47 m there)
+							local farCut = cutAt[far.entity]
+							if d < (farCut and minPieceLength(farCut) or pieceMinimum()) then
 								tooClose = true
 							end
 						end
