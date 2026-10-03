@@ -89,10 +89,9 @@ local MITER_MIN_ANGLE = 1.0
 local MITER_MAX_ANGLE = 135.0
 -- A drag starting or ending on a road at an angle (a T): each parallel's end slides
 -- along the parallel to meet that road, by at most this many times the offset (about
--- 2.7 times at 20 degrees, 3.7 at 15), and not for roads meeting flatter than
--- BRANCH_MIN_ANGLE (the game refuses those anyway).
+-- 2.7 times at 20 degrees, 4.7 at 12), and not for roads meeting flatter than
+-- ROAD_MIN_CROSSING_ANGLE (refused as too shallow).
 local BRANCH_MAX_SLIDE = 5.0
-local BRANCH_MIN_ANGLE = 15.0
 -- dev switch: extra roads crossing or branching onto roads. Until 2026-10-02 every plan
 -- with such a junction crashed the game (map_util.h "it != map.end()", three times,
 -- while evaluating the preview): our junction nodes had no node config. Now they get
@@ -1395,7 +1394,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				for __, x in ipairs(geometry.intersections(ray, road)) do
 					local angle = geometry.crossingAngle(ray, x.ua, road, x.ub)
 					local s = (x.pointB.x - offsetPosition.x) * dir.x + (x.pointB.y - offsetPosition.y) * dir.y
-					if angle < BRANCH_MIN_ANGLE then
+					if angle < ROAD_MIN_CROSSING_ANGLE then
 						reasons[#reasons + 1] = string.format("meets at %.1f deg", angle)
 					elseif math.abs(s) < math.abs(bestS) then
 						best, bestS = { x = x.pointB.x, y = x.pointB.y, z = offsetPosition.z }, s
@@ -1407,6 +1406,12 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			else
 				log(string.format("  node %d: on a road, parallel end not slid (%d road edges searched within %.0f m%s)", entity, #roads,
 					reach, #reasons > 0 and ("; " .. table.concat(reasons, "; ")) or ""))
+				if #reasons > 0 then
+					-- the parallel meets the road too flat to branch off it: left as it is, it
+					-- stopped short of the road or ran across it (2026-10-03, T under 15
+					-- degrees); refused as too shallow
+					stats.shallow = stats.shallow + 1
+				end
 			end
 			return best
 		end

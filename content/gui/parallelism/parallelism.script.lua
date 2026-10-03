@@ -91,7 +91,7 @@ local pending = {}
 local MEASURE_CROSSINGS = true
 -- dev aid (2026-10-03): the drag check's joined proposal in full before the game judges it;
 -- after a crash in StreetShapeFactory the last such dump is what crashed it. Verbose.
-local DUMP_BEFORE_JUDGING = true
+local DUMP_BEFORE_JUDGING = false
 local lastMeasurement = nil
 
 local function angleBetween(a, b)
