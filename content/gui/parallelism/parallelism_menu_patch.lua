@@ -970,6 +970,11 @@ function patch.install()
 				end)
 				if not ok then
 					shared.log("preview failed: " .. tostring(err))
+					-- an earlier preview joined with an earlier builder proposal must not stay
+					pcall(function()
+						clearPreview()
+						requestRedraw()
+					end)
 				end
 				return strings
 			end

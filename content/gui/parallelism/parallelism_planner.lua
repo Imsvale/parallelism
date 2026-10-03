@@ -190,13 +190,45 @@ local function setOverlay(streetProposal)
 	for __, n in ipairs(streetProposal.removedNodes) do
 		o.hiddenNodes[real(n.entity)] = true
 	end
+	-- The live proposal can hold broken geometry in the middle of a drag (seen 2026-10-03:
+	-- "the native floating point can't fit inside a lua number", then a hard crash):
+	-- such a proposal is not used at all.
+	local function finite(x)
+		return x == x and x > -1e9 and x < 1e9
+	end
+	local function vec(v)
+		local ok, r = pcall(function()
+			return { x = v.x, y = v.y, z = v.z }
+		end)
+		if not ok or not (finite(r.x) and finite(r.y) and finite(r.z)) then
+			error("the builder's proposal has broken geometry", 0)
+		end
+		return r
+	end
 	for __, s in ipairs(streetProposal.addedSegments) do
-		o.edges[s.entity] = s.comp
+		local comp = s.comp
+		local p0, p1 = vec(comp.position0), vec(comp.position1)
+		vec(comp.tangent0)
+		vec(comp.tangent1)
+		o.edges[s.entity] = comp
 		o.edgeList[#o.edgeList + 1] = s.entity
+		-- a circle around the edge, to skip it quickly in searches
+		local chord = math.sqrt((p1.x - p0.x) ^ 2 + (p1.y - p0.y) ^ 2)
+		o.bounds = o.bounds or {}
+		o.bounds[s.entity] = { x = (p0.x + p1.x) / 2, y = (p0.y + p1.y) / 2, r = chord * 0.75 + 5 }
 	end
 	for __, n in ipairs(streetProposal.addedNodes) do
-		o.nodes[n.entity] = { x = n.comp.position.x, y = n.comp.position.y, z = n.comp.position.z }
+		o.nodes[n.entity] = vec(n.comp.position)
 		o.nodeList[#o.nodeList + 1] = n.entity
+	end
+	-- the type of the pieces of a cut edge, which can come without one: from the edge they
+	-- were cut from (they share a node with it)
+	o.typeOf = {}
+	for __, s in ipairs(streetProposal.removedSegments) do
+		local c = s.comp
+		for __, n in ipairs({ c.node0, c.node1 }) do
+			o.typeOf[n] = o.typeOf[n] or c
+		end
 	end
 	pcall(function()
 		for __, nc in ipairs(streetProposal.nodeConfigsToAdd) do
@@ -251,10 +283,13 @@ local function edgesInCircle(center, radius)
 	if overlay then
 		local c = { x = center.x, y = center.y, z = 0 }
 		for __, e in ipairs(overlay.edgeList) do
-			local comp = overlay.edges[e]
-			local edge = { p0 = plain(comp.position0), p1 = plain(comp.position1), t0 = plain(comp.tangent0), t1 = plain(comp.tangent1) }
-			if geometry.distanceToEdge(c, edge) <= radius then
-				result[#result + 1] = e
+			local b = overlay.bounds[e]
+			if math.sqrt((b.x - c.x) ^ 2 + (b.y - c.y) ^ 2) <= radius + b.r then
+				local comp = overlay.edges[e]
+				local edge = { p0 = plain(comp.position0), p1 = plain(comp.position1), t0 = plain(comp.tangent0), t1 = plain(comp.tangent1) }
+				if geometry.distanceToEdge(c, edge) <= radius then
+					result[#result + 1] = e
+				end
 			end
 		end
 	end
@@ -3354,7 +3389,11 @@ planner.isApplied = isApplied
 -- made-up entities: build or judge it only joined with the builder's part
 -- (planner.joinWithBuilder).
 local function makeProposal(drawn, offsets, log, planOnly, options)
-	setOverlay(options and options.overlay)
+	local overlayOk, overlayErr = pcall(setOverlay, options and options.overlay)
+	if not overlayOk then
+		setOverlay(nil)
+		error(overlayErr, 0)
+	end
 	node2segmentsCache = nil
 	local ok, proposal, stats = pcall(makeProposalIn, drawn, offsets, log, planOnly, options)
 	setOverlay(nil)
@@ -3387,6 +3426,12 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 		builderConfig[nc.entity] = true
 	end
 	local dropEdge, dropNode, dropConfig = {}, {}, {}
+	local cutFrom = {}
+	for __, s in ipairs(streetProposal.removedSegments) do
+		local c = s.comp
+		cutFrom[c.node0] = cutFrom[c.node0] or c
+		cutFrom[c.node1] = cutFrom[c.node1] or c
+	end
 	local edgesToRemove, nodesToRemove, configsToRemove = {}, {}, {}
 	local removing = {}
 	for __, s in ipairs(streetProposal.removedSegments) do
@@ -3436,6 +3481,15 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			-- the live proposal's segments can come without track type or lane configs in
 			-- the middle of a drag; an edge without lane configs crashes the game
 			local comp = s.comp
+			-- a piece of a cut edge: the type of that edge
+			local source = cutFrom[comp.node0] or cutFrom[comp.node1]
+			if nonEmpty(comp.roadTemplate) == nil and source and nonEmpty(source.roadTemplate) then
+				comp.roadTemplate = source.roadTemplate
+				comp.roadStyle = source.roadStyle
+				if comp.laneConfigs == nil or sizeOf(comp.laneConfigs) == 0 then
+					comp.laneConfigs = source.laneConfigs
+				end
+			end
 			local name = nonEmpty(comp.roadTemplate) or templateName
 			if nonEmpty(comp.roadTemplate) == nil and name then
 				comp.roadTemplate = name
