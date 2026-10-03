@@ -76,6 +76,9 @@ end
 
 local previewDebounce = planner.newDebounce(planner.PLAN_EVERY, planner.CHEAP_PLAN_MS)
 
+-- dev aid: what the preview costs, logged every 100 tooltip calls (countPreviewCall)
+local previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0 }
+
 local function updatePreview(proposal)
 	local drawn = planner.collectDrawnSegments(proposal.proposal, shared.roadTypeOf(preview.builder))
 	if #drawn == 0 then
@@ -138,11 +141,16 @@ local function updatePreview(proposal)
 		if ok then
 			-- shown only if the game can judge it: the drag check's judgement of a proposal
 			-- threw, then showing the same one crashed the game (StreetShapeFactory, 2026-10-03)
+			local judgeStarted = planner.clockMs()
 			local judged, err = pcall(function()
 				local context = api.type.Context.new()
 				context.player = api.engine.util.getPlayer()
 				api.engine.util.proposal.makeProposalData(joined, context)
 			end)
+			if judgeStarted then
+				previewPerf.judged = previewPerf.judged + 1
+				previewPerf.judgeMs = previewPerf.judgeMs + planner.clockMs() - judgeStarted
+			end
 			if not judged then
 				ok = false
 				joined = "the game could not judge it: " .. tostring(err)
@@ -150,9 +158,6 @@ local function updatePreview(proposal)
 		end
 		if ok then
 			proposals[1] = joined
-			-- dev aid: see the drag check's "handing the game" line
-			shared.log(string.format("handing the game (preview): drag %s, %d crossings%s", shared.fingerprint(signature),
-				stats.crossings + stats.anchored, stats.spacingAngle and string.format(", at %.1f deg", stats.spacingAngle) or ""))
 		else
 			shared.log("preview: joining with the builder's proposal failed: " .. tostring(joined))
 		end
@@ -583,7 +588,6 @@ local lastLoggedRedraw = nil
 -- dev aid: how often the builder asks for its tooltip lines, how often that changes the
 -- preview (each change redraws the menu and has the game evaluate the preview), and the
 -- lua time spent, logged every 100 calls
-local previewPerf = { calls = 0, changes = 0, ms = 0 }
 
 local function countPreviewCall(changed, started)
 	previewPerf.calls = previewPerf.calls + 1
@@ -595,9 +599,9 @@ local function countPreviewCall(changed, started)
 		previewPerf.ms = previewPerf.ms + (now - started)
 	end
 	if previewPerf.calls >= 100 then
-		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua",
-			previewPerf.calls, previewPerf.changes, previewPerf.ms))
-		previewPerf = { calls = 0, changes = 0, ms = 0 }
+		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua (of which %d judged by the game in %.0f ms)",
+			previewPerf.calls, previewPerf.changes, previewPerf.ms, previewPerf.judged, previewPerf.judgeMs))
+		previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0 }
 	end
 end
 

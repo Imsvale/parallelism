@@ -168,14 +168,14 @@ local lastRefusal = nil
 -- the last drag checked and the answer
 local lastCheck = { signature = nil, result = nil }
 -- dev aid: how often the builder asks and what answering costs, logged every so often
-local perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0 }
+local perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0, judged = 0, judgeMs = 0 }
 
 
 local function logPerf()
 	if perf.requests >= 100 then
-		shared.log(string.format("perf [tracks " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring",
-			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs))
-		perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0 }
+		shared.log(string.format("perf [tracks " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring, %d judged by the game in %.0f ms",
+			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs, perf.judged, perf.judgeMs))
+		perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0, judged = 0, judgeMs = 0 }
 	end
 end
 
@@ -527,15 +527,15 @@ local function checkPlayerProposal(param)
 				planned = planner.joinWithBuilder(param[1].proposal, planned, current.resName)
 				local context = api.type.Context.new()
 				context.player = api.engine.util.getPlayer()
-				-- dev aid: the game has crashed while making road shapes for a proposal
-				-- (StreetShapeFactory, 2026-10-03); the last of these lines before a crash
-				-- names the drag it was handed
-				shared.log(string.format("handing the game (drag check): drag %s, %d crossings%s", shared.fingerprint(signature),
-					stats.crossings + stats.anchored, stats.spacingAngle and string.format(", at %.1f deg", stats.spacingAngle) or ""))
 				if DUMP_BEFORE_JUDGING then
 					pcall(dumpOurs, "before judging (drag check)", planned, nil)
 				end
+				local judgeStarted = planner.clockMs()
 				local data = api.engine.util.proposal.makeProposalData(planned, context)
+				if judgeStarted then
+					perf.judged = perf.judged + 1
+					perf.judgeMs = perf.judgeMs + planner.clockMs() - judgeStarted
+				end
 				-- town buildings in the way are bulldozed, as in the preview: judged again with them
 				local candidates = {}
 				pcall(function()
