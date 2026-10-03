@@ -54,6 +54,13 @@ compare("4-way, two-way roads", {
 }, { "444.1->533.2", "533.1->444.2", "444.1->418.2", "418.1->444.2", "418.1->533.2", "533.1->418.2",
 	"444.1->737.2", "418.1->737.2", "533.1->737.2", "737.1->444.2", "737.1->418.2", "737.1->533.2" })
 
+-- level crossing (road over track, native 2026-10-03, node 692): only the road's two edges
+-- take part, their lanes straight through
+compare("level crossing: the road straight through", {
+	edge(718, false, -29.36, 2.73, TWO_WAY), -- 354 -> 692, leaves west
+	edge(669, true, 27.88, -2.59, TWO_WAY),  -- 692 -> 717, leaves east
+}, { "669.1->718.2", "718.1->669.2" })
+
 -- (2) T-junction, node 594
 compare("T-junction, two-way roads", {
 	edge(565, false, 0.67, -28.87, TWO_WAY), -- 560 -> 594, leaves south

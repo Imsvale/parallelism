@@ -156,6 +156,31 @@ local function isPlanned(comp)
 	return comp.roadType == (planRoadType or trackRoadType())
 end
 
+-- A road crossing a track or a track crossing a road: a level crossing, one shared node
+-- (native, 2026-10-03: road over track and track over road down to about 6.3 degrees; the
+-- node's config holds only the road's lanes, straight through).
+local function isLevelCrossable(comp)
+	local planned = planRoadType or trackRoadType()
+	if comp.roadType == planned then
+		return false
+	end
+	return (isStreet(planned) and comp.roadType == trackRoadType()) or (planned == trackRoadType() and isStreet(comp.roadType))
+end
+
+-- the width a level crossing takes into account for a road or a track
+local TRACK_WIDTH = 4.0
+-- beyond the overlap of the two surfaces, the stretch native keeps free of nodes at a
+-- level crossing (fitted 2026-10-03 on one 6.3 degree build: new nodes 110.0 m along the
+-- track and 109.6 m along the road; to check at a second angle)
+local LEVEL_CROSSING_BEYOND = 19.0
+
+-- how far along a road or track (alongWidth wide) the surfaces of a level crossing at
+-- angle overlap, the other one crossWidth wide
+local function levelCorner(angle, alongWidth, crossWidth)
+	local a = math.rad(math.max(math.min(angle, 90), 1))
+	return crossWidth / 2 / math.sin(a) + alongWidth / 2 / math.tan(a)
+end
+
 -- While a plan is made, edge components read from the world are kept: reading one
 -- copies it into lua, and the same nearby edges come up for many offset edges.
 local compCache = nil
@@ -1772,7 +1797,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		for __, oe in ipairs(offsetEdges) do
 			for __, entity in ipairs(findEdgesNear(oe.edge)) do
 				local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
-				if comp and isPlanned(comp) then
+				-- a road over a track or the other way round: a level crossing
+				local level = comp and not isPlanned(comp) and isLevelCrossable(comp) or false
+				local minAngle = level and MIN_CROSSING_ANGLE or minCrossingAngle()
+				if comp and (isPlanned(comp) or level) then
 					-- one edge table per existing edge and plan, so its sampled polyline is
 					-- reused for every offset edge it is tested against
 					local other = shared.PERF_MEASURES and worldEdges[entity] or nil
@@ -1793,7 +1821,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						-- crossing a hair beside it (seen 2026-10-03: a crossing 0.10 m from a T's
 						-- node, refused as a 0.1 m piece).
 						local junctionNode = nil
-						if streets and math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT and isAwayFromEnds(oe.edge, x.pointA) then
+						if streets and not level and math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT and isAwayFromEnds(oe.edge, x.pointA) then
 							for __, e in ipairs({ { other.p0, comp.node0 }, { other.p1, comp.node1 } }) do
 								if geometry.horizontalDistance(x.pointB, e[1]) < JUNCTION_REUSE_DISTANCE then
 									local segments = getNode2Segments()[e[2]]
@@ -1830,37 +1858,41 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							-- through the junction, above
 						elseif plainNode then
 							crossingNodes["w" .. plainNode .. ":" .. tostring(oe)] = true
-							if noJunctions then
+							if noJunctions and not level then
 								stats.junctions = stats.junctions + 1
-							elseif angle < minCrossingAngle() then
+							elseif angle < minAngle then
 								stats.shallow = stats.shallow + 1
 							else
 								local node = newNode(x.pointA)
 								local u = math.max(0.001, math.min(0.999, x.ub))
-								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity }
-								addSplit(entity, u, node, angle)
+								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity, level = level or nil,
+									otherWidth = level and (roadWidth(comp.roadTemplate) or TRACK_WIDTH) or nil }
+								local cut = addSplit(entity, u, node, angle)
+								cut.level = level or nil
 								stats.crossings = stats.crossings + 1
 								log("  crossing edge " .. entity .. string.format(" at its plain node %d, %.1f deg ", plainNode, angle) .. shared.vecToString(x.pointA))
 							end
 						elseif math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
 							and isAwayFromEnds(oe.edge, x.pointA) and isAwayFromEnds(other, x.pointB) then
-							if noJunctions then
+							if noJunctions and not level then
 								stats.junctions = stats.junctions + 1
 								log(string.format("  would cross edge %d at %.1f deg, road junctions are off", entity, angle))
-							elseif angle < minCrossingAngle() then
+							elseif angle < minAngle then
 								-- the game crashes building the geometry of a crossing this
 								-- shallow, better let the build fail on the collision
 								stats.shallow = stats.shallow + 1
 								log(string.format("  crossing edge %d at %.1f deg is too shallow, not built", entity, angle))
 							else
 								local node = newNode(x.pointA)
-								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity }
-								addSplit(entity, x.ub, node, angle)
+								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity, level = level or nil,
+									otherWidth = level and (roadWidth(comp.roadTemplate) or TRACK_WIDTH) or nil }
+								local cut = addSplit(entity, x.ub, node, angle)
+								cut.level = level or nil
 								stats.crossings = stats.crossings + 1
 								-- roads: the spacing the game needs between parallel roads crossing a
 								-- road at this angle (native X, 2026-10-03: the corners of neighbouring
 								-- junctions about 2.5 m apart along the crossed road)
-								if streets then
+								if streets and not level then
 									local crossedWidth = roadWidth(comp.roadTemplate)
 									if crossedWidth then
 										local a = math.rad(angle)
@@ -1970,7 +2002,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					local center = api.type.Vec2f.new(node.position.x, node.position.y)
 					for __, entity in ipairs(edgesInCircle(center, EDGE_SEARCH_RADIUS)) do
 						local comp = not drawnEntities[entity] and getEdgeComp(entity) or nil
-						local other = comp and isPlanned(comp) and not crossingNodes[node.entity .. ":" .. entity] and (worldEdges[entity] or toEdge(comp)) or nil
+						local level = comp and not isPlanned(comp) and isLevelCrossable(comp) or false
+						local other = comp and (isPlanned(comp) or level) and not crossingNodes[node.entity .. ":" .. entity] and (worldEdges[entity] or toEdge(comp)) or nil
 						local u, distance, point = nil, math.huge, nil
 						if other and nearChord(node.position, other) then
 							u, distance = geometry.closestParameter(node.position, other)
@@ -1992,15 +2025,18 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								and math.abs(point.z - node.position.z) < NODE_SNAP_HEIGHT then
 								crossingNodes[node.entity .. ":" .. entity] = true
 								local angle = geometry.crossingAngle(oe.edge, which == 1 and 0 or 1, other, u)
-								if noJunctions then
+								if noJunctions and not level then
 									stats.junctions = stats.junctions + 1
-								elseif angle < minCrossingAngle() then
+								elseif angle < (level and MIN_CROSSING_ANGLE or minCrossingAngle()) then
 									stats.shallow = stats.shallow + 1
 								elseif snapOntoCrossing(node, other) then
 									u = geometry.closestParameter(node.position, other)
 									movable[node.entity] = nil
 									crossingAtNode[node.entity] = true
-									addSplit(entity, u, node, angle)
+									local cut = addSplit(entity, u, node, angle)
+									if level then
+										cut.level, cut.otherWidth = true, roadWidth(comp.roadTemplate) or TRACK_WIDTH
+									end
 									stats.crossings = stats.crossings + 1
 									log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg, through own node %d ", u, angle, node.entity)
 										.. shared.vecToString(node.position))
@@ -2146,7 +2182,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				local segments = node2segments[endNode.id]
 				local other = segments[1] == last.id and segments[2] or segments[1]
 				local comp = not inChain[other] and not drawnEntities[other] and getEdgeComp(other) or nil
-				if comp == nil or not isPlanned(comp) or comp.roadTemplate ~= startComp.roadTemplate or comp.type ~= startComp.type
+				if comp == nil or comp.roadType ~= startComp.roadType or comp.roadTemplate ~= startComp.roadTemplate or comp.type ~= startComp.type
 					or (comp.objects and #comp.objects > 0) then
 					break
 				end
@@ -2236,11 +2272,16 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			for i, e in ipairs(c.edges) do
 				for __, cut in ipairs(splits[e.id] and splits[e.id].cuts or {}) do
 					local keep = minPieceLength(cut)
-					local j = { id = cut.node.entity, position = cut.node.position, keepBefore = keep, keepAfter = keep,
-						node = nodeIndex[cut.node.entity], edge = not nodeIndex[cut.node.entity] and i or nil }
-					if streets and planRoadWidth and cut.angle then
-						j.corner = chainModule.corner(planRoadWidth, cut.angle)
+					local corner = streets and planRoadWidth and cut.angle and chainModule.corner(planRoadWidth, cut.angle) or nil
+					if cut.level then
+						-- a level crossing, measured along this (the crossed) road or track
+						local along = roadWidth(c.edges[1].comp.roadTemplate) or TRACK_WIDTH
+						local across = streets and planRoadWidth or TRACK_WIDTH
+						corner = levelCorner(cut.angle, along, across)
+						keep = corner + LEVEL_CROSSING_BEYOND
 					end
+					local j = { id = cut.node.entity, position = cut.node.position, keepBefore = keep, keepAfter = keep,
+						node = nodeIndex[cut.node.entity], edge = not nodeIndex[cut.node.entity] and i or nil, corner = corner }
 					junctions[#junctions + 1] = j
 					junctionAt[cut.node.entity] = true
 					nodeById[cut.node.entity] = nodeById[cut.node.entity] or cut.node
@@ -2248,7 +2289,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 			-- roads: a junction at an end of the chain (the drawn road's, an existing one)
 			-- keeps its room on the chain too
-			if streets and planRoadWidth then
+			if streets and planRoadWidth and isStreet(c.edges[1].comp.roadType) then
 				for __, endIndex in ipairs({ 1, #c.nodes }) do
 					local n = c.nodes[endIndex]
 					local segments = node2segments[n.id]
@@ -2408,10 +2449,15 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			local junctions = {}
 			local function addJunction(cut, j, keep)
 				keep = keep or minPieceLength(cut)
-				j.keepBefore, j.keepAfter = keep, keep
 				if streets and planRoadWidth and cut.angle then
 					j.corner = chainModule.corner(planRoadWidth, cut.angle)
 				end
+				if cut.level and cut.angle then
+					-- a level crossing, measured along our road or track
+					j.corner = levelCorner(cut.angle, streets and planRoadWidth or TRACK_WIDTH, cut.otherWidth or TRACK_WIDTH)
+					keep = j.corner + LEVEL_CROSSING_BEYOND
+				end
+				j.keepBefore, j.keepAfter = keep, keep
 				junctions[#junctions + 1] = j
 			end
 			for i, e in ipairs(c.edges) do
@@ -2587,6 +2633,13 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		for __, e in ipairs(stats.plan) do
 			local length = geometry.arcLength(e.edge)
 			local c0, c1 = e.node0 and cutAt[e.node0], e.node1 and cutAt[e.node1]
+			-- (level crossings keep their own, smaller room, applied when re-laying)
+			if c0 and c0.level then
+				c0 = nil
+			end
+			if c1 and c1.level then
+				c1 = nil
+			end
 			if c0 and c1 and c0.angle and c1.angle then
 				local need = corner(c0) + corner(c1)
 				if length < need then
@@ -2838,7 +2891,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 
 		-- Road junctions our extra roads make (crossing or joining a road): every turn, as
 		-- the road builder configures its own (docs/studies/2026-10-02_native-junctions.md).
-		if streets then
+		-- Level crossings (a road and a track sharing a node, either of them ours): the road's
+		-- lanes straight through and nothing else, as native (2026-10-03). Track edges never
+		-- take part in a node's lane connections.
+		do
 			for node, entries in pairs(atNode) do
 				local ours = false
 				for __, e in ipairs(entries) do
@@ -2848,26 +2904,33 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				end
 				if ours and not done[node] then
 					local edges = {}
+					local levelCrossing = false
 					for __, e in ipairs(entries) do
-						local lanes = nil
-						pcall(function()
-							lanes = laneConfigsOf(e.piece.comp, e.piece.template)
-						end)
-						edges[#edges + 1] = { entity = e.entity, dir = e.dir, atStart = e.atStart, lanes = lanes }
+						if e.piece.comp and isStreet(e.piece.comp.roadType) then
+							local lanes = nil
+							pcall(function()
+								lanes = laneConfigsOf(e.piece.comp, e.piece.template)
+							end)
+							edges[#edges + 1] = { entity = e.entity, dir = e.dir, atStart = e.atStart, lanes = lanes }
+						else
+							levelCrossing = true
+						end
 					end
 					if not newNodes[node] then
 						for __, s in ipairs(getNode2Segments()[node] or {}) do
 							if not removedEdges[s] then
 								local comp = getEdgeComp(s)
-								if comp then
+								if comp and isStreet(comp.roadType) then
 									local atStart = comp.node0 == node
 									edges[#edges + 1] = { entity = s, atStart = atStart, lanes = comp.laneConfigs,
 										dir = atStart and plain(comp.tangent0) or neg(plain(comp.tangent1)) }
+								elseif comp then
+									levelCrossing = true
 								end
 							end
 						end
 					end
-					if #edges >= 3 then
+					if (streets and #edges >= 3) or (levelCrossing and #edges == 2) then
 						local connections = junctionConnections(edges)
 						-- crosswalks only over roads with sidewalks (the builder gives a highway none)
 						local crosswalks = {}
