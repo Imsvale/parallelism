@@ -105,6 +105,10 @@ local NODE_CONFIGS = true
 -- refuses crossings under 6.0 degrees (and a very flat one once crashed the game)
 local MIN_CROSSING_ANGLE = 6.05
 planner.MIN_CROSSING_ANGLE = MIN_CROSSING_ANGLE
+-- roads: below about 12.4 degrees even the drawn road collides at its own junction, and
+-- a parallel crossing at 11.5 degrees crashed the game while it built the road shapes
+-- (StreetShapeFactory, 2026-10-03); 12.3 degrees was built in game
+local ROAD_MIN_CROSSING_ANGLE = 12.0
 -- how much room a crossing needs along each track, as clearance / tan(angle)
 local CROSSING_CLEARANCE = 1.5
 -- cap on the length of a switch zone (a branch leaving on a straight never clears)
@@ -423,6 +427,11 @@ local function styleOf(props)
 end
 
 -- The shortest piece the plan allows next to a crossing or junction: roads need more.
+-- the flattest crossing the plan builds, for the type being planned
+local function minCrossingAngle()
+	return isStreet(planRoadType) and ROAD_MIN_CROSSING_ANGLE or MIN_CROSSING_ANGLE
+end
+
 local function pieceMinimum()
 	return isStreet(planRoadType) and ROAD_MIN_PIECE_LENGTH or MIN_PIECE_LENGTH
 end
@@ -1081,6 +1090,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		return t
 	end
 	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, junctions = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {}, problems = {} }
+	stats.minCrossingAngle = minCrossingAngle()
 	-- dev aid: why nodes were left where they are, kept even without a log (the preview
 	-- has none), for the log of a refused plan
 	stats.notes = {}
@@ -1760,7 +1770,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							crossingNodes["w" .. plainNode .. ":" .. tostring(oe)] = true
 							if noJunctions then
 								stats.junctions = stats.junctions + 1
-							elseif angle < MIN_CROSSING_ANGLE then
+							elseif angle < minCrossingAngle() then
 								stats.shallow = stats.shallow + 1
 							else
 								local node = newNode(x.pointA)
@@ -1775,7 +1785,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							if noJunctions then
 								stats.junctions = stats.junctions + 1
 								log(string.format("  would cross edge %d at %.1f deg, road junctions are off", entity, angle))
-							elseif angle < MIN_CROSSING_ANGLE then
+							elseif angle < minCrossingAngle() then
 								-- the game crashes building the geometry of a crossing this
 								-- shallow, better let the build fail on the collision
 								stats.shallow = stats.shallow + 1
@@ -1905,7 +1915,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								local angle = geometry.crossingAngle(oe.edge, which == 1 and 0 or 1, other, u)
 								if noJunctions then
 									stats.junctions = stats.junctions + 1
-								elseif angle < MIN_CROSSING_ANGLE then
+								elseif angle < minCrossingAngle() then
 									stats.shallow = stats.shallow + 1
 								elseif snapOntoCrossing(node, other) then
 									u = geometry.closestParameter(node.position, other)
