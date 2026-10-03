@@ -487,7 +487,8 @@ local function checkPlayerProposal(param)
 	elseif stats.shortPiece then
 		message = "Parallel " .. noun .. " would leave a piece too short to build"
 	elseif stats.shallow > 0 then
-		message = string.format("Parallel %s would cross at less than %.0f degrees", noun, stats.minCrossingAngle or planner.MIN_CROSSING_ANGLE)
+		-- (the limit itself means nothing to the player: just that it cannot be done, and why)
+		message = "Angle is too shallow"
 	elseif stats.tooTight then
 		message = string.format("Parallel %s would curve tighter than %.0f m", noun, stats.minAllowedRadius)
 	elseif #stats.problems > 0 then

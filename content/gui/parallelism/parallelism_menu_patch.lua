@@ -262,7 +262,7 @@ local function previewSummary()
 		text = text .. " (would leave a piece too short to build)"
 	elseif (preview.shallow or 0) > 0 then
 		-- the game script refuses the drag for this, see checkPlayerProposal
-		text = text .. string.format(" (would cross at less than %.0f degrees)", planner.MIN_CROSSING_ANGLE)
+		text = text .. " (angle is too shallow)"
 	elseif preview.tooTight then
 		text = text .. string.format(" (would curve tighter than %.0f m)", preview.tooTight)
 	elseif (preview.problems or 0) > 0 then
