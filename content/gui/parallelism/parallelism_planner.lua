@@ -3470,6 +3470,74 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	return proposal, stats
 end
 
+-- What is wrong with a street proposal made of these lists, nil if nothing: every edge on
+-- nodes that are there (added, or in the world and not removed), no node taken away under
+-- an edge that stays, no id twice, configs on nodes that are there. Handed a proposal
+-- that does not hold together, makeProposalData crashed the game (a 20 degree road X,
+-- 2026-10-03), so the join is checked before the engine sees it.
+local function proposalProblem(nodesToAdd, edgesToAdd, edgesToRemove, nodesToRemove, configsToAdd)
+	local added, removedNode, removedEdge = {}, {}, {}
+	for __, n in ipairs(nodesToAdd) do
+		if n.entity >= 0 or added[n.entity] then
+			return "node " .. tostring(n.entity) .. " added twice or with a world id"
+		end
+		added[n.entity] = true
+	end
+	for __, id in ipairs(nodesToRemove) do
+		if id < 0 or removedNode[id] then
+			return "node " .. tostring(id) .. " removed twice or not a world node"
+		end
+		removedNode[id] = true
+	end
+	for __, id in ipairs(edgesToRemove) do
+		if removedEdge[id] or readEdgeComp(id) == nil then
+			return "edge " .. tostring(id) .. " removed twice or not in the world"
+		end
+		removedEdge[id] = true
+	end
+	local function nodeThere(n)
+		if n < 0 then
+			return added[n] == true
+		end
+		return not removedNode[n] and api.engine.getComponent(n, api.type.ComponentType.BASE_NODE) ~= nil
+	end
+	local edgeSeen = {}
+	for __, s in ipairs(edgesToAdd) do
+		local c = s.comp
+		if edgeSeen[s.entity] or c.node0 == c.node1 then
+			return "edge " .. tostring(s.entity) .. " added twice or from a node to itself"
+		end
+		edgeSeen[s.entity] = true
+		for __, n in ipairs({ c.node0, c.node1 }) do
+			if not nodeThere(n) then
+				return "edge " .. tostring(s.entity) .. " on node " .. tostring(n) .. ", which is not there"
+			end
+		end
+	end
+	for id in pairs(removedNode) do
+		local stays = nil
+		local ok = pcall(function()
+			for __, e in ipairs(api.engine.system.streetSystem.getNodeSegments(id)) do
+				if not removedEdge[e] then
+					stays = e
+				end
+			end
+		end)
+		if not ok then
+			return "the edges at removed node " .. tostring(id) .. " could not be read"
+		end
+		if stays then
+			return "node " .. tostring(id) .. " removed, edge " .. tostring(stays) .. " stays on it"
+		end
+	end
+	for __, nc in ipairs(configsToAdd) do
+		if not nodeThere(nc.entity) then
+			return "node config for node " .. tostring(nc.entity) .. ", which is not there"
+		end
+	end
+	return nil
+end
+
 -- One SimpleProposal: the builder's live street proposal and our plan made against it
 -- (options.overlay). The builder's removals by real id, its new edges and nodes as they
 -- are, except those our plan takes away again (it splits a piece the builder adds, it
@@ -3598,6 +3666,10 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 	end
 	for __, nc in ipairs(pinned(ours.nodeConfigsToAdd)) do
 		configsToAdd[#configsToAdd + 1] = nc
+	end
+	local problem = proposalProblem(nodesToAdd, edgesToAdd, edgesToRemove, nodesToRemove, configsToAdd)
+	if problem then
+		error("the plan joined with the builder's does not hold together: " .. problem, 0)
 	end
 	local joined = api.type.SimpleProposal.new()
 	joined.streetProposal.nodesToAdd = nodesToAdd

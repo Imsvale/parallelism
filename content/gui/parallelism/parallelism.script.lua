@@ -452,6 +452,11 @@ local function checkPlayerProposal(param)
 		end)
 		if not ok then
 			shared.log("check: the game's verdict could not be asked: " .. tostring(err))
+			-- without the game's verdict the drag could build in part: refused
+			message = withAngle("Parallel " .. noun .. " cannot be laid out here", stats)
+			local errorMessages = {}
+			errorMessages[message] = true
+			result = { errorMessages = errorMessages, skipRender = false }
 		end
 		if message ~= lastRefusal then
 			lastRefusal = message
