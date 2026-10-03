@@ -56,9 +56,11 @@ Open work first, then what was solved and how (kept for the reasoning).
   native limit: below it the drawn road itself collides); at 20 degrees down to 16.0 m,
   as native (15.5 refused); a 30 degree X. The T sweep (3 roads) had dead spots at 47.2
   and 53 degrees (a parallel's end met the road at an existing node and was also taken
-  for a crossing beside it; fixed, to re-test) and at 20.5 degrees (a parallel's node
-  lay on an existing road, likely one of the earlier 20 degree X's: a real conflict,
-  but the refusal should say so: "would run along an existing road").
+  for a crossing beside it; fixed, to re-test), at 41 degrees (a T end moved onto an
+  existing node was taken for lengthening instead of shortening: U-turn; fixed, to
+  re-test) and at 20.5 degrees (after shortening a parallel 96.7 m, more than one edge,
+  an own node lay on some edge: "a crossing at own node could not be placed"; the
+  message now names the edge, to look at when it comes back).
 
 - **Partial build by a race (2026-10-02, next up).** The drag check knows the game's
   verdict on our plan only through the preview. Released before the preview of that
