@@ -17,7 +17,11 @@
 -- keepBefore / keepAfter: the stretch before / after it along the chain that must hold no
 -- plain node. corner: how far its corner reaches along the chain, for the spacing check
 -- between neighbouring junctions (optional).
-local geometry = require "parallelism_geometry"
+-- (the game loads the mod's modules by file name, plain Lua by module name: the tests)
+local found, geometry = pcall(require, "parallelism_geometry.lua")
+if not found then
+	geometry = require "parallelism_geometry"
+end
 
 local chain = {}
 
