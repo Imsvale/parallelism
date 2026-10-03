@@ -1547,7 +1547,18 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						-- (2026-10-03, road T at 41 degrees: 0.14 m off, taken for lengthening,
 						-- the edge ran on across the road and a straight piece came back to the
 						-- node, a 179.9 degree bend and a crossing beside the T)
+						local keptLength = nil
 						if distance < JUNCTION_REUSE_DISTANCE + 0.05 and u > 0.001 and u < 0.999 then
+							local first, second = geometry.split(natural, u)
+							keptLength = geometry.arcLength(atStart and second or first)
+						end
+						if keptLength and keptLength < pieceMinimum() then
+							-- shortened to almost nothing (2026-10-03: 0.18 m left, its other node
+							-- right on the road): the edge goes, the one before ends at the road
+							pastEnds[#pastEnds + 1] = { slid = slid, x = x, atStart = atStart,
+								other = atStart and node1 or node0, distance = distance }
+							skipEdge = true
+						elseif keptLength then
 							local first, second = geometry.split(natural, u)
 							natural = atStart and second or first
 							if atStart then
@@ -1669,6 +1680,19 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				end
 				local oe = offsetEdges[index]
 				local u, distance = geometry.closestParameter(pe.x, oe.edge)
+				local endPosition = pe.atStart and oe.edge.p0 or oe.edge.p1
+				if geometry.horizontalDistance(pe.x, endPosition) < pieceMinimum() then
+					-- the meeting point right beyond this edge's end: the end moves onto it
+					if pe.atStart then
+						oe.edge.p0, oe.node0 = pe.x, pe.slid
+					else
+						oe.edge.p1, oe.node1 = pe.x, pe.slid
+					end
+					movable[other.entity] = nil
+					log(string.format("  node %d: the parallel shortened onto its node %d, which goes", pe.slid.entity, other.entity))
+					fitted = true
+					break
+				end
 				if distance < JUNCTION_REUSE_DISTANCE + 0.05 and u > 0.001 and u < 0.999 then
 					local first, second = geometry.split(oe.edge, u)
 					if pe.atStart then
