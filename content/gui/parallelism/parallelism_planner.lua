@@ -2135,10 +2135,16 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	local function tryMoveEnd(part, which)
 		local endNode = which == 0 and part.node0 or part.node1
 		local nearest = nil
-		for __, cut in ipairs(part.cuts) do
-			local d = geometry.horizontalDistance(cut.node.position, endNode.position)
-			if d < minPieceLength(cut, isInner(cut, endNode)) and (nearest == nil or d < nearest) then
-				nearest = d
+		-- the nearest too close is a crossing at the part's other end: the part is all
+		-- between it and this node (see below)
+		local endCut = nil
+		for __, list in ipairs({ part.cuts, part.endCuts }) do
+			for __, cut in ipairs(list) do
+				local d = geometry.horizontalDistance(cut.node.position, endNode.position)
+				if d < minPieceLength(cut, isInner(cut, endNode)) and (nearest == nil or d < nearest) then
+					nearest = d
+					endCut = list == part.endCuts and cut or nil
+				end
 			end
 		end
 		if nearest == nil then
@@ -2222,7 +2228,14 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 		end
 		local slideNote = nil
-		if nearestCut and nearestCut.zone == nil then
+		if endCut then
+			-- the part runs from that crossing to this node only (its other end slid onto
+			-- the crossing): merged with the next edge, the junction reaches the far node
+			-- with nothing between, as the native builder leaves it (2026-10-03, 20 degree
+			-- X: an 11.7 m piece left on the outer side, where native keeps 71.3 m)
+			nearestCut = nil
+			slideNote = string.format(" (the crossing is the part's other end, %.2f m away)", nearest)
+		elseif nearestCut and nearestCut.zone == nil then
 			local u = geometry.closestParameter(nearestCut.node.position, part.edge)
 			local keep, short
 			if which == 0 then
@@ -2301,6 +2314,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						break
 					end
 				end
+				-- still a crossing for the other end of the part (see endCuts)
+				part.endCuts[#part.endCuts + 1] = nearestCut
 				part.endEdge[which] = nil
 				part.removeEdges[#part.removeEdges + 1] = other
 				part.removeNodes[#part.removeNodes + 1] = endNode.entity
@@ -2367,6 +2382,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						break
 					end
 				end
+				-- still a crossing for the other end of the part (see endCuts)
+				part.endCuts[#part.endCuts + 1] = nearestCut
 				part.endEdge[which] = nil
 				part.removeEdges[#part.removeEdges + 1] = other
 				part.removeNodes[#part.removeNodes + 1] = endNode.entity
@@ -2379,7 +2396,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			slideNote = slideNote .. refitNote
 		end
 
-		if not (nearestCut and nearestCut.zone ~= nil) then
+		if not endCut and not (nearestCut and nearestCut.zone ~= nil) then
 			-- no whole-edge merge on existing track for a crossing: the piece stays short and
 			-- the plan is refused
 			log(prefix .. ", not removed: sliding it onto the crossing would reshape the track" .. (slideNote or ""))
@@ -2713,6 +2730,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				removeEdges = { entity },
 				removeNodes = {},
 				cuts = split.cuts,
+				-- crossings that became an end of the part (a node slid onto one): the other
+				-- end still has to keep its room from them
+				endCuts = {},
 				-- neighbouring edges that took over a bit of this one (a node slid onto a
 				-- crossing): { node0, node1, edge, origins }
 				extra = {},
