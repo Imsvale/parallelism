@@ -167,22 +167,11 @@ local lastCheck = { signature = nil, result = nil }
 -- dev aid: how often the builder asks and what answering costs, logged every so often
 local perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0 }
 
--- Proposals, proposal data and the street graph map handed to lua hold large native
--- objects that lua sees as tiny, so its garbage collector rarely runs for them: dragging
--- a 6-track over a 6-track judged them on every change and the game ran out of memory
--- ("bad allocation", then a hard crash, 2026-10-03). Collect regularly.
-local judged = 0
-local function freeGameObjects()
-	judged = judged + 1
-	if judged % 8 == 0 then
-		local _ = rawget(_G, "collectgarbage") and rawget(_G, "collectgarbage")("collect")
-	end
-end
 
 local function logPerf()
 	if perf.requests >= 100 then
-		shared.log(string.format("perf [tracks " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring, lua memory %.0f MB",
-			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs, (rawget(_G, "collectgarbage") and rawget(_G, "collectgarbage")("count") or 0) / 1024))
+		shared.log(string.format("perf [tracks " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring",
+			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs))
 		perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0 }
 	end
 end
@@ -464,7 +453,6 @@ local function checkPlayerProposal(param)
 		if not ok then
 			shared.log("check: the game's verdict could not be asked: " .. tostring(err))
 		end
-		freeGameObjects()
 		if message ~= lastRefusal then
 			lastRefusal = message
 			shared.log("check: " .. (message or "ok"))

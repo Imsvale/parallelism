@@ -566,19 +566,14 @@ local function countPreviewCall(changed, started)
 	previewPerf.calls = previewPerf.calls + 1
 	if changed then
 		previewPerf.changes = previewPerf.changes + 1
-		-- each new plan leaves large native objects (proposals, the street graph map) that lua
-		-- counts as tiny: collect regularly, or the game runs out of memory (2026-10-03)
-		if previewPerf.changes % 8 == 0 then
-			local _ = rawget(_G, "collectgarbage") and rawget(_G, "collectgarbage")("collect")
-		end
 	end
 	local now = planner.clockMs()
 	if started and now then
 		previewPerf.ms = previewPerf.ms + (now - started)
 	end
 	if previewPerf.calls >= 100 then
-		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua, lua memory %.0f MB",
-			previewPerf.calls, previewPerf.changes, previewPerf.ms, (rawget(_G, "collectgarbage") and rawget(_G, "collectgarbage")("count") or 0) / 1024))
+		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua",
+			previewPerf.calls, previewPerf.changes, previewPerf.ms))
 		previewPerf = { calls = 0, changes = 0, ms = 0 }
 	end
 end
