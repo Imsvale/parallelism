@@ -2239,6 +2239,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			for __, problem in ipairs(result.problems) do
 				log("  " .. problem)
 				stats.relayProblem = stats.relayProblem or problem
+				if problem:find("apart, they need", 1, true) then
+					-- two junctions closer than their corners allow (refusal text, see the script)
+					stats.junctionsTooClose = true
+				end
 			end
 			for __, p in ipairs(result.pieces) do
 				local n0, n1, edge = nodeById[p.node0], nodeById[p.node1], p.edge
@@ -2399,6 +2403,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			for __, problem in ipairs(result.problems) do
 				log("  " .. problem)
 				stats.relayProblem = stats.relayProblem or problem
+				if problem:find("apart, they need", 1, true) then
+					-- two junctions closer than their corners allow (refusal text, see the script)
+					stats.junctionsTooClose = true
+				end
 			end
 			stats.dropped = stats.dropped + #result.removedNodes
 			local function emitOwn(n0, n1, edge, props)
@@ -2545,6 +2553,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			table.insert(stats.problems, 1, stats.nodeInRoom)
 		end
 		if stats.junctionsOverlap then
+			stats.junctionsTooClose = true
 			log("  plan problem: " .. stats.junctionsOverlap)
 			table.insert(stats.problems, 1, stats.junctionsOverlap)
 		end

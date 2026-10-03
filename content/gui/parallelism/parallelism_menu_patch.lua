@@ -202,6 +202,7 @@ local function updatePreview(proposal)
 	preview.needsVerdict = (stats.crossings + stats.anchored) > 0
 	preview.sharpCorner = stats.sharpCorner ~= nil
 	preview.shallow = stats.shallow
+	preview.tooClose = stats.junctionsTooClose
 	preview.signature = signature
 	preview.proposals = proposals
 	preview.costs = {}
@@ -263,6 +264,8 @@ local function previewSummary()
 	elseif (preview.shallow or 0) > 0 then
 		-- the game script refuses the drag for this, see checkPlayerProposal
 		text = text .. " (angle is too shallow)"
+	elseif preview.tooClose then
+		text = text .. " (too close to another junction)"
 	elseif preview.tooTight then
 		text = text .. string.format(" (would curve tighter than %.0f m)", preview.tooTight)
 	elseif (preview.problems or 0) > 0 then

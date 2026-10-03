@@ -489,6 +489,8 @@ local function checkPlayerProposal(param)
 	elseif stats.shallow > 0 then
 		-- (the limit itself means nothing to the player: just that it cannot be done, and why)
 		message = "Angle is too shallow"
+	elseif stats.junctionsTooClose then
+		message = "Too close to another junction"
 	elseif stats.tooTight then
 		message = string.format("Parallel %s would curve tighter than %.0f m", noun, stats.minAllowedRadius)
 	elseif #stats.problems > 0 then
