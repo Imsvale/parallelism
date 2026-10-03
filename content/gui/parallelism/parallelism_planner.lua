@@ -3618,8 +3618,39 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 	for __, s in ipairs(pinned(streetProposal.addedSegments)) do
 		if not dropEdge[s.entity] then
 			-- the live proposal's segments can come without track type or lane configs in
-			-- the middle of a drag; an edge without lane configs crashes the game
-			local comp = s.comp
+			-- the middle of a drag; an edge without lane configs crashes the game.
+			-- Filled in on a copy: s is the builder's own live data, which the builder
+			-- goes on using (writing to it changed the drag under the builder's feet).
+			local copy = api.type.SegmentAndEntity.new()
+			copy.entity = s.entity
+			copy.type = s.type
+			local from = s.comp
+			local comp = copy.comp
+			comp.node0 = from.node0
+			comp.node1 = from.node1
+			comp.position0 = from.position0
+			comp.position1 = from.position1
+			comp.tangent0 = from.tangent0
+			comp.tangent1 = from.tangent1
+			comp.type = from.type
+			comp.typeIndex = from.typeIndex
+			comp.roadType = from.roadType
+			comp.roadTemplate = from.roadTemplate
+			comp.roadStyle = from.roadStyle
+			if from.laneConfigs ~= nil and sizeOf(from.laneConfigs) > 0 then
+				comp.laneConfigs = from.laneConfigs
+			end
+			pcall(function()
+				comp.distance = from.distance
+			end)
+			pcall(function()
+				if from.edgeDecorations ~= nil then
+					comp.edgeDecorations = from.edgeDecorations
+				end
+			end)
+			pcall(function()
+				copy.playerOwned = s.playerOwned
+			end)
 			-- a piece of a cut edge: the type of that edge
 			local source = cutFrom[comp.node0] or cutFrom[comp.node1]
 			if source == nil and nonEmpty(comp.roadTemplate) == nil then
@@ -3649,8 +3680,7 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 			if comp.laneConfigs == nil or sizeOf(comp.laneConfigs) == 0 then
 				comp.laneConfigs = laneConfigsOf(comp, name)
 			end
-			s.comp = comp
-			edgesToAdd[#edgesToAdd + 1] = s
+			edgesToAdd[#edgesToAdd + 1] = copy
 		end
 	end
 	for __, nc in ipairs(pinned(streetProposal.nodeConfigsToAdd)) do
