@@ -1510,7 +1510,12 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					if branchFrom[slid.entity] then
 						local x = slid.position
 						local u, distance = geometry.closestParameter(x, natural)
-						if distance < 0.05 and u > 0.001 and u < 0.999 then
+						-- shortened when the meeting point lies along the edge: it can be up to
+						-- the reuse distance off it, moved onto an existing node of the road
+						-- (2026-10-03, road T at 41 degrees: 0.14 m off, taken for lengthening,
+						-- the edge ran on across the road and a straight piece came back to the
+						-- node, a 179.9 degree bend and a crossing beside the T)
+						if distance < JUNCTION_REUSE_DISTANCE + 0.05 and u > 0.001 and u < 0.999 then
 							local first, second = geometry.split(natural, u)
 							natural = atStart and second or first
 							if atStart then
@@ -1518,6 +1523,17 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							else
 								natural.p1 = x
 							end
+						elseif (function()
+							-- the meeting point behind the end (inside the edge, but too far off it
+							-- to shorten): lengthening would run back over the edge
+							local far = atStart and natural.p0 or natural.p1
+							local t = atStart and natural.t0 or natural.t1
+							local dot = (x.x - far.x) * t.x + (x.y - far.y) * t.y
+							return (atStart and dot > 0) or (not atStart and dot < 0)
+						end)() then
+							stats.unfitEnd = string.format(
+								"the end of a parallel at node %d could not be fitted to the road (%.2f m off its line)", slid.entity, distance)
+							log("  " .. stats.unfitEnd)
 						elseif (function()
 							-- lengthened as one edge: the road builder leaves a junction with one
 							-- edge, a short straight piece before a node there was refused (seen
@@ -2921,6 +2937,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	end
 	if stats.usesRemoved then
 		table.insert(stats.problems, 1, string.format("the plan uses node %d, which it removes", stats.usesRemoved))
+	end
+	if stats.unfitEnd then
+		table.insert(stats.problems, 1, stats.unfitEnd)
 	end
 	if stats.missedCrossing then
 		table.insert(stats.problems, 1, stats.missedCrossing)
