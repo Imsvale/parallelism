@@ -520,6 +520,11 @@ local function checkPlayerProposal(param)
 				planned = planner.joinWithBuilder(param[1].proposal, planned, current.resName)
 				local context = api.type.Context.new()
 				context.player = api.engine.util.getPlayer()
+				-- dev aid: the game has crashed while making road shapes for a proposal
+				-- (StreetShapeFactory, 2026-10-03); the last of these lines before a crash
+				-- names the drag it was handed
+				shared.log(string.format("handing the game (drag check): drag %s, %d crossings%s", shared.fingerprint(signature),
+					stats.crossings + stats.anchored, stats.spacingAngle and string.format(", at %.1f deg", stats.spacingAngle) or ""))
 				local data = api.engine.util.proposal.makeProposalData(planned, context)
 				-- town buildings in the way are bulldozed, as in the preview: judged again with them
 				local candidates = {}

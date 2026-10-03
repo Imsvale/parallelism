@@ -137,6 +137,9 @@ local function updatePreview(proposal)
 		local ok, joined = pcall(planner.joinWithBuilder, proposal.proposal, planned, preview.resName)
 		if ok then
 			proposals[1] = joined
+			-- dev aid: see the drag check's "handing the game" line
+			shared.log(string.format("handing the game (preview): drag %s, %d crossings%s", shared.fingerprint(signature),
+				stats.crossings + stats.anchored, stats.spacingAngle and string.format(", at %.1f deg", stats.spacingAngle) or ""))
 		else
 			shared.log("preview: joining with the builder's proposal failed: " .. tostring(joined))
 		end
