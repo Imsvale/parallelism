@@ -857,7 +857,20 @@ local node2segmentsCache = nil
 
 local function getNode2Segments()
 	if node2segmentsCache == nil then
-		local world = api.engine.system.streetSystem.getNode2SegmentMap()
+		-- node by node: the whole map is a large native object for every plan, which lua's
+		-- garbage collector does not see (the game ran out of memory, 2026-10-03)
+		local world = setmetatable({}, { __index = function(t, node)
+			local list = nil
+			if node >= 0 then
+				pcall(function()
+					list = api.engine.system.streetSystem.getNodeSegments(node)
+				end)
+			end
+			-- an empty list, not nil: what lua tables gave for an unknown node
+			list = list or {}
+			rawset(t, node, list)
+			return list
+		end })
 		if overlay == nil then
 			node2segmentsCache = world
 		else
@@ -882,9 +895,8 @@ local function getNode2Segments()
 				for __, e in ipairs(added[node] or {}) do
 					list[#list + 1] = e
 				end
-				local result = #list > 0 and list or nil
-				rawset(t, node, result or false)
-				return result
+				rawset(t, node, list)
+				return list
 			end })
 		end
 	end

@@ -175,14 +175,14 @@ local judged = 0
 local function freeGameObjects()
 	judged = judged + 1
 	if judged % 8 == 0 then
-		collectgarbage("collect")
+		local _ = rawget(_G, "collectgarbage") and rawget(_G, "collectgarbage")("collect")
 	end
 end
 
 local function logPerf()
 	if perf.requests >= 100 then
 		shared.log(string.format("perf [tracks " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring, lua memory %.0f MB",
-			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs, collectgarbage("count") / 1024))
+			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs, (rawget(_G, "collectgarbage") and rawget(_G, "collectgarbage")("count") or 0) / 1024))
 		perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0 }
 	end
 end
@@ -420,7 +420,9 @@ local function checkPlayerProposal(param)
 	-- The game's verdict on our part, asked right here: the same judgement the preview gets
 	-- (our plan against the world, before the drawn road exists), without its delay. A
 	-- drag released before the preview's verdict arrived was built in part (2026-10-03).
-	if result == nil and (stats.crossings + stats.anchored) > 0 then
+	-- (not when the preview's verdict on this very drag is already in: one judgement less,
+	-- each leaves a large native object behind)
+	if result == nil and verdict == nil and (stats.crossings + stats.anchored) > 0 then
 		local ok, err = pcall(function()
 			local planned = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, false,
 				{ reverse = current.reverse, overlay = param[1].proposal })
