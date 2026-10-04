@@ -268,7 +268,7 @@ local function previewSummary()
 	elseif preview.tooClose then
 		text = text .. " (too close to another junction)"
 	elseif preview.tooTight then
-		text = text .. string.format(" (would curve tighter than %.0f m)", preview.tooTight)
+		text = text .. " (too much curvature on inner parallel " .. (preview.builder == shared.STREET_BUILDER and "road" or "track") .. ")"
 	elseif (preview.problems or 0) > 0 then
 		text = text .. " (cannot be laid out here)"
 	elseif failed > 0 then

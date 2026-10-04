@@ -492,7 +492,9 @@ local function checkPlayerProposal(param)
 	elseif stats.junctionsTooClose then
 		message = "Too close to another junction"
 	elseif stats.tooTight then
-		message = string.format("Parallel %s would curve tighter than %.0f m", noun, stats.minAllowedRadius)
+		-- (no number: where it comes from, and why it differs between road types, is not the
+		-- player's concern; that it bends too tightly is)
+		message = "Too much curvature on inner parallel " .. (current.builder == shared.STREET_BUILDER and "road" or "track")
 	elseif #stats.problems > 0 then
 		message = "Parallel " .. noun .. " cannot be laid out here"
 	elseif SPACING_CHECK and stats.spacingNeeded and current.spacing and current.spacing < stats.spacingNeeded - 0.01 then
