@@ -1618,6 +1618,23 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						-- metres off the curve; a tenth of the spacing is accepted, the curve
 						-- check still refuses what bends too tightly)
 						local tolerance = math.max(JUNCTION_REUSE_DISTANCE + 0.05, 0.1 * math.abs(offset))
+						-- continuing a road of ours from an existing node on a track (a T extended
+						-- into an X): the new piece leaves in that road's direction, as roads go
+						-- through a level crossing smoothly (2026-10-04: a parallel cut along a
+						-- curve left its T node at an angle, the game refused the kink)
+						local continueDir = nil
+						if slid.entity >= 0 then
+							for __, seg in ipairs(getNode2Segments()[slid.entity] or {}) do
+								local c = not drawnEntities[seg] and getEdgeComp(seg) or nil
+								if c and isPlanned(c) then
+									local e = toEdge(c)
+									local leaving = c.node0 == slid.entity and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z }
+									-- ours leaves the node against it (at its start), arrives along it (at its end)
+									continueDir = atStart and { x = -leaving.x, y = -leaving.y, z = -leaving.z } or leaving
+									break
+								end
+							end
+						end
 						if distance < tolerance and u > 0.001 and u < 0.999 then
 							local first, second = geometry.split(natural, u)
 							keptLength = geometry.arcLength(atStart and second or first)
@@ -1635,6 +1652,18 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								natural.p0 = x
 							else
 								natural.p1 = x
+							end
+							if continueDir then
+								local refit = atStart and geometry.arcCubic(x, continueDir, natural.p1, natural.t1)
+									or geometry.arcCubic(natural.p0, natural.t0, x, continueDir)
+								local strays = geometry.straysFrom(refit, { natural })
+								if strays <= REFIT_MAX_DEVIATION then
+									natural = refit
+								else
+									stats.unfitEnd = string.format("the parallel at node %d cannot continue its road smoothly (strays %.2f m)",
+										slid.entity, strays)
+									log("  " .. stats.unfitEnd)
+								end
 							end
 						elseif (function()
 							-- the meeting point behind the end (inside the edge, but too far off it
@@ -1661,7 +1690,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							-- Possible). The same curve, arc-like from the junction with the old
 							-- directions: exact for a straight, close for a curve.
 							local q0, q1 = atStart and x or natural.p0, atStart and natural.p1 or x
-							local whole = geometry.arcCubic(q0, natural.t0, q1, natural.t1)
+							local whole = geometry.arcCubic(q0, (atStart and continueDir) or natural.t0, q1,
+								(not atStart and continueDir) or natural.t1)
 							local far = atStart and natural.p0 or natural.p1
 							local straight = atStart and { p0 = x, p1 = far, t0 = { x = far.x - x.x, y = far.y - x.y, z = far.z - x.z },
 								t1 = { x = far.x - x.x, y = far.y - x.y, z = far.z - x.z } }
