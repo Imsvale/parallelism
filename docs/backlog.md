@@ -12,9 +12,6 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
 
 ## Open: features and gaps
 
-- **Starting a drag from the extra road's end.** The new bundle pivots around the other
-  road, so its extra road lands beside or into the old bundle; some angles are accepted,
-  some refused (collision). Wanted: a drag from either end of a bundle continues it.
 - **Corner filling.** Sharp corners only join the centre lines. Roads are wide, so the
   inside of a sharp corner overlaps and outside corners are spiky. To compare with a
   native hand-built corner first: whether the game accepts and shapes it as it is.
@@ -33,8 +30,10 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
   inside). The mod trims that parallel after the build, but the builder judges its own
   road against the world as it is, and a script answering `builder.proposalCreate` can
   only add errors (base game scripts: company permits, missions), never lift the
-  builder's verdict. Workarounds: the curved tool, or bulldoze a piece of the inside
-  parallel by hand first (then down to 90 degrees). Accepted for now.
+  builder's verdict. Workarounds: the curved tool; bulldoze a piece of the inside
+  parallel by hand first (then down to 90 degrees); or side L/R with the drag anchored on
+  the road on the inside of the turn, the parallels outside (tested to 135 degrees). The
+  same limit applies when continuing from an outer road. Accepted for now.
 - **Level crossings: room constant** fitted on one flat build (19 m beyond the overlap):
   check at a second angle (15-20 degrees). docs/studies/2026-10-03_native-level-crossings.md
 - **Track crossing clearance** (1.5 m / tan(angle)) fitted on one angle (6.1 degrees):
@@ -108,6 +107,10 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
   the game can judge. Negative (proposal) ids never reach `getComponent`. The builder's
   proposal lists are kept alive while their elements are used. A preview past a build is
   dropped once the world no longer has what it refers to.
+- **Continuing a bundle from an outer road (2026-10-05).** The parallels go where they
+  continue the bundle's loose ends beside the drawn road's start or end (the arrangement
+  that continues the most; the Side setting decides otherwise). Tested straight, curved,
+  kinked from either outer road, and across a 3x3 grid of crossings.
 - **Corners at a bundle's end (2026-10-01, 2026-10-05).** The old parallel is cut back or
   extended to the miter corner at any kink (no cut-off), cut back over as many edges as
   it takes.
