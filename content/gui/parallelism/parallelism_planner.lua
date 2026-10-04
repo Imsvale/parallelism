@@ -1312,6 +1312,83 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- run ends slid onto a road (branchPoint): node -> where the parallel would end
 		local branchFrom = {}
 
+		-- The drawn road continues from a junction where an earlier bundle's roads have
+		-- their own junctions on the same road (a T of ours extended at another angle):
+		-- each parallel continues from its own junction, as native does (each road from its
+		-- own node, kinked there), so it runs through that junction parallel to the drawn
+		-- road, at whatever spacing that gives (spacing * sin(out) / sin(in)); keeping the
+		-- set spacing would put a new junction a few metres from the old one (2026-10-05).
+		do
+			local function junctionOfOurs(endEntity, position, tangent)
+				local segments = getNode2Segments()[endEntity] or {}
+				local edges = {}
+				for __, seg in ipairs(segments) do
+					local c = not drawnEntities[seg] and getEdgeComp(seg) or nil
+					if c and isPlanned(c) then
+						local e = toEdge(c)
+						edges[#edges + 1] = c.node0 == endEntity and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z }
+					end
+				end
+				if #edges ~= 3 then
+					return nil
+				end
+				-- the road the drawn one came in on: the one not running on through the node
+				local incoming = nil
+				for i = 1, 3 do
+					local j, k = i % 3 + 1, (i + 1) % 3 + 1
+					if geometry.angleBetween(edges[j], edges[k]) > 179 then
+						incoming = edges[i]
+					end
+				end
+				if incoming == nil then
+					return nil
+				end
+				local expected = geometry.offsetPoint(position, tangent, offset)
+				if expected == nil then
+					return nil
+				end
+				local best, bestDistance = nil, 2 * math.abs(offset)
+				for __, n in ipairs(nodesInCircle(api.type.Vec2f.new(expected.x, expected.y), bestDistance)) do
+					if n ~= endEntity then
+						local p = nodePosition(n)
+						local d = p and geometry.horizontalDistance(p, expected) or math.huge
+						if d < bestDistance then
+							local parallel = false
+							local count = 0
+							for __, seg in ipairs(getNode2Segments()[n] or {}) do
+								local c = getEdgeComp(seg)
+								if c and isPlanned(c) then
+									count = count + 1
+									local e = toEdge(c)
+									local leaving = c.node0 == n and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z }
+									parallel = parallel or geometry.angleBetween(leaving, incoming) < 1
+								end
+							end
+							if count >= 3 and parallel then
+								best, bestDistance = { entity = n, position = p }, d
+							end
+						end
+					end
+				end
+				return best
+			end
+			for __, endInfo in ipairs({ { drawn[1].node0, drawn[1].edge.p0, drawn[1].edge.t0 },
+				{ drawn[#drawn].node1, drawn[#drawn].edge.p1, drawn[#drawn].edge.t1 } }) do
+				if useCount[endInfo[1]] == 1 then
+					local j = junctionOfOurs(endInfo[1], endInfo[2], endInfo[3])
+					if j then
+						local r = geometry.right(endInfo[3])
+						if r then
+							local adopted = (j.position.x - endInfo[2].x) * r.x + (j.position.y - endInfo[2].y) * r.y
+							log(string.format("  continuing from our junction %d: parallel at %.1f m instead of %.1f m", j.entity, adopted, offset))
+							offset = adopted
+							break
+						end
+					end
+				end
+			end
+		end
+
 		-- The drawn run starts (atStart) or ends at the end of an existing road and kinks
 		-- there. If the parallel of that road ends where it should, move its end to the
 		-- corner of the two parallels and return the corner node; else nil.
@@ -1713,7 +1790,13 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						-- crossing road is not it, 2026-10-05: a parallel left its T node along the
 						-- main road)
 						local continueDir = nil
-						if slid.entity >= 0 then
+						-- (smooth only through a level crossing: at a road junction native kinks)
+						local atLevelCrossing = false
+						for __, seg in ipairs(slid.entity >= 0 and getNode2Segments()[slid.entity] or {}) do
+							local c = getEdgeComp(seg)
+							atLevelCrossing = atLevelCrossing or (c ~= nil and isLevelCrossable(c))
+						end
+						if slid.entity >= 0 and atLevelCrossing then
 							local own = atStart and natural.t0 or natural.t1
 							local bestAngle = 90
 							for __, seg in ipairs(getNode2Segments()[slid.entity] or {}) do
