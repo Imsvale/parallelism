@@ -1025,12 +1025,13 @@ local function isAwayFromEnds(edge, point)
 end
 
 -- An existing track edge running through the position, away from its ends, e.g. the
--- neighbour of the track a branch was drawn from.
-local function findEdgeAt(position)
+-- neighbour of the track a branch was drawn from. alsoLevel: a track under a road (or a
+-- road under a track) too, for a T at a level crossing.
+local function findEdgeAt(position, alsoLevel)
 	local center = api.type.Vec2f.new(position.x, position.y)
 	for __, entity in ipairs(edgesInCircle(center, EDGE_SEARCH_RADIUS)) do
 		local comp = getEdgeComp(entity)
-		if comp and isPlanned(comp) then
+		if comp and (isPlanned(comp) or (alsoLevel and isLevelCrossable(comp))) then
 			local edge = toEdge(comp)
 			local u, distance = geometry.closestParameter(position, edge)
 			local point = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, u)
@@ -1364,17 +1365,18 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 			-- the road the drawn end lies on: its edges at the drawn node (built), or the
 			-- edge under it (while dragging the drawn end is new, the road still whole)
+			-- (or a track: a road starting or ending on a track, a T at a level crossing)
 			local start = {}
 			for __, s in ipairs(getNode2Segments()[entity] or {}) do
 				if not drawnEntities[s] then
 					local comp = getEdgeComp(s)
-					if comp and isPlanned(comp) then
+					if comp and (isPlanned(comp) or isLevelCrossable(comp)) then
 						start[#start + 1] = s
 					end
 				end
 			end
 			if #start < 2 then
-				local e = findEdgeAt(position)
+				local e = findEdgeAt(position, true)
 				if e and not drawnEntities[e] then
 					start = { e }
 				elseif #start < 2 then
@@ -1387,6 +1389,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 			local dir = { x = tangent.x / len, y = tangent.y / len, z = 0 }
 			local reach = BRANCH_MAX_SLIDE * math.abs(offset)
+			-- the road (or track) is followed by its own kind; a track is met at a level
+			-- crossing, down to the flatter angle those allow
+			local startComp = getEdgeComp(start[1])
+			local kind = startComp and startComp.roadType
+			local minAngle = (startComp and isLevelCrossable(startComp)) and MIN_CROSSING_ANGLE or ROAD_MIN_CROSSING_ANGLE
 			-- the road's edges within reach, following plain nodes (two edges) both ways
 			local roads, seen, queue = {}, {}, {}
 			for __, s in ipairs(start) do
@@ -1405,7 +1412,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						if #at == 2 and geometry.horizontalDistance(p, offsetPosition) < reach + 10 then
 							for __, t in ipairs(at) do
 								local c = not seen[t] and not drawnEntities[t] and getEdgeComp(t)
-								if c and isPlanned(c) then
+								if c and c.roadType == kind then
 									seen[t] = true
 									queue[#queue + 1] = t
 								end
@@ -1438,7 +1445,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				for __, x in ipairs(geometry.intersections(ray, road)) do
 					local angle = geometry.crossingAngle(ray, x.ua, road, x.ub)
 					local s = (x.pointB.x - offsetPosition.x) * dir.x + (x.pointB.y - offsetPosition.y) * dir.y
-					if angle < ROAD_MIN_CROSSING_ANGLE then
+					if angle < minAngle then
 						reasons[#reasons + 1] = string.format("meets at %.1f deg", angle)
 					elseif math.abs(s) < math.abs(bestS) then
 						best, bestS = { x = x.pointB.x, y = x.pointB.y, z = offsetPosition.z }, s
@@ -1506,7 +1513,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							local e = toEdge(comp)
 							local a = geometry.angleBetween(tangent, comp.node0 == node.entity and e.t0 or e.t1)
 							cutNodes[node.entity] = true
-							cutAt[node.entity] = cutAt[node.entity] or { node = node, angle = math.min(a, 180 - a) }
+							cutAt[node.entity] = cutAt[node.entity] or { node = node, angle = math.min(a, 180 - a),
+								level = isLevelCrossable(comp) or nil, otherWidth = isLevelCrossable(comp) and (roadWidth(comp.roadTemplate) or TRACK_WIDTH) or nil }
 						end
 					end
 				elseif useCount[entity] == 1 and streets then
@@ -1525,7 +1533,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				end
 				if node == nil and useCount[entity] == 1 then
 					-- an end of the run lying on an existing track: branch off it
-					local edgeEntity, u, point = findEdgeAt(newPosition)
+					local edgeEntity, u, point = findEdgeAt(newPosition, streets)
 					if edgeEntity and noJunctions then
 						stats.junctions = stats.junctions + 1
 						log("  node " .. entity .. ": would branch off edge " .. edgeEntity .. ", road junctions are off")
@@ -1539,6 +1547,12 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							angle = math.min(a, 180 - a)
 						end
 						anchorCuts[node.entity] = addSplit(edgeEntity, u, node, angle)
+						local anchoredComp = getEdgeComp(edgeEntity)
+						if anchoredComp and isLevelCrossable(anchoredComp) then
+							-- a road ending on a track: a level crossing T
+							anchorCuts[node.entity].level = true
+							anchorCuts[node.entity].otherWidth = roadWidth(anchoredComp.roadTemplate) or TRACK_WIDTH
+						end
 						stats.anchored = stats.anchored + 1
 						log("  node " .. entity .. ": anchored on edge " .. edgeEntity .. string.format(" at u = %.3f ", u) .. shared.vecToString(point))
 					end
@@ -2939,8 +2953,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							end
 						end
 					end
-					if (streets and #edges >= 3) or (levelCrossing and #edges == 2) then
-						local connections = junctionConnections(edges)
+					if (streets and #edges >= 3) or (levelCrossing and (#edges == 2 or #edges == 1)) then
+						-- (a road ending on a track: no lanes to connect, only its crosswalk, as native)
+						local connections = #edges >= 2 and junctionConnections(edges) or {}
 						-- crosswalks only over roads with sidewalks (the builder gives a highway none)
 						local crosswalks = {}
 						for __, e in ipairs(edges) do
