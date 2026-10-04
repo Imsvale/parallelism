@@ -39,32 +39,16 @@ local MIN_PIECE_LENGTH = 5.0
 -- piece next to a T and a 5.9 m one before a junction were refused (Construction Not
 -- Possible, 2026-10-02). A first guess, not measured.
 local ROAD_MIN_PIECE_LENGTH = 10.0
--- A road joining or crossing another at a flat angle takes up a long stretch of it:
--- room needed along each road, as this / tan(angle) (about half a town road's width;
--- seen 2026-10-02: a T at 15 degrees refused with the next node 10 and 26 m away,
--- passed with it moved away). A first guess.
-local ROAD_JUNCTION_CLEARANCE = 8.0
 -- A crossing this close to an existing junction of the other road goes through it.
 local JUNCTION_REUSE_DISTANCE = 0.3
 -- an intersection this close to a node both edges share is where they meet, not a crossing
 local SHARED_NODE_MEETING_DISTANCE = 2.0
 -- how far beyond a junction's corner the road builder keeps the next node (fitted to its
--- builds at 33 and 25 degrees, see minPieceLength)
+-- builds at 33 and 25 degrees, see junctionRoom)
 local ROAD_JUNCTION_BEYOND = 26.0
 -- the gap the game leaves between the corners of neighbouring junctions along a road
 -- (native X, 2026-10-03; see docs/studies/2026-10-03_road-junction-spacing.md)
 local ROAD_CORNER_GAP = 2.5
--- dev switch (A/B, 2026-10-03): the room by angle above; false: the earlier rule
--- (ROAD_JUNCTION_CLEARANCE / tan(angle), at least ROAD_MIN_PIECE_LENGTH)
--- (on again: only on the outer side of a junction; moving the nodes between our junction
--- and the drawn road's made the game refuse a 33 degree T)
-local ROAD_ROOM_BY_ANGLE = true
--- The same room between our junction and the drawn road's on the same road: native leaves
--- no plain node between neighbouring junctions (2026-10-03: a builder node 53.3 / 40.6 m
--- between two T junctions 94 m apart at 22.5 degrees, outside the 40.2 m corner, refused).
--- The drawn road's junction node itself is never moved, so junctions closer than the room
--- (90 degrees at tight spacing) are not refused by it.
-local ROAD_INNER_ROOM = true
 -- the width of the roads being planned (set per plan; nil for tracks)
 local planRoadWidth = nil
 -- an end of an offset track continues a loose end within this share of the distance
@@ -479,38 +463,33 @@ local function pieceMinimum()
 	return isStreet(planRoadType) and ROAD_MIN_PIECE_LENGTH or MIN_PIECE_LENGTH
 end
 
--- The shortest piece of track the game accepts next to a node on it. A crossing needs
--- more the flatter it is: the two tracks run side by side for a while (fitted to builds
--- in game: at 6.1 degrees 7.7 m next to a crossing failed, 14.9 m worked).
--- inner: the node lies between this junction and the drawn road's crossing of the same
--- road (the room by angle applies there too since 2026-10-03, see ROAD_INNER_ROOM)
-local function minPieceLength(cut, inner)
+-- The stretch next to a junction or crossing, along one road or track (alongWidth wide),
+-- that must hold no plain node (docs/design/2026-10-03_node-placement.md), and how far the
+-- junction's corner reaches along it (nil where that does not apply). acrossWidth: the
+-- width of the other one.
+-- - a switch: its zone along the track it branches off
+-- - roads meeting, or a road and a track (a level crossing): where the two surfaces
+--   overlap, plus what the builder keeps free beyond that (26 m at a road junction, 19 m at
+--   a level crossing; docs/studies 2026-10-03)
+-- - tracks crossing: the clearance the track builder was measured to need (at 6.1 degrees
+--   7.7 m next to a crossing failed, 14.9 m worked), at least the minimum piece
+local function junctionRoom(cut, alongWidth, acrossWidth)
 	if cut.zone ~= nil then
-		return math.max(pieceMinimum(), cut.zone)
+		return math.max(pieceMinimum(), cut.zone), nil
 	end
 	if cut.angle == nil then
-		return pieceMinimum()
+		return pieceMinimum(), nil
 	end
-	if ROAD_ROOM_BY_ANGLE and (ROAD_INNER_ROOM or not inner) and isStreet(planRoadType) and planRoadWidth then
-		-- the junction's corner (where the edges of the two roads meet) lies
-		-- w/2 / sin + w/2 / tan along the road from its centre; the road builder keeps the
-		-- next node a fixed distance beyond that (2026-10-03, 16 m roads: 53.0 m at 33
-		-- degrees, 62.1 m at 25, both exactly corner + 26.0 m)
-		local a = math.rad(math.max(cut.angle, 1))
-		local half = planRoadWidth / 2
-		return math.max(pieceMinimum(), half / math.sin(a) + half / math.tan(a) + ROAD_JUNCTION_BEYOND)
+	if cut.level or isStreet(planRoadType) then
+		local corner = levelCorner(cut.angle, alongWidth, acrossWidth)
+		return math.max(pieceMinimum(), corner + (cut.level and LEVEL_CROSSING_BEYOND or ROAD_JUNCTION_BEYOND)), corner
 	end
-	local t = math.tan(math.rad(math.max(cut.angle, 1)))
-	local clearance = isStreet(planRoadType) and ROAD_JUNCTION_CLEARANCE or CROSSING_CLEARANCE
-	local room = math.max(pieceMinimum(), clearance / t)
-	-- roads, inner side: at least clear of the junction's corner (seen 2026-10-03 at 19.8
-	-- degrees: a node 35.9 m from the junction, inside its 45.8 m corner, refused)
-	if isStreet(planRoadType) and planRoadWidth then
-		local a = math.rad(math.max(cut.angle, 1))
-		local half = planRoadWidth / 2
-		room = math.max(room, half / math.sin(a) + half / math.tan(a))
-	end
-	return room
+	return math.max(pieceMinimum(), CROSSING_CLEARANCE / math.tan(math.rad(math.max(cut.angle, 1)))), nil
+end
+
+-- the width of what is being planned: the road's, or a track's
+local function plannedWidth()
+	return isStreet(planRoadType) and planRoadWidth or TRACK_WIDTH
 end
 
 -- Lane connections at a road junction: the mod's own sensible default (2026-10-02), not
@@ -1972,7 +1951,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								local node = newNode(x.pointA)
 								local u = math.max(0.001, math.min(0.999, x.ub))
 								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity, level = level or nil,
-									otherWidth = level and (roadWidth(comp.roadTemplate) or TRACK_WIDTH) or nil }
+									otherWidth = roadWidth(comp.roadTemplate) or TRACK_WIDTH }
 								local cut = addSplit(entity, u, node, angle)
 								cut.level = level or nil
 								stats.crossings = stats.crossings + 1
@@ -1991,7 +1970,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							else
 								local node = newNode(x.pointA)
 								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity, level = level or nil,
-									otherWidth = level and (roadWidth(comp.roadTemplate) or TRACK_WIDTH) or nil }
+									otherWidth = roadWidth(comp.roadTemplate) or TRACK_WIDTH }
 								local cut = addSplit(entity, x.ub, node, angle)
 								cut.level = level or nil
 								stats.crossings = stats.crossings + 1
@@ -2271,7 +2250,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	local reach = 0
 	for __, split in pairs(splits) do
 		for __, cut in ipairs(split.cuts) do
-			reach = math.max(reach, minPieceLength(cut))
+			-- (a cut-off for how far to look: as if both were wide roads)
+			reach = math.max(reach, (junctionRoom(cut, 40, 40)))
 		end
 	end
 	local inChain = {}
@@ -2386,15 +2366,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			local junctions, junctionAt = {}, {}
 			for i, e in ipairs(c.edges) do
 				for __, cut in ipairs(splits[e.id] and splits[e.id].cuts or {}) do
-					local keep = minPieceLength(cut)
-					local corner = streets and planRoadWidth and cut.angle and chainModule.corner(planRoadWidth, cut.angle) or nil
-					if cut.level then
-						-- a level crossing, measured along this (the crossed) road or track
-						local along = roadWidth(c.edges[1].comp.roadTemplate) or TRACK_WIDTH
-						local across = streets and planRoadWidth or TRACK_WIDTH
-						corner = levelCorner(cut.angle, along, across)
-						keep = corner + LEVEL_CROSSING_BEYOND
-					end
+					-- measured along this (the crossed) road or track, ours across it
+					local keep, corner = junctionRoom(cut, roadWidth(c.edges[1].comp.roadTemplate) or TRACK_WIDTH, plannedWidth())
 					local j = { id = cut.node.entity, position = cut.node.position, keepBefore = keep, keepAfter = keep,
 						node = nodeIndex[cut.node.entity], edge = not nodeIndex[cut.node.entity] and i or nil, corner = corner }
 					junctions[#junctions + 1] = j
@@ -2419,9 +2392,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								names[#names + 1] = tostring(s) .. (own[s] and " (this road)" or "")
 							end
 							log(string.format("  re-laid road ends at junction %d, %.1f deg: edges %s", n.id, a, table.concat(names, ", ")))
-							local keep = chainModule.roadKeepOut(planRoadWidth, a)
+							local keep, corner = junctionRoom({ angle = a }, roadWidth(c.edges[1].comp.roadTemplate) or planRoadWidth, planRoadWidth)
 							junctions[#junctions + 1] = { id = n.id, node = endIndex, keepBefore = endIndex == 1 and 0 or keep,
-								keepAfter = endIndex == 1 and keep or 0, corner = chainModule.corner(planRoadWidth, a) }
+								keepAfter = endIndex == 1 and keep or 0, corner = corner }
 						end
 					end
 				end
@@ -2563,15 +2536,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 			local junctions = {}
 			local function addJunction(cut, j, keep)
-				keep = keep or minPieceLength(cut)
-				if streets and planRoadWidth and cut.angle then
-					j.corner = chainModule.corner(planRoadWidth, cut.angle)
-				end
-				if cut.level and cut.angle then
-					-- a level crossing, measured along our road or track
-					j.corner = levelCorner(cut.angle, streets and planRoadWidth or TRACK_WIDTH, cut.otherWidth or TRACK_WIDTH)
-					keep = j.corner + LEVEL_CROSSING_BEYOND
-				end
+				-- measured along our road or track, the crossed one across it
+				local room, corner = junctionRoom(cut, plannedWidth(), cut.otherWidth or plannedWidth())
+				keep = keep or room
+				j.corner = corner
 				j.keepBefore, j.keepAfter = keep, keep
 				junctions[#junctions + 1] = j
 			end
@@ -2764,10 +2732,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 			for __, pair in ipairs({ { c0, e.node1 }, { c1, e.node0 } }) do
 				local cut, other = pair[1], pair[2]
-				if cut and cut.angle and plainOurs(other) and length < minPieceLength(cut) - 0.5 then
+				local room = cut and (junctionRoom(cut, plannedWidth(), plannedWidth()))
+				if cut and cut.angle and plainOurs(other) and length < room - 0.5 then
 					stats.nodeInRoom = stats.nodeInRoom or string.format(
 						"node %d left %.1f m from junction %d, inside its %.1f m room", other, length,
-						e.node0 == other and e.node1 or e.node0, minPieceLength(cut))
+						e.node0 == other and e.node1 or e.node0, room)
 				end
 			end
 		end
