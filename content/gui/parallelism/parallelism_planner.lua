@@ -731,10 +731,21 @@ end
 -- The smallest radius the game allows for a track or road type.
 local function allowedRadius(templateName)
 	local template = getTemplate(templateName)
+	if template and isStreet(template.roadType) then
+		-- Roads: the road builder keeps no minimum radius of its own (native, 2026-10-04:
+		-- 16.6 and 9.0 m on a 16 m road; the template's minCurveRadius, 44 m, is not
+		-- enforced for roads). Only the inner edge may not fold over: half the road's width.
+		local width = 0
+		for __, lc in ipairs(template.laneConfigs or {}) do
+			width = width + math.abs(lc.width or 0)
+		end
+		return width > 0 and width / 2 or DEFAULT_MIN_RADIUS_STREET
+	end
+	-- tracks: the type's own minimum, as loaded (other mods change it, e.g. Tighter Curves)
 	if template and template.minCurveRadius and template.minCurveRadius > 0 then
 		return template.minCurveRadius
 	end
-	return template and isStreet(template.roadType) and DEFAULT_MIN_RADIUS_STREET or DEFAULT_MIN_RADIUS
+	return DEFAULT_MIN_RADIUS
 end
 
 -- How far the merge of edges a and b strays from them, or math.huge if it bends tighter
@@ -2811,8 +2822,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	-- The tracks on the inside of a bend are tighter than the drawn one, on a hairpin they
 	-- turn inside out. The game allows down to the template's minCurveRadius for tracks
 	-- laid along others (seen in game: 45 m built where dragging needs 55 m).
-	local template = getTemplate(templateOf({ comp = drawn[1].comp, template = drawn[1].template }))
-	local minRadius = template and template.minCurveRadius or (streets and DEFAULT_MIN_RADIUS_STREET or DEFAULT_MIN_RADIUS)
+	local minRadius = allowedRadius(templateOf({ comp = drawn[1].comp, template = drawn[1].template }))
 	-- The radius above takes each offset edge for an arc, from its ends. Merged edges
 	-- (dropped own nodes, moved nodes) can bend tighter in between, so sample the edges
 	-- we shape: our own pieces and merged existing edges, not plain cuts of existing ones.
