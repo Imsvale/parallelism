@@ -47,4 +47,7 @@ A road started from (or extended across) a level crossing node continues the roa
 there smoothly, from its tangent, even in the straight build mode: as track does, unlike a
 road junction, where the straight mode makes a corner. So extending a T on a track into an
 X at another angle makes the extension curve away from the T's direction. The mod's
-parallels then continue from their own T nodes the same way (nothing to slide).
+parallels continue from their own T nodes, which lie where each parallel's line meets the
+track (offset / tan(angle) along it from beside the drawn node): their ends slide along
+the parallel to those nodes, and a curving extension meets them a few metres off the
+straight slide (accepted up to a tenth of the spacing).
