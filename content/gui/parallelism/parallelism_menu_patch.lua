@@ -137,7 +137,8 @@ local function updatePreview(proposal)
 		end
 		-- planned against the world after the drawn road: shown and judged together with it
 		-- (the builder's part is then drawn twice, the same geometry)
-		local ok, joined = pcall(planner.joinWithBuilder, proposal.proposal, planned, preview.resName)
+		local ok, joined, refs = pcall(planner.joinWithBuilder, proposal.proposal, planned, preview.resName)
+		preview.refs = ok and refs or nil
 		if ok then
 			-- shown only if the game can judge it: the drag check's judgement of a proposal
 			-- threw, then showing the same one crashed the game (StreetShapeFactory, 2026-10-03)
@@ -965,6 +966,10 @@ function patch.install()
 				local ok, err = pcall(function()
 					local version = preview.version
 					local started = planner.clockMs()
+					if #preview.proposals > 0 and not planner.refsStillThere(preview.refs) then
+						-- the world changed under the preview (a build): it is planned again
+						clearPreview()
+					end
 					if shared.builderRefuses(proposalData) then
 						-- the drawn road itself is refused: nothing of ours to show or judge
 						if #preview.proposals > 0 then
@@ -1088,6 +1093,11 @@ function patch.install()
 			injectPreview = false
 			if params and params.children and type(params.tool) == "string" and params.tool:find("construction-menu-", 1, true) == 1 then
 				-- one at most: a second proposal viewer in an action crashes the game
+				-- (only while it still matches the world: a preview kept past a build can name
+				-- nodes that build removed, and redrawing it crashed the game)
+				if preview.proposals[1] and not planner.refsStillThere(preview.refs) then
+					clearPreview()
+				end
 				if preview.proposals[1] then
 					params.children[#params.children + 1] = makeViewer(1)
 				end

@@ -1367,13 +1367,23 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			-- edge under it (while dragging the drawn end is new, the road still whole)
 			-- (or a track: a road starting or ending on a track, a T at a level crossing)
 			local start = {}
+			local ownKind, levelKind = false, false
 			for __, s in ipairs(getNode2Segments()[entity] or {}) do
 				if not drawnEntities[s] then
 					local comp = getEdgeComp(s)
 					if comp and (isPlanned(comp) or isLevelCrossable(comp)) then
 						start[#start + 1] = s
+						ownKind = ownKind or isPlanned(comp)
+						levelKind = levelKind or isLevelCrossable(comp)
 					end
 				end
+			end
+			if ownKind and levelKind then
+				-- a T on a track extended across it (the node already has a road of ours): the
+				-- drawn road continues it smoothly and our parallels continue theirs from
+				-- their own T nodes, nothing to slide (2026-10-04: sliding refused every
+				-- extension but a dead straight one)
+				return nil
 			end
 			if #start < 2 then
 				local e = findEdgeAt(position, true)
@@ -3664,6 +3674,23 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 	if problem then
 		error("the plan joined with the builder's does not hold together: " .. problem, 0)
 	end
+	-- the existing nodes and edges the joined proposal refers to: shown later (the menu
+	-- redraws it), it must still match the world (2026-10-04: a preview kept past a build
+	-- named a node that build removed, and the game crashed redrawing it)
+	local refs = { edges = {}, nodes = {} }
+	for __, id in ipairs(edgesToRemove) do
+		refs.edges[#refs.edges + 1] = id
+	end
+	for __, id in ipairs(nodesToRemove) do
+		refs.nodes[#refs.nodes + 1] = id
+	end
+	for __, seg in ipairs(edgesToAdd) do
+		for __, n in ipairs({ seg.comp.node0, seg.comp.node1 }) do
+			if n >= 0 then
+				refs.nodes[#refs.nodes + 1] = n
+			end
+		end
+	end
 	local joined = api.type.SimpleProposal.new()
 	joined.streetProposal.nodesToAdd = nodesToAdd
 	joined.streetProposal.edgesToAdd = edgesToAdd
@@ -3674,8 +3701,32 @@ local function joinWithBuilder(streetProposal, planned, templateName)
 	pcall(function()
 		joined.constructionsToRemove = planned.constructionsToRemove
 	end)
-	return joined
+	return joined, refs
 end
+
+-- true while every existing node and edge in refs (see joinWithBuilder) is still there
+local function refsStillThere(refs)
+	if refs == nil then
+		return true
+	end
+	local there = true
+	pcall(function()
+		for __, id in ipairs(refs.edges) do
+			if id >= 0 and api.engine.getComponent(id, api.type.ComponentType.BASE_EDGE) == nil then
+				there = false
+				return
+			end
+		end
+		for __, id in ipairs(refs.nodes) do
+			if id >= 0 and api.engine.getComponent(id, api.type.ComponentType.BASE_NODE) == nil then
+				there = false
+				return
+			end
+		end
+	end)
+	return there
+end
+planner.refsStillThere = refsStillThere
 
 planner.makeProposal = makeProposal
 planner.joinWithBuilder = joinWithBuilder
