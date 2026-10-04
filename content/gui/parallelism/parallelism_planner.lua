@@ -1729,7 +1729,20 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							local first, second = geometry.split(natural, u)
 							keptLength = geometry.arcLength(atStart and second or first)
 						end
-						if keptLength and keptLength < pieceMinimum() then
+						local endHere = geometry.horizontalDistance(x, atStart and natural.p0 or natural.p1)
+						if not keptLength and endHere <= JUNCTION_REUSE_DISTANCE then
+							-- the parallel already ends where it meets the road (a square T extended
+							-- straight on, 2026-10-05: a 0.0 m straight piece added there was refused)
+							if atStart then
+								natural.p0 = x
+							else
+								natural.p1 = x
+							end
+							if continueDir then
+								natural = atStart and geometry.arcCubic(x, continueDir, natural.p1, natural.t1)
+									or geometry.arcCubic(natural.p0, natural.t0, x, continueDir)
+							end
+						elseif keptLength and keptLength < pieceMinimum() then
 							-- shortened to almost nothing (2026-10-03: 0.18 m left, its other node
 							-- right on the road): the edge goes, the one before ends at the road
 							pastEnds[#pastEnds + 1] = { slid = slid, x = x, atStart = atStart,
