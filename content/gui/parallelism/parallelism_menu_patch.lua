@@ -201,7 +201,6 @@ local function updatePreview(proposal)
 	preview.spacingAngle = stats.spacingAngle
 	-- the drag check waits for the game's verdict on plans like this (game script)
 	preview.needsVerdict = (stats.crossings + stats.anchored) > 0
-	preview.sharpCorner = stats.sharpCorner ~= nil
 	preview.shallow = stats.shallow
 	preview.tooClose = stats.junctionsTooClose
 	preview.signature = signature
@@ -252,9 +251,7 @@ local function previewSummary()
 	if known == #preview.proposals and known > 0 then
 		text = text .. ", " .. api.util.formatMoney(total)
 	end
-	if preview.sharpCorner then
-		text = text .. " (would turn too sharply)"
-	elseif preview.junctions then
+	if preview.junctions then
 		text = text .. " (would make a junction, not supported yet)"
 	elseif preview.selfCrossing then
 		text = text .. " (would cross each other)"

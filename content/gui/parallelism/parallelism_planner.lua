@@ -57,13 +57,11 @@ local LOOSE_END_SHARE = 0.4
 -- shortfall of a piece against MIN_PIECE_LENGTH that is still let through
 local PIECE_TOLERANCE = 0.25
 -- A drag starting (or ending) at the end of an existing road at an angle to it, which
--- the road builder allows in both its modes, kinks there. Between these angles
--- (degrees) the parallel of the old road is cut back or extended to the corner where
--- the two parallels meet, and the new parallel starts there.
+-- the road builder allows in both its modes, kinks there. From this angle (degrees) on
+-- the parallel of the old road is cut back or extended to the corner where the two
+-- parallels meet (offset * tan(kink / 2) along the roads, at any kink: the miter never
+-- crosses itself), and the new parallel starts there.
 local MITER_MIN_ANGLE = 1.0
--- (the corner lies offset * tan(kink / 2) along the roads: 21 m at 105 degrees for a
--- 16 m road, 39 m at 135; an inside corner that eats a whole edge is refused anyway)
-local MITER_MAX_ANGLE = 135.0
 -- A drag starting or ending on a road at an angle (a T): each parallel's end slides
 -- along the parallel to meet that road, by at most this many times the offset (about
 -- 2.7 times at 20 degrees, 4.7 at 12), and not for roads meeting flatter than
@@ -1301,11 +1299,6 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			local par = getEdgeComp(parEntity)
 			if par == nil or not isPlanned(par) or drawnEntities[parEntity] or splits[parEntity]
 				or (par.objects and #par.objects > 0) then
-				return nil
-			end
-			if kink > MITER_MAX_ANGLE then
-				-- the corner would lie far off: rather refuse than leave the parallel detached
-				stats.sharpCorner = kink
 				return nil
 			end
 			local arriving, leaving = oldDir, tangent
@@ -2822,9 +2815,6 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	end
 	if stats.missedCrossing then
 		table.insert(stats.problems, 1, stats.missedCrossing)
-	end
-	if stats.sharpCorner then
-		table.insert(stats.problems, 1, string.format("the road turns %.0f deg at the end of a parallel, more than %.0f", stats.sharpCorner, MITER_MAX_ANGLE))
 	end
 	if stats.junctions > 0 then
 		table.insert(stats.problems, 1, string.format("a parallel road would make %d junction(s), road junctions are off", stats.junctions))
