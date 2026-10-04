@@ -116,6 +116,11 @@ local EXISTING_MAX_DEVIATION = 0.05
 -- an arc-like cubic from the junction with the old directions, straying up to this much
 -- (the native refits strayed up to 0.38 m per build).
 local REFIT_MAX_DEVIATION = 0.5
+-- Our own new road refitted where it continues one of ours (a T on a track extended into
+-- an X along a curve): only how closely it stays parallel near there is at stake, not
+-- the shape of something built (2026-10-04: 0.5-0.96 m through a curve sweep, refused
+-- at 0.5). The minimum radius check still refuses curves too tight.
+local OWN_REFIT_MAX_DEVIATION = 2.0
 -- smallest curve radius for extra tracks if the track template does not say
 local DEFAULT_MIN_RADIUS = 40.0
 -- for extra roads only a road turned inside out on the inside of a bend is refused, the
@@ -1657,7 +1662,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								local refit = atStart and geometry.arcCubic(x, continueDir, natural.p1, natural.t1)
 									or geometry.arcCubic(natural.p0, natural.t0, x, continueDir)
 								local strays = geometry.straysFrom(refit, { natural })
-								if strays <= REFIT_MAX_DEVIATION then
+								if strays <= OWN_REFIT_MAX_DEVIATION then
 									natural = refit
 								else
 									stats.unfitEnd = string.format("the parallel at node %d cannot continue its road smoothly (strays %.2f m)",
