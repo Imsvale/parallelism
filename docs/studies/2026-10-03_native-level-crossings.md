@@ -40,3 +40,11 @@ with a 4 m track: 110 m along the track and 109.6 along the road at 6.3 degrees;
 the track and 21 m along the road at 90 degrees, which keeps or removes every node above
 as native did. Fitted on one flat build: the constant (and the track width) to check at a
 second angle, e.g. 15 or 20 degrees.
+
+## A road continuing from a level crossing node (2026-10-04)
+
+A road started from (or extended across) a level crossing node continues the road already
+there smoothly, from its tangent, even in the straight build mode: as track does, unlike a
+road junction, where the straight mode makes a corner. So extending a T on a track into an
+X at another angle makes the extension curve away from the T's direction. The mod's
+parallels then continue from their own T nodes the same way (nothing to slide).
