@@ -1174,6 +1174,70 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		end
 		drawn = oriented
 	end
+
+	-- A drag from (or to) the end of a road of an existing bundle other than where the
+	-- drawn one would be (an outer road): the bundle's other roads end beside it at whole
+	-- steps to either side. The parallels go where they continue those loose ends, the
+	-- arrangement that continues the most; the Side setting decides only when none
+	-- continues more than it (2026-10-05: a drag from an outer road put the new parallels
+	-- beside or into the old bundle).
+	if not options.step and #offsets > 0 and step < math.huge then
+		local count = #offsets + 1
+		local continued = {}
+		local function scan(position, tangent)
+			for k = -(count - 1), count - 1 do
+				if k ~= 0 then
+					local p = geometry.offsetPoint(position, tangent, k * step)
+					if p and findLooseEnd(p, looseEndRadius) then
+						continued[k] = true
+					end
+				end
+			end
+		end
+		scan(drawn[1].edge.p0, drawn[1].edge.t0)
+		scan(drawn[#drawn].edge.p1, drawn[#drawn].edge.t1)
+		if next(continued) then
+			local function score(set)
+				local n = 0
+				for __, o in ipairs(set) do
+					if continued[math.floor(o / step + 0.5)] then
+						n = n + 1
+					end
+				end
+				return n
+			end
+			local best, bestScore = nil, score(offsets)
+			for first = -(count - 1), 0 do
+				local set = {}
+				for j = first, first + count - 1 do
+					if j ~= 0 then
+						set[#set + 1] = j * step
+					end
+				end
+				local sc = score(set)
+				if sc > bestScore then
+					best, bestScore = set, sc
+				end
+			end
+			if best then
+				-- nearest first, as geometry.offsets: each may continue the one before it
+				table.sort(best, function(x, y)
+					if math.abs(x) ~= math.abs(y) then
+						return math.abs(x) < math.abs(y)
+					end
+					return x > y
+				end)
+				local listed = {}
+				for __, o in ipairs(best) do
+					listed[#listed + 1] = string.format("%.1f", o)
+				end
+				log("  continuing an existing bundle: offsets " .. table.concat(listed, ", "))
+				offsets = best
+				stats.bundleContinued = true
+			end
+		end
+	end
+
 	-- existing nodes the offset track connects to, they must stay where they are
 	local reusedNodes = {}
 	local nextNodeId = -100000
