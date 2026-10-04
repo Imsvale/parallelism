@@ -116,11 +116,6 @@ local EXISTING_MAX_DEVIATION = 0.05
 -- an arc-like cubic from the junction with the old directions, straying up to this much
 -- (the native refits strayed up to 0.38 m per build).
 local REFIT_MAX_DEVIATION = 0.5
--- Our own new road refitted where it continues one of ours (a T on a track extended into
--- an X along a curve): only how closely it stays parallel near there is at stake, not
--- the shape of something built (2026-10-04: 0.5-0.96 m through a curve sweep, refused
--- at 0.5). The minimum radius check still refuses curves too tight.
-local OWN_REFIT_MAX_DEVIATION = 2.0
 -- smallest curve radius for extra tracks if the track template does not say
 local DEFAULT_MIN_RADIUS = 40.0
 -- for extra roads only a road turned inside out on the inside of a bend is refused, the
@@ -1597,6 +1592,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			local node0 = getNode(d.node0, d.edge.p0, d.edge.t0, true)
 			local node1 = getNode(d.node1, d.edge.p1, d.edge.t1, false)
 			local skipEdge = false
+			-- a piece refitted to continue one of our roads (see transitions below)
+			local transition = nil
 			if node0 and node1 then
 				-- the parallel as it would run, then cut or lengthened to an end slid onto a
 				-- road (branchPoint): cut exactly where it meets the road, lengthened by a
@@ -1618,11 +1615,6 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						-- the edge ran on across the road and a straight piece came back to the
 						-- node, a 179.9 degree bend and a crossing beside the T)
 						local keptLength = nil
-						-- (a curving parallel bends away from the straight slide: extending a T on a
-						-- track into an X along a curve, 2026-10-04, put the meeting point some
-						-- metres off the curve; a tenth of the spacing is accepted, the curve
-						-- check still refuses what bends too tightly)
-						local tolerance = math.max(JUNCTION_REUSE_DISTANCE + 0.05, 0.1 * math.abs(offset))
 						-- continuing a road of ours from an existing node on a track (a T extended
 						-- into an X): the new piece leaves in that road's direction, as roads go
 						-- through a level crossing smoothly (2026-10-04: a parallel cut along a
@@ -1640,6 +1632,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								end
 							end
 						end
+						-- (continuing one of our roads, the piece is refitted from the node in that
+						-- road's direction whatever the slide missed by: the type's minimum radius
+						-- decides; otherwise only a node moved onto the road may be off the edge)
+						local tolerance = continueDir and math.huge or (JUNCTION_REUSE_DISTANCE + 0.05)
 						if distance < tolerance and u > 0.001 and u < 0.999 then
 							local first, second = geometry.split(natural, u)
 							keptLength = geometry.arcLength(atStart and second or first)
@@ -1661,14 +1657,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							if continueDir then
 								local refit = atStart and geometry.arcCubic(x, continueDir, natural.p1, natural.t1)
 									or geometry.arcCubic(natural.p0, natural.t0, x, continueDir)
-								local strays = geometry.straysFrom(refit, { natural })
-								if strays <= OWN_REFIT_MAX_DEVIATION then
-									natural = refit
-								else
-									stats.unfitEnd = string.format("the parallel at node %d cannot continue its road smoothly (strays %.2f m)",
-										slid.entity, strays)
-									log("  " .. stats.unfitEnd)
-								end
+								-- (our own new road: how tight it may curve is the only limit, checked
+								-- with the plan; too tight, the transition is made longer, see below)
+								natural = refit
+								transition = { atStart = atStart, dir = continueDir }
 							end
 						elseif (function()
 							-- the meeting point behind the end (inside the edge, but too far off it
@@ -1747,13 +1739,17 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					radius = 0
 				end
 				if not skipEdge then
-					stats.minRadius = math.min(stats.minRadius, radius)
+					-- (a refitted transition is measured once made long enough, with the plan)
+					if not transition then
+						stats.minRadius = math.min(stats.minRadius, radius)
+					end
 					offsetEdges[#offsetEdges + 1] = {
 						node0 = node0,
 						node1 = node1,
 						edge = edge,
 						props = props,
 						cuts = {},
+						transition = transition,
 					}
 				end
 				-- a switch reaches as far along the base track as its branch takes to clear it
@@ -1821,6 +1817,46 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				stats.unfitEnd = string.format("the end of a parallel at node %d could not be fitted to the road (%.2f m off its line)",
 					pe.slid.entity, pe.distance)
 				log("  " .. stats.unfitEnd)
+			end
+		end
+
+		-- A refitted piece that turns tighter than the type allows takes in the next piece of
+		-- the parallel and is refitted over both, as often as it needs: the transition from
+		-- the old road into the curve is as long as the curve needs, not one edge (2026-10-04:
+		-- 47.6 m where a concentric parallel would curve at 98 m). Not across a crossing.
+		for __, oe in ipairs(offsetEdges) do
+			local t = oe.transition
+			local limit = t and allowedRadius(templateOf(oe.props)) or nil
+			for __ = 1, 6 do
+				if not t or geometry.minRadiusAlong(oe.edge) >= limit then
+					break
+				end
+				local far = t.atStart and oe.node1 or oe.node0
+				local index = nil
+				for i, other in ipairs(offsetEdges) do
+					if other ~= oe and ((t.atStart and other.node0 == far) or (not t.atStart and other.node1 == far)) then
+						index = i
+					end
+				end
+				local nb = index and offsetEdges[index]
+				if nb == nil or #nb.cuts > 0 or #oe.cuts > 0 or not movable[far.entity] then
+					break
+				end
+				local longer = t.atStart and geometry.arcCubic(oe.edge.p0, t.dir, nb.edge.p1, nb.edge.t1)
+					or geometry.arcCubic(nb.edge.p0, nb.edge.t0, oe.edge.p1, t.dir)
+				if geometry.minRadiusAlong(longer) <= geometry.minRadiusAlong(oe.edge) then
+					break
+				end
+				oe.edge = longer
+				if t.atStart then
+					oe.node1 = nb.node1
+				else
+					oe.node0 = nb.node0
+				end
+				movable[far.entity] = nil
+				table.remove(offsetEdges, index)
+				log(string.format("  transition into the curve made longer over node %d (now bends at %.1f m)", far.entity,
+					geometry.minRadiusAlong(longer)))
 			end
 		end
 
