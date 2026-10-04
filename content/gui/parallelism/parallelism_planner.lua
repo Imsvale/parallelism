@@ -1367,23 +1367,13 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			-- edge under it (while dragging the drawn end is new, the road still whole)
 			-- (or a track: a road starting or ending on a track, a T at a level crossing)
 			local start = {}
-			local ownKind, levelKind = false, false
 			for __, s in ipairs(getNode2Segments()[entity] or {}) do
 				if not drawnEntities[s] then
 					local comp = getEdgeComp(s)
 					if comp and (isPlanned(comp) or isLevelCrossable(comp)) then
 						start[#start + 1] = s
-						ownKind = ownKind or isPlanned(comp)
-						levelKind = levelKind or isLevelCrossable(comp)
 					end
 				end
-			end
-			if ownKind and levelKind then
-				-- a T on a track extended across it (the node already has a road of ours): the
-				-- drawn road continues it smoothly and our parallels continue theirs from
-				-- their own T nodes, nothing to slide (2026-10-04: sliding refused every
-				-- extension but a dead straight one)
-				return nil
 			end
 			if #start < 2 then
 				local e = findEdgeAt(position, true)
@@ -1623,7 +1613,12 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						-- the edge ran on across the road and a straight piece came back to the
 						-- node, a 179.9 degree bend and a crossing beside the T)
 						local keptLength = nil
-						if distance < JUNCTION_REUSE_DISTANCE + 0.05 and u > 0.001 and u < 0.999 then
+						-- (a curving parallel bends away from the straight slide: extending a T on a
+						-- track into an X along a curve, 2026-10-04, put the meeting point some
+						-- metres off the curve; a tenth of the spacing is accepted, the curve
+						-- check still refuses what bends too tightly)
+						local tolerance = math.max(JUNCTION_REUSE_DISTANCE + 0.05, 0.1 * math.abs(offset))
+						if distance < tolerance and u > 0.001 and u < 0.999 then
 							local first, second = geometry.split(natural, u)
 							keptLength = geometry.arcLength(atStart and second or first)
 						end
