@@ -118,8 +118,8 @@ local EXISTING_MAX_DEVIATION = 0.05
 local REFIT_MAX_DEVIATION = 0.5
 -- smallest curve radius for extra tracks if the track template does not say
 local DEFAULT_MIN_RADIUS = 40.0
--- roads: the tightest a road may curve is half its width plus this (fitted on one road
--- width, 16 m: 9.0 m; to check on another width)
+-- roads: the tightest a road may curve is half its width plus this (native limit builds,
+-- 2026-10-04: 9.0 m for a 16 m road, 5.5 m for the 9 m one-lane highway, at any turn angle)
 local ROAD_INNER_EDGE_ROOM = 1.0
 -- (if a road type's width cannot be read)
 local DEFAULT_MIN_RADIUS_STREET = 9.0
@@ -737,8 +737,9 @@ local function allowedRadius(templateName)
 		-- Roads: the road builder ignores the template's minCurveRadius (44 m for a 16 m
 		-- road); what it refuses (Too Much Curvature) is an edge whose tightest point
 		-- comes closer than ROAD_INNER_EDGE_ROOM to folding its inner edge over: native,
-		-- 2026-10-04, the tightest point of every limit build was 9.0 m on a 16 m road, at
-		-- 61 to 180 degrees of turn (the radius by the ends grew from 9.0 to 10.1 m).
+		-- 2026-10-04, the tightest point of every limit build was 9.0 m on a 16 m road and
+		-- 5.5 m on the 9 m one-lane highway, at 57 to 180 degrees of turn (the radius by the
+		-- ends grows with the turn: a cubic edge bunches its curvature in the middle).
 		local width = 0
 		for __, lc in ipairs(template.laneConfigs or {}) do
 			width = width + math.abs(lc.width or 0)
