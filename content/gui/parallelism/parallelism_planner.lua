@@ -1708,16 +1708,25 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						-- into an X): the new piece leaves in that road's direction, as roads go
 						-- through a level crossing smoothly (2026-10-04: a parallel cut along a
 						-- curve left its T node at an angle, the game refused the kink)
+						-- (the road it continues: of ours at the node, the one closest to the
+						-- parallel's own direction there, within 90 degrees; at a junction the
+						-- crossing road is not it, 2026-10-05: a parallel left its T node along the
+						-- main road)
 						local continueDir = nil
 						if slid.entity >= 0 then
+							local own = atStart and natural.t0 or natural.t1
+							local bestAngle = 90
 							for __, seg in ipairs(getNode2Segments()[slid.entity] or {}) do
 								local c = not drawnEntities[seg] and getEdgeComp(seg) or nil
 								if c and isPlanned(c) then
 									local e = toEdge(c)
 									local leaving = c.node0 == slid.entity and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z }
 									-- ours leaves the node against it (at its start), arrives along it (at its end)
-									continueDir = atStart and { x = -leaving.x, y = -leaving.y, z = -leaving.z } or leaving
-									break
+									local dir = atStart and { x = -leaving.x, y = -leaving.y, z = -leaving.z } or leaving
+									local angle = geometry.angleBetween(dir, own)
+									if angle < bestAngle then
+										continueDir, bestAngle = dir, angle
+									end
 								end
 							end
 						end
