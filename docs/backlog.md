@@ -1,233 +1,121 @@
 # Backlog
 
-Open work first, then what was solved and how (kept for the reasoning).
+Open work first, then the rules, then what was solved and how (kept for the reasoning).
+Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-placement.md).
 
 ## Parked (the user brings these up)
 
 - **Fanned crossing (2026-10-01).** The drawn track runs down alongside a 6-track
   bundle and turns away; the extra tracks fan out and cross each other ("would cross
-  each other"). A different kind of failure. Screenshot `2026-10-01 21_12_24-Transport
-  Fever 3.png` (in the user's Screenshots folder); log lines with the judged and the
-  refused plan in `docs/parked/2026-10-01_fanned-crossing.log`.
+  each other"). Screenshot `2026-10-01 21_12_24-Transport Fever 3.png` (user's
+  Screenshots folder); judged and refused plan in `docs/parked/2026-10-01_fanned-crossing.log`.
 
-## Open: tracks and roads
+## Open: features and gaps
 
-- **Red flash when a drag first hits a house.** Cosmetic. The first time in a drag
-  that the extra tracks run into a town building, the preview shows red for a moment:
-  the game has to report the collision before the plan can name the house for removal.
-  Later hits of the same house in that drag do not flash.
-- **Show refused extra tracks.** When our own plan has a problem (e.g. a piece too
-  short), the extra tracks are not shown at all: the game can crash evaluating such a
-  plan. Decided 2026-10-02: two modes, both drawn with `builtin.EdgeRenderable` (not
-  judged by the game):
-  - default: a stripped-down view that fits what the game does, the problem segment
-    highlighted in red;
-  - the Wireframe view (all edges by kind) stays as the detailed option, likely in a
-    release too, not only as a dev aid. Its problem marker is now white (was magenta);
-    whether something more visible is needed is open.
-- **Explain predictable failures before sending.** Partly done: the planner refuses
-  with a message for crossings too flat, pieces too short, bends too tight, a track
-  crossing itself. Still unexplained: what the game alone refuses (e.g. "Construction
-  Not Possible").
-- **Room needed next to a crossing.** Crossings under 6 degrees are refused (measured
-  2026-09-30, a game limit). How much room a crossing needs depending on its angle is
-  still fitted from failures (1.5 m / tan(angle)), not measured.
-- **Preview cost near many tracks.** The preview's Lua costs ~8 ms per tooltip call
-  even while the drag holds still over a 6-track crossing (855 ms per 100 calls), most
-  likely collecting the drawn segments against many removed ones every call. The
-  preview plans only every 4th change while planning is expensive (over 10 ms); the
-  drag check plans every change (a skipped one could be where the drag stopped).
-- **To confirm when they come up again:**
-  - "Construction Not Possible" on 6-track branches (2026-09-30: 3 of 5 extra tracks
-    failed on a ~300 m branch across a 6-track straight, clean plans; the next round
-    passed 29 of 29). A failed build logs what it collides with; read that.
-  - Spiral drags: fixed in the planner (consistent orientation, merges capped at 0.2 m,
-    no plan with a track bending at a node is shown or built), never confirmed.
-  - The preview showing fewer tracks than get built. Both now plan all tracks in one
-    proposal, so probably gone.
-  - Combined build failures: in play the extra tracks are built in one command or not
-    at all, a failure notifies the player. `ONE_BY_ONE_DIAGNOSTIC` in
-    `parallelism.script.lua` builds them one by one instead, to show which one fails.
-
-## Open: roads
-
-- **Road tests (2026-10-03).** Passed: track and road bundles; a 90 degree crossing (6
-  roads over one main road at 4 m); the 3-road X down to about 12.4 degrees at 20 m (the
-  native limit: below it the drawn road itself collides); at 20 degrees down to 16.0 m,
-  as native (15.5 refused); a 30 degree X. The T sweep (3 roads) had dead spots at 47.2
-  and 53 degrees (a parallel's end met the road at an existing node and was also taken
-  for a crossing beside it; fixed, to re-test), at 41 degrees (a T end moved onto an
-  existing node was taken for lengthening instead of shortening: U-turn; fixed, to
-  re-test) and at 20.5 degrees (after shortening a parallel 96.7 m, more than one edge,
-  an own node lay on some edge: "a crossing at own node could not be placed"; the
-  message now names the edge, to look at when it comes back).
-
-- **Partial build by a race (2026-10-02, next up).** The drag check knows the game's
-  verdict on our plan only through the preview. Released before the preview of that
-  exact position was judged, the drag went through on our own plan alone; the game
-  then refused our part (a 42 degree crossing at 4 m spacing, Construction Not
-  Possible) after the drawn road was built. Seen where the game is at its limit. Ideas:
-  undo the drawn build when ours fails (it may have split roads: restore them); or
-  refuse while the verdict for the current position is pending (but the builder only
-  asks again when the drag changes, a pending refusal could stick); or judge our plan
-  in the game script itself (`api.engine.util.proposal.makeProposalData` wants a full
-  `Proposal`, not a `SimpleProposal`).
-- **Angled road T and crossings (2026-10-02).** T: each parallel's end slides along
-  itself to meet the road (searching the road's further pieces, up to 5x the offset,
-  not below 15 degrees), its first edge lengthened as one edge (a short piece before a
-  junction was refused) or cut exactly at the road. Reliable from 90 down to about 20
-  degrees at the road builder's 4 m spacing. Roads: 10 m minimum piece next to a
-  junction, 8 m / tan(angle) room along the road at flat angles (guesses). Angled
-  crossings at 4 m spacing are refused by the game: two junctions at 42 degrees 39 m
-  apart overlap (a junction takes about the crossing road's width / sin(angle) of the
-  road it crosses). The builder's own verdict flips between ok and Collision at 21-36
-  degrees. To test: angled crossings with more spacing.
-- **Road junctions: on, first tests passed (2026-10-02).** Crossings of two-way roads,
-  a highway pair across a town road and a pair starting at a road built, no crash.
-  Crosswalks now only over roads with sidewalks. Three crashes (`map_util.h`
-  "it != map.end()", while the game evaluated the preview) came from plans where an
-  extra road crossed or branched onto a road. Our junction nodes had no node config at
-  all. Study of the road builder's junctions (`docs/studies/2026-10-02_native-junctions.md`):
-  every node gets a config, lanes counted from the node, every turn but U-turns.
-  `planner.junctionConnections` reproduces all four studied junctions exactly
-  (`tests/junction_test.lua`); `ROAD_JUNCTIONS = true`. A junction whose config fails
-  is refused, never sent. Untested in game; trams (`withTram`) and roads with more
-  lanes not studied.
-- **Room between road junctions (2026-10-02).** Parallel roads crossing a road make
-  junctions a spacing apart along it; the game refuses them when they are too close
-  (with the road builder's own 4 m gap even near 90 degrees; from about 9-10 m most
-  angles work, and a sharper angle needs less, its junction being longer). Not one
-  number. For now a refused plan with junctions suggests more spacing. Possible later:
-  work out the spacing needed from the crossing angles and offer or apply it.
-- **Starting a drag from the extra road's end.** The new pair pivots around the other
-  road, so its extra road lands beside or into the old pair; some angles are accepted,
-  some refused (collision). Wanted: a drag from either end of a pair continues the pair.
+- **Starting a drag from the extra road's end.** The new bundle pivots around the other
+  road, so its extra road lands beside or into the old bundle; some angles are accepted,
+  some refused (collision). Wanted: a drag from either end of a bundle continues it.
 - **Corner filling.** Sharp corners only join the centre lines. Roads are wide, so the
-  inside of a sharp corner overlaps and outside corners are spiky. The answer is filling
-  the gaps (a short curve on the extra road in the corner).
-- **Left turns at a pair's end (extra road on the inside).** The road builder refuses
-  the player's own drag: its kink collides with the old extra road beside it. Ruled out
-  2026-10-01: builder geometry controls (none), skipRender without an error, a Selector
-  (disables the native builder), staggered pair ends, a road tool of our own, cutting
-  back mid-drag. Still to try: whether changing the proposal the builder hands to
-  `guiHandleEvent` (`builder.proposalCreate`) changes what gets built. If not: accept
-  it; curved drags that leave the road end tangentially work.
+  inside of a sharp corner overlaps and outside corners are spiky. To compare with a
+  native hand-built corner first: whether the game accepts and shapes it as it is.
 - **Kinks where a drag starts at a junction** (not a road end).
-- **Untested:**
-  - roads crossing tracks and tracks crossing roads (level crossings are not planned);
-  - side-specific edge decorations (barriers) on reversed roads, whether they need
-    flipping;
-  - the preview red at ~120 degree corners: the game reports a non-critical Collision
-    because the preview is judged before the drawn road exists; the build goes through.
-    Possible fix: put the drawn segments into the preview proposal too.
-- **Known limitation, not worked around:** a straight-mode drag leaving a pair's end at
-  an angle toward the extra road is refused by the game itself once the turn collides
-  with the extra road (from ~36 degrees with the builder's spacing). The curved tool is
-  the way to turn.
+- **Show refused extra tracks.** When our own plan has a problem, the extra tracks are
+  not shown at all. Decided 2026-10-02: two modes drawn with `builtin.EdgeRenderable`
+  (not judged by the game): a stripped-down default with the problem segment in red;
+  the Wireframe view (all edges by kind) as the detailed option.
+- **Translations.** English only. Easy to add at any time.
 
-## Open: features
+## Open: known limits and to-confirm
 
-- **Level crossings (2026-10-03): built, to test.** Roads over tracks and tracks over
-  roads get a shared node down to 6 degrees, the native room on both (fitted on one flat
-  build, docs/studies/2026-10-03_native-level-crossings.md: check the constant at a second
-  angle), and the road's lanes straight through as the node's config.
-- **Translations.** The strings are English only. Easy to add at any time.
-- **Undo.** To be started here, where it can be built in context, and moved to its own
-  mod later.
+- **Kinks at a bundle's end, the builder's own collision (2026-10-05).** A straight-mode
+  kink from the end of a bundle collides with the untrimmed end of the parallel on the
+  inside of the turn (side C: from about 63 degrees; earlier with the parallels on the
+  inside). The mod trims that parallel after the build, but the builder judges its own
+  road against the world as it is, and a script answering `builder.proposalCreate` can
+  only add errors (base game scripts: company permits, missions), never lift the
+  builder's verdict. Workarounds: the curved tool, or bulldoze a piece of the inside
+  parallel by hand first (then down to 90 degrees). Accepted for now.
+- **Level crossings: room constant** fitted on one flat build (19 m beyond the overlap):
+  check at a second angle (15-20 degrees). docs/studies/2026-10-03_native-level-crossings.md
+- **Track crossing clearance** (1.5 m / tan(angle)) fitted on one angle (6.1 degrees):
+  check at a second.
+- **Road minimum piece** (10 m) is a first guess, not measured.
+- **Red flash when a drag first hits a house.** Cosmetic: the game has to report the
+  collision before the plan can name the house for removal.
+- **Explain what the game alone refuses** ("Construction Not Possible"): the drag check
+  dumps our refused plan; a pairwise native build shows the difference.
+- **Untested:** side-specific edge decorations (barriers) on reversed roads; trams.
+- **Performance:** see docs/performance.md.
 
 ## Before a release
 
-- Turn off the per-build proposal dump (`DEBUG_DUMP` in `parallelism.script.lua`) and
-  the dump at drag start (`DUMP_AT_DRAG_START`).
-- Remove the radius line code (`SHOW_RADIUS`, off): it lives in the sibling mod Better
-  Construction Tooltip now.
+- Turn off the per-build proposal dump (`DEBUG_DUMP`), the dump at drag start
+  (`DUMP_AT_DRAG_START`), the crossing measurement (`MEASURE_CROSSINGS`), and decide on
+  `DUMP_BEFORE_JUDGING` (off), `PERF_MEASURES` and the held-still logging.
+- Remove the radius line code (`SHOW_RADIUS`, off): it lives in Better Construction
+  Tooltip now.
 - The module cache clearing at the top of `parallelism.script.lua` is a dev aid; decide
   whether it stays.
-- Derive the node reuse, node move and minimum piece distances from the template's
-  `trackDistance` instead of fixed meters.
-- Dev aids to decide on: the Wireframe param (`DEBUG_WIREFRAME`), held-still logging.
+- Dev aids to decide on: the Wireframe param (`DEBUG_WIREFRAME`).
 
 ## Rules
 
-- **Existing track: as the native builder (2026-10-02).** Crossing nodes lie exactly on
-  both tracks. Nodes near a crossing: our own ones (offsets of the drawn track's nodes)
-  are dropped or slid onto the crossing. A plain node of an existing track, first
-  choice: slid onto the crossing or away from it within 5 cm of the old line. Else, as
-  the native builder does (study `docs/studies/2026-10-02_native-crossings.md`): the
-  node is removed and the old track refitted from the crossing to a new node 30 m on
-  (or the next node) with an arc-like cubic, within 0.5 m of the old line and not
-  tighter than the type's minimum radius; else the drag is refused. Switches still
-  merge to clear their zone. Our own nodes reuse existing ones only within 5 cm (0.1 m
-  at run ends); tracks do not snap to loose ends. (Until 2026-10-02 the rule was
-  stricter: no reshaping beyond the 5 cm slides.) Not yet refitted: a seam between two
-  edges that are both crossed (`absorbNeighbour` still only slides).
-- **Tooltip additions are out of scope.** Anything in the builder tooltip belongs in
-  the sibling mod Better Construction Tooltip (`mods/better-construction-tooltip`), and
-  must add to the tooltip (wrap `getProposalStringsFn`, keep what is there) and be
-  switchable. The curve radius override is the sibling mod Tighter Curves
-  (`mods/tighter-curves`).
+- **STRICT: replicate the game's pattern, geometry and math (2026-10-04).** No more
+  hard-coded limits, distances or tolerances than the game itself appears to hard-code;
+  everything else emerges from the geometry. Limits that exist in the game (minimum
+  radius, widths, track distance) are read from it at run time (other mods and updates
+  change them). Only exception: a cut-off that saves processing on what cannot work
+  anyway, never one that decides what gets built.
+- **Existing roads and tracks keep their shape.** Re-laid by the chain module: one edge
+  per stretch where one curve follows within 5 cm, else refitted as native (arc-like from
+  the junction, within 0.5 m and not tighter than the type allows), else refused.
+- **No partial builds.** Whatever the game would refuse is refused before the click; a
+  plan the game cannot judge is never shown or built.
+- **Pairwise testing.** When the game refuses something, build the same natively and
+  compare the dumps.
+- **Tooltip additions are out of scope.** They belong in Better Construction Tooltip;
+  curve radius overrides in Tighter Curves.
 
 ## Done
 
-- **Buildings in the way (2026-10-02).** The builder's own proposal lists the
-  constructions of houses in its way for removal (`toRemove`); ours got them back as
-  collisions (red, build blocked). Now the preview collects town buildings the game
-  reports as collisions, plans again with their constructions in
-  `constructionsToRemove` (yellow outline, as native), keeps only those the tracks
-  still pass, and hands the list to the build. Tracks and roads confirmed in game.
-  Industries and other constructions stay collisions. `refundableEntities` is not set.
-- **Terrain, fields, catenary, bridges (2026-10-01/02).** Terrain needs nothing: the
-  extra tracks follow the drawn one's heights; follow terrain, embankments, levelling,
-  cuttings and tunnels work (revisit on an actual failure). Fields are cleared.
-  Catenary: the extra tracks had no wires and the masts covered only two tracks,
-  because their edge `distance` was 0; native track carries the template's
-  `trackDistance` (5). Copied from the drawn track now. The game groups side-by-side
-  edges into "parallel strips" by it (computed by the game, in the proposal data).
-  Bridges got only a narrow central pillar; with `extendProposalRedoPillars` and the
-  distance they span the whole bundle.
-- **Side: L / CL / CR / R (2026-10-02).** Center split in two, the odd one out of an
-  uneven split on the left or right. Roads with at most 2 offer Left / Right only.
-- **Spacing (2026-10-01).** One slider: the gap for roads (default the road builder's
-  4 m, 0 = edge to edge), the centre distance for tracks (default the type's own).
-- **Preview while dragging.** The builder calls `getProposalStringsFn(proposal,
-  proposalData)` with its live proposal on every change of the drag;
-  `builtin.ProposalViewer` renders our proposal. It trails the builder's own track by a
-  few frames: the builder draws natively and only then hands its proposal to Lua, so
-  ours can never be in the same frame (a fixed viewer id does not help). An outline
-  preview that follows the mouse more closely was considered and not wanted: the exact
-  preview is worth more.
-- **The drag check knows the game's verdict on the preview (2026-10-01).** A drag whose
-  preview the game judges critical is refused before the click, instead of failing.
-- **One build, no partial builds.** The drawn and extra tracks go in one command;
-  refusals use `errorMessages` from `builder.proposalCreate`. A failure after the click
-  adds a notification of the mod's own type (`parallelism_notification`).
-- **Cost (2026-09-30).** Built with a `Context` whose `player` is set, each extra track
-  is charged by its length. Bulldozing works like hand-built track.
-- **Flat crossings and the crossing crash (2026-09-30).** The game asserted in
-  `track/Crossing.cpp` on a track bending at a crossing node. Crossings under 6 degrees
-  are a game limit (it refuses them hand-drawn too); the mod refuses them. Plans with a
-  track bending at a crossing are never built; `tests/analyze_plan.lua` checks it.
-- **Switch zones (2026-09-30).** A switch the mod creates on a base track clears plain
-  nodes within sqrt(2 * branch radius * 5 m) on both sides, as the native builder does
-  (the 5 m clearance assumed).
-- **Merges.** Edges are cubic curves, not arcs: merging two pieces of one circle needs
-  fitted tangent lengths (the length-ratio merge strayed 3 cm on a 0.44 m + 50 m merge,
-  the fit 1.4 mm). The deviation check samples every half meter. Merges refuse to bend
-  tighter than the type allows; cut pieces of existing tracks are checked against their
-  own type. Bumps already in the world stay; plans crossing them are refused.
-- **Node configs.** Our nodes copy the config of the drawn node they mirror (edges
-  matched by direction, swapped for reversed roads); touched existing nodes get theirs
-  rewritten. Removing a config from a node that had none crashed the game
-  (`ecs::Engine::PostRemoveComponent`); only existing configs are removed now.
-- **Road kinks at road ends.** The road builder lets a drag leave a road end at an
-  angle; the old road's parallel is cut back or extended to the miter corner (1 to 100
-  degrees). Right-turn spiral from 10 to 135 degrees confirmed; sharper is refused.
-  Curved mode crash (`lane_config_util.cpp` "!laneConfigs.empty()"): lane configs of
-  every planned edge are checked now.
-- **Matching the road builder (2026-10-01).** Dumps of a hand-built and a mod-built
-  pair: edges identical; spacing and node configs were the differences, both fixed.
-- **Split highways.** The street builder gets Roads, Side, Spacing and Direction (Same /
-  Opposite, default Opposite; Side defaults to Left). Highway templates are one-way, so
-  the other carriageway is the same template with reversed edges. Roads lie a road
-  width apart (the template's lane widths) plus the spacing. More than 2 roads with the
-  mod option "moreRoads".
+- **One rule for nodes near junctions (2026-10-03/04).** docs/design/2026-10-03_node-placement.md,
+  `parallelism_chain.lua` (offline tests: `tests/chain_test.lua`). Every road the plan
+  touches, existing ones and our own parallels, is re-laid around its junctions: no
+  plain node within a junction's keep-out, one edge per stretch. The keep-out
+  (`junctionRoom`): where the two surfaces overlap along this road (the other's half
+  width / sin(a) + this one's half width / tan(a)) plus 26 m at a road junction, 19 m at
+  a level crossing; the track clearance for track crossings; the switch zone for
+  switches. Neighbouring junctions need their corners plus 2.5 m. A final plan check
+  names any node left inside a keep-out and refuses overlapping corners.
+- **Road junctions (2026-10-02/03).** Every junction gets a node config (the mod's own
+  lane rules, `tests/junction_test.lua`); X down to about 12.4 degrees (the native limit:
+  below it the drawn road itself collides), 16 m spacing at 20 degrees as native; T down
+  to 12 degrees, flatter refused ("Angle is too shallow"). T ends slide along the
+  parallel to meet the road, shortened or lengthened over as many edges as needed.
+  docs/studies/2026-10-03_road-junction-spacing.md
+- **Level crossings (2026-10-03/04).** Roads over tracks and tracks over roads, down to 6
+  degrees; T's on a track; a T on a track extended into an X continues smoothly (as
+  native, even in straight mode), the transition into a curve as long as the radius
+  needs. The node's config: the road's lanes straight through only.
+- **How tight a road may curve (2026-10-04).** The tightest point of a road edge: half
+  its width plus 1 m (native, two widths); the template's minCurveRadius is ignored by
+  the road builder. Tracks: the type's own minimum. docs/studies/2026-10-04_native-road-radius.md
+- **Partial builds by a race, judged in the game script (2026-10-03).** The drag check
+  plans against the world after the drawn road (the builder's proposal laid over it) and
+  has the game judge our plan joined with the builder's (`joinWithBuilder`).
+- **Crashes (2026-10-03).** A node without edges (StreetShapeFactory `!cc.empty()`):
+  only used nodes are emitted, the join refuses any left, the preview shows only what
+  the game can judge. Negative (proposal) ids never reach `getComponent`. The builder's
+  proposal lists are kept alive while their elements are used. A preview past a build is
+  dropped once the world no longer has what it refers to.
+- **Corners at a bundle's end (2026-10-01, 2026-10-05).** The old parallel is cut back or
+  extended to the miter corner at any kink (no cut-off), cut back over as many edges as
+  it takes.
+- **Buildings in the way (2026-10-02).** Town buildings the game reports as collisions
+  are removed with the build (as native); industries stay collisions.
+- **Terrain, fields, catenary, bridges (2026-10-01/02).** Catenary needs the edge
+  `distance` (the template's `trackDistance`); bridges need `extendProposalRedoPillars`.
+- **Side: L / CL / CR / R, Spacing, split highways, cost, switch zones, merges, node
+  configs** (2026-09-30 to 10-02): see git history.
+- **Preview while dragging.** `getProposalStringsFn` with the builder's live proposal,
+  rendered by `builtin.ProposalViewer`; a few frames behind the builder by design.
