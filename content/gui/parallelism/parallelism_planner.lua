@@ -1230,7 +1230,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	local tracks = {}
 	-- per track, its own nodes that only mirror the drawn road's (free to go)
 	local trackMovable = {}
-	-- existing parallels whose loose end moves to a corner: { entity, comp, looseNode,
+	-- existing parallels whose loose end moves to a corner: { entity, comp, removeEdges, removeNodes,
 	-- node0, node1, edge }, and the corner nodes, where a kink is meant
 	local rebuilt = {}
 	local corners = {}
@@ -1316,35 +1316,72 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			if corner == nil then
 				return nil
 			end
-			local parEdge = toEdge(par)
 			corner.z = loose.position.z
-			local q0, q1 = parEdge.p0, parEdge.p1
-			local looseAtEnd = par.node1 == loose.entity
-			if looseAtEnd then
-				q1 = corner
-			else
-				q0 = corner
+			-- The old parallel, from its loose end back through its plain nodes, each edge run
+			-- towards the loose end: on the inside of a sharp kink the corner lies further back
+			-- than its last edge (2026-10-05). (Ten edges: a cut-off for how far to look.)
+			local back = {}
+			do
+				local entity, comp, near = parEntity, par, loose.entity
+				for __ = 1, 10 do
+					local e = toEdge(comp)
+					local towardNear = comp.node1 == near
+					local farNode = towardNear and comp.node0 or comp.node1
+					back[#back + 1] = { entity = entity, comp = comp, near = near, far = farNode,
+						edge = towardNear and e or geometry.reverse(e), sameWay = towardNear }
+					local segs = getNode2Segments()[farNode]
+					if segs == nil or #segs ~= 2 or drawnNodes[farNode] or reusedNodes[farNode] then
+						break
+					end
+					local nextEntity = segs[1] == entity and segs[2] or segs[1]
+					local nextComp = not drawnEntities[nextEntity] and not splits[nextEntity] and getEdgeComp(nextEntity) or nil
+					if nextComp == nil or not isPlanned(nextComp) or nextComp.roadTemplate ~= par.roadTemplate
+						or (nextComp.objects and #nextComp.objects > 0) then
+						break
+					end
+					entity, comp, near = nextEntity, nextComp, farNode
+				end
 			end
+			-- the edge the corner lies on (inside), or the last one, reaching on (outside)
+			local at, best = 1, math.huge
+			for i, b in ipairs(back) do
+				local __, d = geometry.closestParameter(corner, b.edge)
+				if d < best then
+					at, best = i, d
+				end
+			end
+			local cutEdge = back[at]
+			local q0, q1 = cutEdge.edge.p0, corner
 			if geometry.horizontalDistance(q0, q1) < MIN_PIECE_LENGTH then
 				return nil
 			end
-			local t0, t1 = geometry.offsetTangents(parEdge.p0, parEdge.p1, parEdge.t0, parEdge.t1, q0, q1)
+			local t0, t1 = geometry.offsetTangents(cutEdge.edge.p0, cutEdge.edge.p1, cutEdge.edge.t0, cutEdge.edge.t1, q0, q1)
 			local node = newNode(corner)
-			local far = { entity = looseAtEnd and par.node0 or par.node1, position = looseAtEnd and parEdge.p0 or parEdge.p1 }
+			local far = { entity = cutEdge.far, position = q0 }
+			local removeEdges, removeNodes = {}, {}
+			for i = 1, at do
+				removeEdges[#removeEdges + 1] = back[i].entity
+				removeNodes[#removeNodes + 1] = back[i].near
+				movedAway[back[i].near] = true
+				-- the rebuilt edge and those it replaces are not crossed, split or moved by the
+				-- rest of the plan
+				drawnEntities[back[i].entity] = true
+			end
+			local piece = { p0 = q0, p1 = q1, t0 = t0, t1 = t1 }
 			rebuilt[#rebuilt + 1] = {
-				entity = parEntity,
-				comp = par,
-				looseNode = loose.entity,
-				node0 = looseAtEnd and far or node,
-				node1 = looseAtEnd and node or far,
-				edge = { p0 = q0, p1 = q1, t0 = t0, t1 = t1 },
+				entity = cutEdge.entity,
+				comp = cutEdge.comp,
+				removeEdges = removeEdges,
+				removeNodes = removeNodes,
+				-- (the way the old edge ran: one-way roads)
+				node0 = cutEdge.sameWay and far or node,
+				node1 = cutEdge.sameWay and node or far,
+				edge = cutEdge.sameWay and piece or geometry.reverse(piece),
 			}
 			corners[node.entity] = true
-			movedAway[loose.entity] = true
-			-- the rebuilt edge is not crossed, split or moved by the rest of the plan
-			drawnEntities[parEntity] = true
-			log(string.format("  node %d: kinks %.1f deg, parallel end %d moved %.2f m to the corner ", entity, kink, loose.entity,
-				geometry.horizontalDistance(loose.position, corner)) .. shared.vecToString(corner))
+			log(string.format("  node %d: kinks %.1f deg, parallel end %d moved %.2f m to the corner%s ", entity, kink, loose.entity,
+				geometry.horizontalDistance(loose.position, corner), at > 1 and string.format(" (cut back over %d edges)", at) or "")
+				.. shared.vecToString(corner))
 			return node
 		end
 
@@ -2456,10 +2493,14 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	-- existing parallels ending at a corner now: the edge again with its loose end moved
 	for __, r in ipairs(rebuilt) do
 		addSegment(r.node0, r.node1, r.edge,
-			{ comp = r.comp, segmentType = segmentType, playerOwned = getPlayerOwned(r.entity), origins = { r.entity } })
-		edgesToRemove[#edgesToRemove + 1] = r.entity
-		nodesToRemove[#nodesToRemove + 1] = r.looseNode
-		stats.moved = stats.moved + 1
+			{ comp = r.comp, segmentType = segmentType, playerOwned = getPlayerOwned(r.entity), origins = r.removeEdges })
+		for __, e in ipairs(r.removeEdges) do
+			edgesToRemove[#edgesToRemove + 1] = e
+		end
+		for __, n in ipairs(r.removeNodes) do
+			nodesToRemove[#nodesToRemove + 1] = n
+		end
+		stats.moved = stats.moved + #r.removeNodes
 	end
 
 	-- Our own parallels: their nodes only mirror the drawn road's, so they are plain nodes
