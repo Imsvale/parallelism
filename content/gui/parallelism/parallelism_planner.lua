@@ -1357,23 +1357,64 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if expected == nil then
 					return nil
 				end
-				local best, bestDistance = nil, 2 * math.abs(offset)
-				for __, n in ipairs(nodesInCircle(api.type.Vec2f.new(expected.x, expected.y), bestDistance)) do
-					if n ~= endEntity then
-						local p = nodePosition(n)
-						local d = p and geometry.horizontalDistance(p, expected) or math.huge
-						if d < bestDistance then
-							-- a junction of the same road with a road parallel to one of those
-							local parallel = false
-							local jPair, jOthers = throughRoad(n, drawnEntities, isPlanned)
-							for __, dir in ipairs(jPair and jOthers or {}) do
-								for __, inc in ipairs(incoming) do
-									parallel = parallel or geometry.angleBetween(dir, inc) < 1
+				-- the junctions along that same road, both ways (2026-10-05: a junction off it,
+				-- at the far end of a road coming in, was taken)
+				local reach = 2 * math.abs(offset)
+				local along = {}
+				for __, first in ipairs(pair) do
+					local seg, from, walked = first, endEntity, 0
+					local seen = {}
+					while seg and not seen[seg] do
+						seen[seg] = true
+						local c = getEdgeComp(seg)
+						if c == nil then
+							break
+						end
+						local n = c.node0 == from and c.node1 or c.node0
+						local p0, p1 = nodePosition(from), nodePosition(n)
+						walked = walked + ((p0 and p1) and geometry.horizontalDistance(p0, p1) or math.huge)
+						-- (a junction within reach of the expected point is at most three
+						-- offsets away in a straight line; four along a curving road)
+						if walked > 2 * reach then
+							break
+						end
+						along[#along + 1] = n
+						local nextPair = throughRoad(n, drawnEntities, isPlanned)
+						local nextSeg = nil
+						if nextPair == nil then
+							local at = {}
+							for __, t in ipairs(getNode2Segments()[n] or {}) do
+								if not drawnEntities[t] then
+									at[#at + 1] = t
 								end
 							end
-							if parallel then
-								best, bestDistance = { entity = n, position = p }, d
+							if #at == 2 then
+								nextPair = at
 							end
+						end
+						for __, t in ipairs(nextPair or {}) do
+							if t ~= seg then
+								nextSeg = t
+							end
+						end
+						seg, from = nextSeg, n
+					end
+				end
+				local best, bestDistance = nil, reach
+				for __, n in ipairs(along) do
+					local p = nodePosition(n)
+					local d = p and geometry.horizontalDistance(p, expected) or math.huge
+					if d < bestDistance then
+						-- a junction of the same road with a road parallel to one of those
+						local parallel = false
+						local jPair, jOthers = throughRoad(n, drawnEntities, isPlanned)
+						for __, dir in ipairs(jPair and jOthers or {}) do
+							for __, inc in ipairs(incoming) do
+								parallel = parallel or geometry.angleBetween(dir, inc) < 1
+							end
+						end
+						if parallel then
+							best, bestDistance = { entity = n, position = p }, d
 						end
 					end
 				end
