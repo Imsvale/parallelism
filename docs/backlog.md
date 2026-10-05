@@ -15,7 +15,6 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
 - **Corner filling.** Sharp corners only join the centre lines. Roads are wide, so the
   inside of a sharp corner overlaps and outside corners are spiky. To compare with a
   native hand-built corner first: whether the game accepts and shapes it as it is.
-- **Kinks where a drag starts at a junction** (not a road end).
 - **Show refused extra tracks.** When our own plan has a problem, the extra tracks are
   not shown at all. Decided 2026-10-02: two modes drawn with `builtin.EdgeRenderable`
   (not judged by the game): a stripped-down default with the problem segment in red;
@@ -111,6 +110,12 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
   continue the bundle's loose ends beside the drawn road's start or end (the arrangement
   that continues the most; the Side setting decides otherwise). Tested straight, curved,
   kinked from either outer road, and across a 3x3 grid of crossings.
+- **Continuing from a bundle's junctions at another angle (2026-10-05).** A drag from one
+  of our T's on a road, at a new angle: each parallel continues from its own junction on
+  that road (the road running through the drawn node, followed both ways), at the
+  spacing those junctions give (in-world placement over the panel: wider or narrower
+  than set). Straight and curved; at a level crossing the roads continue smoothly as
+  native.
 - **Corners at a bundle's end (2026-10-01, 2026-10-05).** The old parallel is cut back or
   extended to the miter corner at any kink (no cut-off), cut back over as many edges as
   it takes.
