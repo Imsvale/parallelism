@@ -1090,6 +1090,34 @@ end
 -- planOnly just nil and the stats, e.g. to check a drag before it is built.
 -- options.reverse: the extra edges run against the drawn ones (the other carriageway of
 -- a split highway: a one-way road's lanes run along its edge).
+-- The road running straight through a node (two of its edges in line, the drawn ones and
+-- accept(c) false left out): those two edges, and the leaving directions of the others.
+-- nil if no two run on through.
+local function throughRoad(nodeEntity, isDrawn, accept)
+	local list = {}
+	for __, seg in ipairs(getNode2Segments()[nodeEntity] or {}) do
+		local c = not isDrawn[seg] and getEdgeComp(seg) or nil
+		if c and accept(c) then
+			local e = toEdge(c)
+			list[#list + 1] = { entity = seg, dir = c.node0 == nodeEntity and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z } }
+		end
+	end
+	for i = 1, #list do
+		for j = i + 1, #list do
+			if geometry.angleBetween(list[i].dir, list[j].dir) > 179 then
+				local others = {}
+				for k = 1, #list do
+					if k ~= i and k ~= j then
+						others[#others + 1] = list[k].dir
+					end
+				end
+				return { list[i].entity, list[j].entity }, others
+			end
+		end
+	end
+	return nil
+end
+
 local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	if type(offsets) == "number" then
 		offsets = { offsets }
@@ -1320,27 +1348,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- set spacing would put a new junction a few metres from the old one (2026-10-05).
 		do
 			local function junctionOfOurs(endEntity, position, tangent)
-				local segments = getNode2Segments()[endEntity] or {}
-				local edges = {}
-				for __, seg in ipairs(segments) do
-					local c = not drawnEntities[seg] and getEdgeComp(seg) or nil
-					if c and isPlanned(c) then
-						local e = toEdge(c)
-						edges[#edges + 1] = c.node0 == endEntity and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z }
-					end
-				end
-				if #edges ~= 3 then
-					return nil
-				end
-				-- the road the drawn one came in on: the one not running on through the node
-				local incoming = nil
-				for i = 1, 3 do
-					local j, k = i % 3 + 1, (i + 1) % 3 + 1
-					if geometry.angleBetween(edges[j], edges[k]) > 179 then
-						incoming = edges[i]
-					end
-				end
-				if incoming == nil then
+				-- the roads at the node besides the one running on through it
+				local pair, incoming = throughRoad(endEntity, drawnEntities, isPlanned)
+				if pair == nil or #incoming == 0 then
 					return nil
 				end
 				local expected = geometry.offsetPoint(position, tangent, offset)
@@ -1353,18 +1363,15 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						local p = nodePosition(n)
 						local d = p and geometry.horizontalDistance(p, expected) or math.huge
 						if d < bestDistance then
+							-- a junction of the same road with a road parallel to one of those
 							local parallel = false
-							local count = 0
-							for __, seg in ipairs(getNode2Segments()[n] or {}) do
-								local c = getEdgeComp(seg)
-								if c and isPlanned(c) then
-									count = count + 1
-									local e = toEdge(c)
-									local leaving = c.node0 == n and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z }
-									parallel = parallel or geometry.angleBetween(leaving, incoming) < 1
+							local jPair, jOthers = throughRoad(n, drawnEntities, isPlanned)
+							for __, dir in ipairs(jPair and jOthers or {}) do
+								for __, inc in ipairs(incoming) do
+									parallel = parallel or geometry.angleBetween(dir, inc) < 1
 								end
 							end
-							if count >= 3 and parallel then
+							if parallel then
 								best, bestDistance = { entity = n, position = p }, d
 							end
 						end
@@ -1539,6 +1546,16 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					if comp and (isPlanned(comp) or isLevelCrossable(comp)) then
 						start[#start + 1] = s
 					end
+				end
+			end
+			-- at a junction: only the road running on through it, not the other roads there
+			-- (2026-10-05: a parallel slid onto a road coming in to the same junction)
+			if #start > 2 then
+				local pair = throughRoad(entity, drawnEntities, function(c)
+					return isPlanned(c) or isLevelCrossable(c)
+				end)
+				if pair then
+					start = pair
 				end
 			end
 			if #start < 2 then
