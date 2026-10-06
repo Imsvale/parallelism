@@ -919,11 +919,6 @@ return {
 	guiHandleEvent = function(_userParams, _state, _guiState, _src, id, name, param)
 		if name == shared.EVENT_SET_PARAMS then
 			current.resName = param.resName
-			if param.continuation ~= current.continuation then
-				current.continuation = param.continuation
-				planner.setContinuation(param.continuation)
-				shared.log("continuation: " .. tostring(param.continuation))
-			end
 			local builder = param.builder or shared.TRACK_BUILDER
 			local reverse = param.reverse or false
 			if param.count ~= current.count or param.side ~= current.side or param.spacing ~= current.spacing
