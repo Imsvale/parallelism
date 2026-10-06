@@ -6,7 +6,7 @@ package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
 -- the planner logs through the game; outside it nothing is needed at load
 rawset(_G, "api", rawget(_G, "api") or {})
 -- in game modules are required with their extension ("parallelism_shared.lua")
-for __, name in ipairs({ "parallelism_shared", "parallelism_geometry", "parallelism_chain" }) do
+for __, name in ipairs({ "parallelism_config", "parallelism_shared", "parallelism_geometry", "parallelism_chain" }) do
 	package.preload[name .. ".lua"] = function()
 		return require(name)
 	end

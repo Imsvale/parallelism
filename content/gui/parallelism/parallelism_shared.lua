@@ -2,6 +2,9 @@
 -- Each state loads its own copy, so this must not hold state that another one reads,
 -- and it must stay free of gui requires.
 
+-- the tweakables (counts, spacing range): see parallelism_config.lua
+local config = require "parallelism_config.lua"
+
 local shared = {
 	KEY_COUNT = "parallelismCount",
 	KEY_SIDE = "parallelismSide",
@@ -26,14 +29,8 @@ local shared = {
 	SIDE_CENTER_RIGHT = 3,
 	SIDE_RIGHT = 4,
 
-	MAX_COUNT = 12,
-	-- roads with the mod option "moreRoads"
-	MAX_MORE_ROADS = 6,
-	-- roads: a split highway needs 2; more only with the mod option "moreRoads"
-	MAX_ROADS = 2,
-
-	SPACING_STEP = 0.5,
-	MAX_SPACING = 20,
+	SPACING_STEP = config.SPACING_STEP,
+	MAX_SPACING = config.MAX_SPACING,
 	-- Roads side by side: the road builder snaps a second road a road width plus this
 	-- much away (measured 2026-10-01: 20 m between two 16 m one-way roads). The default
 	-- of the Spacing slider for roads, which is the gap between them.
@@ -95,18 +92,25 @@ function shared.modParam(key)
 	return ok and value or nil
 end
 
--- the most tracks or roads (the drawn one included) a builder offers
+-- the most tracks or roads (the drawn one included) a builder offers: the mod settings
+-- maxTracks / maxRoads, else the config's
 function shared.maxCount(builder)
-	if builder == shared.STREET_BUILDER then
-		local moreRoads = shared.modParam("moreRoads")
-		if not shared.loggedModParams then
-			shared.loggedModParams = true
-			shared.log("mod option moreRoads = " .. tostring(moreRoads))
-		end
-		-- the 1-based index of the chosen value: 1 = No, 2 = Yes
-		return moreRoads == 2 and shared.MAX_MORE_ROADS or shared.MAX_ROADS
+	local streets = builder == shared.STREET_BUILDER
+	local key = streets and "maxRoads" or "maxTracks"
+	-- the settings' values run 1, 2, 3, ..., so the chosen value and its 1-based index
+	-- (which is what the game was seen to return) are the same number
+	local value = tonumber(shared.modParam(key))
+	if not shared.loggedModParams then
+		shared.loggedModParams = {}
 	end
-	return shared.MAX_COUNT
+	if not shared.loggedModParams[key] then
+		shared.loggedModParams[key] = true
+		shared.log("mod option " .. key .. " = " .. tostring(value))
+	end
+	if value == nil or value < 1 then
+		return streets and config.MAX_ROADS or config.MAX_TRACKS
+	end
+	return math.floor(value)
 end
 
 -- a short fingerprint of a (long) string, to compare drag signatures in the log
