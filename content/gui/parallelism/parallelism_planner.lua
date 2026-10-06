@@ -1376,6 +1376,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	-- our node -> the drawn node it mirrors, for node configs
 	local mirrorOf = {}
 	timing.firstTrack = clockMs()
+	-- junctions our parallels continue from, one parallel each (see junctionOfOurs)
+	local adoptedJunctions = {}
 	for __, offset in ipairs(offsets) do
 		timing.trackStart = clockMs()
 		-- node of the drawn track -> its counterpart on the offset track
@@ -1393,21 +1395,59 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- set spacing would put a new junction a few meters from the old one (2026-10-05).
 		do
 			local function junctionOfOurs(endEntity, position, tangent)
-				-- the roads at the node besides the one running on through it
-				local pair, incoming = throughRoad(endEntity, drawnEntities, isPlanned)
-				if pair == nil or #incoming == 0 then
+				-- the edges of ours at a node, with the direction each leaves it in
+				local function leaving(n)
+					local list = {}
+					for __, seg in ipairs(getNode2Segments()[n] or {}) do
+						local c = not drawnEntities[seg] and getEdgeComp(seg) or nil
+						if c and isPlanned(c) then
+							local e = toEdge(c)
+							list[#list + 1] = { seg = seg, dir = c.node0 == n and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z } }
+						end
+					end
+					return list
+				end
+				-- The road the drawn one leaves: the two edges at its node running on through it,
+				-- of those pairs the one furthest from the drawn direction (2026-10-06: at a node
+				-- where an earlier continuation runs on from a road coming in, that road was
+				-- taken for it); the others come in to it.
+				local at = leaving(endEntity)
+				local pair, pairScore = nil, -1
+				for i = 1, #at do
+					for j = i + 1, #at do
+						if geometry.angleBetween(at[i].dir, at[j].dir) > 179 then
+							local score = math.min(geometry.angleBetween(at[i].dir, tangent), geometry.angleBetween(at[j].dir, tangent))
+							if score > pairScore then
+								pair, pairScore = { i, j }, score
+							end
+						end
+					end
+				end
+				if pair == nil then
+					return nil
+				end
+				local incoming = {}
+				for k, l in ipairs(at) do
+					if k ~= pair[1] and k ~= pair[2] then
+						incoming[#incoming + 1] = l.dir
+					end
+				end
+				if #incoming == 0 then
 					return nil
 				end
 				local expected = geometry.offsetPoint(position, tangent, offset)
 				if expected == nil then
 					return nil
 				end
-				-- the junctions along that same road, both ways (2026-10-05: a junction off it,
-				-- at the far end of a road coming in, was taken)
+				-- The junctions along that same road, both ways, each with the roads off it
+				-- (2026-10-05: a junction off it, at the far end of a road coming in, was taken).
+				-- Through a junction the road goes on straight ahead, whatever else runs on
+				-- through it (2026-10-06: at X junctions of earlier continuations the walk went
+				-- off along a road coming in).
 				local reach = 2 * math.abs(offset)
 				local along = {}
-				for __, first in ipairs(pair) do
-					local seg, from, walked = first, endEntity, 0
+				for __, k in ipairs(pair) do
+					local seg, from, walked = at[k].seg, endEntity, 0
 					local seen = {}
 					while seg and not seen[seg] do
 						seen[seg] = true
@@ -1423,43 +1463,45 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						if walked > 2 * reach then
 							break
 						end
-						along[#along + 1] = n
-						local nextPair = throughRoad(n, drawnEntities, isPlanned)
-						local nextSeg = nil
-						if nextPair == nil then
-							local at = {}
-							for __, t in ipairs(getNode2Segments()[n] or {}) do
-								if not drawnEntities[t] then
-									at[#at + 1] = t
+						local here = leaving(n)
+						local arriving = nil
+						for __, l in ipairs(here) do
+							if l.seg == seg then
+								arriving = l.dir
+							end
+						end
+						local nextSeg, others = nil, {}
+						if arriving then
+							for __, l in ipairs(here) do
+								if l.seg ~= seg and nextSeg == nil and geometry.angleBetween(l.dir, arriving) > 179 then
+									nextSeg = l.seg
 								end
 							end
-							if #at == 2 then
-								nextPair = at
+							for __, l in ipairs(here) do
+								if l.seg ~= seg and l.seg ~= nextSeg then
+									others[#others + 1] = l.dir
+								end
 							end
 						end
-						for __, t in ipairs(nextPair or {}) do
-							if t ~= seg then
-								nextSeg = t
-							end
-						end
+						along[#along + 1] = { node = n, others = others }
 						seg, from = nextSeg, n
 					end
 				end
 				local best, bestDistance = nil, reach
-				for __, n in ipairs(along) do
-					local p = nodePosition(n)
+				for __, a in ipairs(along) do
+					local p = nodePosition(a.node)
 					local d = p and geometry.horizontalDistance(p, expected) or math.huge
-					if d < bestDistance then
+					-- (a junction one parallel continues from is not another's)
+					if d < bestDistance and not adoptedJunctions[a.node] then
 						-- a junction of the same road with a road parallel to one of those
 						local parallel = false
-						local jPair, jOthers = throughRoad(n, drawnEntities, isPlanned)
-						for __, dir in ipairs(jPair and jOthers or {}) do
+						for __, dir in ipairs(a.others) do
 							for __, inc in ipairs(incoming) do
 								parallel = parallel or geometry.angleBetween(dir, inc) < 1
 							end
 						end
 						if parallel then
-							best, bestDistance = { entity = n, position = p }, d
+							best, bestDistance = { entity = a.node, position = p }, d
 						end
 					end
 				end
@@ -1497,6 +1539,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						if r then
 							local adopted = (j.position.x - endInfo[2].x) * r.x + (j.position.y - endInfo[2].y) * r.y
 							log(string.format("  continuing from our junction %d: parallel at %.1f m instead of %.1f m", j.entity, adopted, offset))
+							adoptedJunctions[j.entity] = true
 							offset = adopted
 							break
 						end
