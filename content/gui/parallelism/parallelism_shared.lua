@@ -106,14 +106,13 @@ function shared.maxCount(builder)
 	if not shared.loggedModParams then
 		shared.loggedModParams = {}
 	end
+	local count = (index and index >= 1) and math.floor(index) + shared.COUNT_SETTING_FIRST - 1
+		or (streets and config.MAX_ROADS or config.MAX_TRACKS)
 	if not shared.loggedModParams[key] then
 		shared.loggedModParams[key] = true
-		shared.log("mod option " .. key .. " = " .. tostring(index))
+		shared.log(string.format("mod option %s: index %s, up to %d", key, tostring(index), count))
 	end
-	if index == nil or index < 1 then
-		return streets and config.MAX_ROADS or config.MAX_TRACKS
-	end
-	return math.floor(index) + shared.COUNT_SETTING_FIRST - 1
+	return count
 end
 
 -- a short fingerprint of a (long) string, to compare drag signatures in the log
