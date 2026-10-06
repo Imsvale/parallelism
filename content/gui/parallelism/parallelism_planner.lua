@@ -1910,9 +1910,25 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						-- road's direction whatever the slide missed by: the type's minimum radius
 						-- decides; otherwise only a node moved onto the road may be off the edge)
 						local tolerance = continueDir and math.huge or (JUNCTION_REUSE_DISTANCE + 0.05)
+						-- The meeting point was found along the parallel's direction at this end
+						-- (branchPoint), so on a curving parallel it lies off the curve: the piece is
+						-- then refitted from it in that direction, as each road would leave its own
+						-- node with the drawn one's (2026-10-06: a curved drag from our junction, a
+						-- parallel cut 32.8 m along its curve, 3.6 m off it, was refused)
+						local alongDir = continueDir or (atStart and natural.t0 or natural.t1)
+						local refitHere = false
 						if distance < tolerance and u > 0.001 and u < 0.999 then
 							local first, second = geometry.split(natural, u)
 							keptLength = geometry.arcLength(atStart and second or first)
+						elseif u > 0.001 and u < 0.999 and (function()
+							-- (only shortening: the point ahead of this end along the parallel)
+							local e = atStart and natural.p0 or natural.p1
+							local dot = (x.x - e.x) * alongDir.x + (x.y - e.y) * alongDir.y
+							return (atStart and dot > 0) or (not atStart and dot < 0)
+						end)() then
+							local first, second = geometry.split(natural, u)
+							keptLength = geometry.arcLength(atStart and second or first)
+							refitHere = true
 						end
 						local endHere = geometry.horizontalDistance(x, atStart and natural.p0 or natural.p1)
 						if not keptLength and endHere <= JUNCTION_REUSE_DISTANCE then
@@ -1931,7 +1947,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							-- shortened to almost nothing (2026-10-03: 0.18 m left, its other node
 							-- right on the road): the edge goes, the one before ends at the road
 							pastEnds[#pastEnds + 1] = { slid = slid, x = x, atStart = atStart,
-								other = atStart and node1 or node0, distance = distance }
+								other = atStart and node1 or node0, distance = distance, dir = alongDir }
 							skipEdge = true
 						elseif keptLength then
 							local first, second = geometry.split(natural, u)
@@ -1941,13 +1957,16 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							else
 								natural.p1 = x
 							end
-							if continueDir then
-								local refit = atStart and geometry.arcCubic(x, continueDir, natural.p1, natural.t1)
-									or geometry.arcCubic(natural.p0, natural.t0, x, continueDir)
+							if continueDir or refitHere then
+								local refit = atStart and geometry.arcCubic(x, alongDir, natural.p1, natural.t1)
+									or geometry.arcCubic(natural.p0, natural.t0, x, alongDir)
 								-- (our own new road: how tight it may curve is the only limit, checked
 								-- with the plan; too tight, the transition is made longer, see below)
 								natural = refit
-								transition = { atStart = atStart, dir = continueDir }
+								transition = { atStart = atStart, dir = alongDir }
+								if refitHere then
+									log(string.format("  node %d: the parallel cut %.1f m off its curve, refitted from the node", slid.entity, distance))
+								end
 							end
 						elseif (function()
 							-- the meeting point behind the end (inside the edge, but too far off it
@@ -1965,7 +1984,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							-- shortened by more than this edge: the edge goes, the one before it is
 							-- shortened instead (see pastEnds below)
 							pastEnds[#pastEnds + 1] = { slid = slid, x = x, atStart = atStart,
-								other = atStart and node1 or node0, distance = distance }
+								other = atStart and node1 or node0, distance = distance, dir = alongDir }
 							skipEdge = true
 						elseif (function()
 							-- lengthened as one edge: the road builder leaves a junction with one
@@ -2094,6 +2113,22 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					end
 					movable[other.entity] = nil
 					log(string.format("  node %d: the parallel shortened past its node %d, onto the edge before", pe.slid.entity, other.entity))
+					fitted = true
+					break
+				end
+				-- off a curving edge alongside it: refitted from the node in the parallel's
+				-- direction there, as above
+				if pe.dir and u > 0.001 and u < 0.999 then
+					local first, second = geometry.split(oe.edge, u)
+					if pe.atStart then
+						oe.edge, oe.node0 = geometry.arcCubic(pe.x, pe.dir, second.p1, second.t1), pe.slid
+					else
+						oe.edge, oe.node1 = geometry.arcCubic(first.p0, first.t0, pe.x, pe.dir), pe.slid
+					end
+					oe.transition = { atStart = pe.atStart, dir = pe.dir }
+					movable[other.entity] = nil
+					log(string.format("  node %d: the parallel shortened past its node %d, %.1f m off its curve, refitted from the node",
+						pe.slid.entity, other.entity, distance))
 					fitted = true
 					break
 				end
