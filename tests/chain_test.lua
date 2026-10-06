@@ -89,7 +89,7 @@ do
 		table.concat(r.removedNodes, " "))
 	check("20 X: no problems", #r.problems == 0, table.concat(r.problems, "; "))
 	local between = findPiece(r, "J1", "J0")
-	check("20 X: one edge between neighbouring junctions, 105.3 m", between ~= nil and math.abs(geometry.arcLength(between.edge) - d) < 0.1,
+	check("20 X: one edge between neighboring junctions, 105.3 m", between ~= nil and math.abs(geometry.arcLength(between.edge) - d) < 0.1,
 		pieceLengths(r))
 	local outer = findPiece(r, "J2", "n220")
 	check("20 X: the outer node beyond the keep-out stays", outer ~= nil and geometry.arcLength(outer.edge) > keep, pieceLengths(r))

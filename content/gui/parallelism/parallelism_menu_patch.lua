@@ -630,7 +630,7 @@ end
 -- descriptor rendered right after it gets the preview components
 local injectPreview = false
 
--- Spacing, in meters: the gap between the edges of neighbouring roads or tracks (0 =
+-- Spacing, in meters: the gap between the edges of neighboring roads or tracks (0 =
 -- touching), default the gap the game leaves (the road builder's snap, a track type's
 -- trackDistance less its width). Returns the slider's smallest, largest and default value.
 local function spacingRange(_builder, resName)
@@ -638,7 +638,7 @@ local function spacingRange(_builder, resName)
 end
 
 -- the Spacing from setting as last seen: the slider shows the gap, or the distance
--- between centres (the gap plus the width)
+-- between centers (the gap plus the width)
 local spacingFromCenter = false
 
 local function readSpacingFrom(params)
@@ -810,9 +810,9 @@ local function makeParams(builder, resName)
 			key = shared.KEY_SPACING,
 			name = _("Spacing"),
 			tooltip = streets
-				and string.format(_("Between neighbouring roads: the gap between their edges, or the distance between their centers (Spacing from). The road builder's own: %g m edge to edge, %g m center to center."),
+				and string.format(_("Between neighboring roads: the gap between their edges, or the distance between their centers (Spacing from). The road builder's own: %g m edge to edge, %g m center to center."),
 					spacingDefault, spacingDefault + width)
-				or string.format(_("Between neighbouring tracks: the gap between their edges, or the distance between their centers (Spacing from). Standard for this track type: %g m edge to edge, %g m center to center."),
+				or string.format(_("Between neighboring tracks: the gap between their edges, or the distance between their centers (Spacing from). Standard for this track type: %g m edge to edge, %g m center to center."),
 					spacingDefault, spacingDefault + width),
 			numbers = spacing,
 			defaultIndex = math.floor((spacingDefault - spacingLow) / shared.SPACING_STEP + 0.5) + 1,
@@ -839,9 +839,8 @@ local function makeParams(builder, resName)
 		{
 			group = "parallelTracks",
 			key = shared.KEY_SPACING_FROM,
-			name = _("Spacing from"),
-			tooltip = streets and _("Spacing measured between the edges of neighbouring roads, or between their centres.")
-				or _("Spacing measured between the edges of neighbouring tracks, or between their centres."),
+			name = _("Measure from"),
+			tooltip = _("Measure spacing edge to edge, or center to center."),
 			values = { _("Edge"), _("Center") },
 			defaultIndex = shared.SPACING_FROM_EDGE,
 			resetOnCategoryChange = false,
@@ -878,7 +877,7 @@ local function makeParams(builder, resName)
 			group = "parallelTracks",
 			key = shared.KEY_WIREFRAME,
 			name = "Wireframe",
-			tooltip = "Dev aid: draw the whole plan as lines, with a square at every node (larger where 3 or more edges meet). White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed. With one track or road: the builder's own plan, and grey: existing track or road around it.",
+			tooltip = "Dev aid: draw the whole plan as lines, with a square at every node (larger where 3 or more edges meet). White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed. With one track or road: the builder's own plan, and gray: existing track or road around it.",
 			values = { "Off", "On" },
 			defaultIndex = 1,
 			resetOnCategoryChange = false,
@@ -1002,7 +1001,7 @@ function patch.install()
 				lastLoggedRedraw = redrawValue
 				shared.log("redraw param = " .. redrawValue .. ", preview version = " .. preview.version)
 			end
-			-- the builder clears when the drag is cancelled (and after building)
+			-- the builder clears when the drag is canceled (and after building)
 			local edgeBuilder = actionParams.trackEdgeBuilder or actionParams.streetEdgeBuilder
 			if edgeBuilder and edgeBuilder.onClearFn then
 				local onClear = edgeBuilder.onClearFn

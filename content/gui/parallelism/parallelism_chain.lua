@@ -16,7 +16,7 @@
 --     keepBefore, keepAfter, corner }
 -- keepBefore / keepAfter: the stretch before / after it along the chain that must hold no
 -- plain node. corner: how far its corner reaches along the chain, for the spacing check
--- between neighbouring junctions (optional).
+-- between neighboring junctions (optional).
 -- (the game loads the mod's modules by file name, plain Lua by module name: the tests)
 local found, geometry = pcall(require, "parallelism_geometry.lua")
 if not found then
@@ -82,7 +82,7 @@ end
 -- Re-lays the chain around the junctions.
 -- opts: joinTolerance (default 0.05 m: one curve for what was several), refitTolerance
 --   (default 0.5 m: an arc-like curve from a junction, as native refits), junctionGap
---   (between neighbouring junctions' corners, default 0), newNode(position) -> id (for a
+--   (between neighboring junctions' corners, default 0), newNode(position) -> id (for a
 --   node put just outside a keep-out when the old curve cannot be joined), accept(curve,
 --   pieces) -> ok (optional, e.g. the type's minimum radius).
 -- Returns { pieces = { { node0, node1, edge, origins, reversed } }, removedNodes,
@@ -142,7 +142,7 @@ function chain.relay(c, junctions, opts)
 		return a.s < b.s
 	end)
 
-	-- spacing between neighbouring junctions
+	-- spacing between neighboring junctions
 	local last = nil
 	for __, p in ipairs(points) do
 		if p.junction then

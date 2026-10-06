@@ -68,7 +68,7 @@ The 16 m town road measurements:
   (the native X spacing fits this within one 0.5 m slider step from 90 down to 10
   degrees). Below that the game refuses, and corners that overlap can crash the game
   (StreetShapeFactory).
-- **Between neighbouring junctions** closer than their two keep-outs combined there is
+- **Between neighboring junctions** closer than their two keep-outs combined there is
   no plain node at all: the chain between them is one edge (105 m at 20 degrees, 20 m
   spacing; 18.5 m at 90 degrees, 2.5 m spacing).
 - **Flattest angle**: about 12.4 degrees in practice. Below it even the drawn road

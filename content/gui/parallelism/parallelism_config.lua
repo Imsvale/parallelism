@@ -8,8 +8,8 @@ return {
 	MAX_TRACKS = 8,
 	MAX_ROADS = 8,
 
-	-- The Spacing slider: up to this many metres between neighbouring tracks or roads
-	-- (edge to edge), in steps of this many metres (the slider's fine steps).
+	-- The Spacing slider: up to this many meters between neighboring tracks or roads
+	-- (edge to edge), in steps of this many meters (the slider's fine steps).
 	MAX_SPACING = 20,
 	SPACING_STEP = 0.5,
 }

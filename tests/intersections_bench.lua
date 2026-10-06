@@ -24,7 +24,7 @@ for t = 1, 5 do
 		new[#new + 1] = arc(0, 0, 300 + t * 5, i * 0.3, (i + 1) * 0.3)
 	end
 end
--- existing: 6 tracks on nearly the same arc (a slightly different centre, so they drift
+-- existing: 6 tracks on nearly the same arc (a slightly different center, so they drift
 -- across the new ones at a very flat angle), plus straights crossing everything
 local existing = {}
 for t = 0, 5 do

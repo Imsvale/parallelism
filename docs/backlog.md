@@ -12,7 +12,7 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
 
 ## Open: features and gaps
 
-- **Corner filling.** Sharp corners only join the centre lines. Roads are wide, so the
+- **Corner filling.** Sharp corners only join the center lines. Roads are wide, so the
   inside of a sharp corner overlaps and outside corners are spiky. To compare with a
   native hand-built corner first: whether the game accepts and shapes it as it is.
 - **Show refused extra tracks.** When our own plan has a problem, the extra tracks are
@@ -83,7 +83,7 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
   (`junctionRoom`): where the two surfaces overlap along this road (the other's half
   width / sin(a) + this one's half width / tan(a)) plus 26 m at a road junction, 19 m at
   a level crossing; the track clearance for track crossings; the switch zone for
-  switches. Neighbouring junctions need their corners plus 2.5 m. A final plan check
+  switches. neighboring junctions need their corners plus 2.5 m. A final plan check
   names any node left inside a keep-out and refuses overlapping corners.
 - **Road junctions (2026-10-02/03).** Every junction gets a node config (the mod's own
   lane rules, `tests/junction_test.lua`); X down to about 12.4 degrees (the native limit:

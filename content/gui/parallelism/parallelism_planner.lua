@@ -46,7 +46,7 @@ local SHARED_NODE_MEETING_DISTANCE = 2.0
 -- how far beyond a junction's corner the road builder keeps the next node (fitted to its
 -- builds at 33 and 25 degrees, see junctionRoom)
 local ROAD_JUNCTION_BEYOND = 26.0
--- the gap the game leaves between the corners of neighbouring junctions along a road
+-- the gap the game leaves between the corners of neighboring junctions along a road
 -- (native X, 2026-10-03; see docs/studies/2026-10-03_road-junction-spacing.md)
 local ROAD_CORNER_GAP = 2.5
 -- the width of the roads being planned (set per plan; nil for tracks)
@@ -54,7 +54,7 @@ local planRoadWidth = nil
 -- the width of the planned road or track (its template's lanes)
 local planWidth = nil
 -- an end of an offset track continues a loose end within this share of the distance
--- between neighbouring tracks (below half, so never the neighbour's)
+-- between neighboring tracks (below half, so never the neighbor's)
 local LOOSE_END_SHARE = 0.4
 -- shortfall of a piece against MIN_PIECE_LENGTH that is still let through
 local PIECE_TOLERANCE = 0.25
@@ -759,7 +759,7 @@ local function switchZone(radius)
 	return math.min(MAX_SWITCH_ZONE, math.sqrt(2 * radius * DEFAULT_TRACK_DISTANCE))
 end
 
--- Distance between the centre lines of neighbouring tracks or roads. Tracks have it in
+-- Distance between the center lines of neighboring tracks or roads. Tracks have it in
 -- their template; roads lie side by side as the road builder snaps them: the road's
 -- width (the sum of its lanes, sidewalks included) plus shared.ROAD_GAP.
 local loggedTrackDistance = {}
@@ -812,10 +812,10 @@ local function roadWidth(roadTemplate)
 	return widthOf(roadTemplate)
 end
 
--- The Spacing value is the gap between the edges of neighbours (the panel may show it
--- from centre to centre instead). Its default: as the game places them, the road builder
+-- The Spacing value is the gap between the edges of neighbors (the panel may show it
+-- from center to center instead). Its default: as the game places them, the road builder
 -- snapping a second road shared.ROAD_GAP away, a track's template trackDistance between
--- centres.
+-- centers.
 local function defaultGap(roadTemplate)
 	local width = widthOf(roadTemplate)
 	if width == nil then
@@ -824,7 +824,7 @@ local function defaultGap(roadTemplate)
 	return math.max(0, getTrackDistance(roadTemplate) - width)
 end
 
--- Distance between the centre lines of neighbours for a Spacing value (the gap).
+-- Distance between the center lines of neighbors for a Spacing value (the gap).
 local function parallelDistance(roadTemplate, spacing)
 	local width = widthOf(roadTemplate) or 0
 	if spacing == nil then
@@ -1014,7 +1014,7 @@ end
 -- The loose end (a node with a single edge of the planned kind) nearest to the
 -- position within radius, e.g. where the parallel of the previous drag stops. A drag
 -- continuing that one at a slight angle puts the offset end next to it rather than on
--- it; branching off a metre from the end would leave a stub the game cannot handle.
+-- it; branching off a meter from the end would leave a stub the game cannot handle.
 local function findLooseEnd(position, radius)
 	local center = api.type.Vec2f.new(position.x, position.y)
 	local best, bestDistance = nil, math.huge
@@ -1040,7 +1040,7 @@ local function isAwayFromEnds(edge, point)
 end
 
 -- An existing track edge running through the position, away from its ends, e.g. the
--- neighbour of the track a branch was drawn from. alsoLevel: a track under a road (or a
+-- neighbor of the track a branch was drawn from. alsoLevel: a track under a road (or a
 -- road under a track) too, for a T at a level crossing.
 local function findEdgeAt(position, alsoLevel)
 	local center = api.type.Vec2f.new(position.x, position.y)
@@ -1158,9 +1158,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	end)
 	local streets = isStreet(planRoadType)
 	local noJunctions = streets and not ROAD_JUNCTIONS
-	-- the distance between neighbouring tracks: the nearest offset is one step out
+	-- the distance between neighboring tracks: the nearest offset is one step out
 	-- options.step: when planning a single track further out (the one-by-one builder),
-	-- its offset is several steps (it once snapped onto the neighbour's loose end)
+	-- its offset is several steps (it once snapped onto the neighbor's loose end)
 	local step = options.step or math.huge
 	if not options.step then
 		for __, offset in ipairs(offsets) do
@@ -1370,7 +1370,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- each parallel continues from its own junction, as native does (each road from its
 		-- own node, kinked there), so it runs through that junction parallel to the drawn
 		-- road, at whatever spacing that gives (spacing * sin(out) / sin(in)); keeping the
-		-- set spacing would put a new junction a few metres from the old one (2026-10-05).
+		-- set spacing would put a new junction a few meters from the old one (2026-10-05).
 		do
 			local function junctionOfOurs(endEntity, position, tangent)
 				-- the roads at the node besides the one running on through it
@@ -2257,7 +2257,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								cut.level = level or nil
 								stats.crossings = stats.crossings + 1
 								-- roads: the spacing the game needs between parallel roads crossing a
-								-- road at this angle (native X, 2026-10-03: the corners of neighbouring
+								-- road at this angle (native X, 2026-10-03: the corners of neighboring
 								-- junctions about 2.5 m apart along the crossed road)
 								if streets and not level then
 									local crossedWidth = roadWidth(comp.roadTemplate)
@@ -2488,7 +2488,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		segment.comp.roadStyle = styleOf(props)
 		segment.comp.roadType = props.comp.roadType
 		-- the track type's trackDistance on native track (0 on roads), wherever the track
-		-- lies; with 0 neighbouring tracks do not share catenary masts as they should
+		-- lies; with 0 neighboring tracks do not share catenary masts as they should
 		pcall(function()
 			segment.comp.distance = props.comp.distance
 		end)

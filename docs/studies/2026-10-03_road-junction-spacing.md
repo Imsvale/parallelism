@@ -42,9 +42,9 @@ See log for the result. It's the last one I built.
 
 ### Analysis of the native X (2026-10-03)
 
-The native X column is one rule: **the corners of neighbouring junctions must be about
+The native X column is one rule: **the corners of neighboring junctions must be about
 2.5 m apart along the main road.** A junction's corner (where the edges of the two roads
-meet) lies `wc/2 / sin(a) + wm/2 / tan(a)` from its centre along the main road (`wc`:
+meet) lies `wc/2 / sin(a) + wm/2 / tan(a)` from its center along the main road (`wc`:
 crossing road width, `wm`: main road width, `a`: the angle). With the junctions
 `(gap + wc) / sin(a)` apart, that gives the smallest gap:
 
@@ -74,7 +74,7 @@ little. At small angles it approaches the main road's full width.
 
 ### Native layout of the main road (33 degrees, 20 m spacing)
 
-Twice the same: junctions 66.1 m apart (36 m centre distance / sin 33), the nearest
+Twice the same: junctions 66.1 m apart (36 m center distance / sin 33), the nearest
 plain nodes outside them 53.0 m away, none between them. The builder removes plain nodes
 12.7-12.9 m from a junction and moves or inserts a node to make the outer piece 53.0 m.
 Verified parallel: the three crossing roads at 0.00 degrees to each other, 36.00 m apart.
@@ -110,7 +110,7 @@ With the rule: the mod's T builds from 90 down to about 28-32 degrees (2026-10-0
 ### What made the 20° X build (2026-10-03, pairwise against native)
 
 The same 3-road X built natively next to the mod's refused one, both dumped in full:
-native leaves the main road between neighbouring junctions as one edge (105 m at 20°,
+native leaves the main road between neighboring junctions as one edge (105 m at 20°,
 20 m spacing) and keeps the next node at least corner + 26 m (71.3 m) out on the outer
 side. The mod's plan had a builder node 32.7 m from its junction on the inner side (the
 builder's cut pieces came untyped, so the planner would not move their nodes) and an

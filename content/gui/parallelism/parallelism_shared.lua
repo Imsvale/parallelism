@@ -8,10 +8,10 @@ local config = require "parallelism_config.lua"
 local shared = {
 	KEY_COUNT = "parallelismCount",
 	KEY_SIDE = "parallelismSide",
-	-- the gap between neighbouring tracks or roads, edge to edge, in meters
+	-- the gap between neighboring tracks or roads, edge to edge, in meters
 	KEY_SPACING = "parallelismSpacing",
 	-- whether the Spacing slider shows that gap (edge to edge) or the distance between
-	-- centres; only the display changes, the value stays the gap
+	-- centers; only the display changes, the value stays the gap
 	KEY_SPACING_FROM = "parallelismSpacingFrom",
 	SPACING_FROM_EDGE = 1,
 	SPACING_FROM_CENTER = 2,

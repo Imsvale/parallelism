@@ -80,7 +80,7 @@ for i, piece in ipairs(pieces) do
 end
 check("splitMany keeps the curve", splitError < 1e-6, string.format("%.2e m", splitError))
 
--- closestParameter finds the anchor point on a neighbouring track
+-- closestParameter finds the anchor point on a neighboring track
 local baseR = straight(v(-19.34, -1531.65), v(-26.54, -1367.51))
 local u, distance = geometry.closestParameter(start, baseR)
 check("anchor lies on R", distance < 0.05, string.format("u = %.3f, distance %.3f", u, distance))
