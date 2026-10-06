@@ -199,7 +199,8 @@ local function updatePreview(proposal)
 		preview.bulldozeList = {}
 	end
 	preview.problems = #stats.problems
-	preview.refused = (stats.edges > 0 and #stats.problems > 0) and refusedLines(stats) or nil
+	-- (also a plan of no problems of ours the game could not judge: shown all red)
+	preview.refused = (stats.edges > 0 and (#stats.problems > 0 or proposals[1] == nil)) and refusedLines(stats) or nil
 	preview.tooTight = stats.tooTight and stats.minAllowedRadius or nil
 	-- dev aid: what the preview planned, next to what the game says about it
 	local planned = string.format("%d drawn, %d edges, %d anchored, %d crossings, %d too shallow, %d moved, %d dropped, %d problems%s",
