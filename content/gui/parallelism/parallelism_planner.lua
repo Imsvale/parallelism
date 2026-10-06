@@ -1179,7 +1179,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		return t
 	end
 	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, junctions = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {}, problems = {},
-		problemPoints = {} }
+		problemPoints = {},
+		-- edges of a parallel that could not be placed: not in the plan, shown when refused
+		unplaced = {} }
 	-- where a problem is, for showing a refused plan (problemPoints)
 	local function problemAt(p)
 		if p then
@@ -2054,6 +2056,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- edges and nodes in between go
 		for __, pe in ipairs(pastEnds) do
 			local other, fitted = pe.other, false
+			-- the edges taken out on the way, shown if the end cannot be fitted
+			local takenOut = {}
 			for __ = 1, 10 do
 				local index = nil
 				for i, oe in ipairs(offsetEdges) do
@@ -2094,6 +2098,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					break
 				end
 				-- not on this one either: it goes too, on to the next
+				takenOut[#takenOut + 1] = oe.edge
 				table.remove(offsetEdges, index)
 				movable[other.entity] = nil
 				other = pe.atStart and oe.node1 or oe.node0
@@ -2102,6 +2107,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				stats.unfitEnd = string.format("the end of a parallel at node %d could not be fitted to the road (%.2f m off its line)",
 					pe.slid.entity, pe.distance)
 				log("  " .. stats.unfitEnd)
+				problemAt(pe.x)
+				for __, e in ipairs(takenOut) do
+					stats.unplaced[#stats.unplaced + 1] = e
+				end
 			end
 		end
 

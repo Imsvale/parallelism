@@ -88,6 +88,10 @@ local function refusedLines(stats)
 	for __, e in ipairs(stats.plan or {}) do
 		lines[#lines + 1] = { edge = e.edge }
 	end
+	-- a parallel the planner could not place at all: red
+	for __, e in ipairs(stats.unplaced or {}) do
+		lines[#lines + 1] = { edge = e, red = true }
+	end
 	local points = stats.problemPoints or {}
 	for __, p in ipairs(points) do
 		local distances, best = {}, math.huge
@@ -200,7 +204,8 @@ local function updatePreview(proposal)
 	end
 	preview.problems = #stats.problems
 	-- (also a plan of no problems of ours the game could not judge: shown all red)
-	preview.refused = (stats.edges > 0 and (#stats.problems > 0 or proposals[1] == nil)) and refusedLines(stats) or nil
+	preview.refused = ((stats.edges > 0 or #(stats.unplaced or {}) > 0) and (#stats.problems > 0 or proposals[1] == nil))
+		and refusedLines(stats) or nil
 	preview.tooTight = stats.tooTight and stats.minAllowedRadius or nil
 	-- dev aid: what the preview planned, next to what the game says about it
 	local planned = string.format("%d drawn, %d edges, %d anchored, %d crossings, %d too shallow, %d moved, %d dropped, %d problems%s",
