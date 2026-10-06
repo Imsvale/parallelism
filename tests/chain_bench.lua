@@ -2,7 +2,7 @@
 -- crossing in one chain, nodes every 90 m. Run with any Lua 5.3+:
 --   lua-language-server.exe tests/chain_bench.lua
 local here = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
-package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
+package.path = here .. "/../mod/content/gui/parallelism/?.lua;" .. package.path
 local geometry = require "parallelism_geometry"
 local chain = require "parallelism_chain"
 

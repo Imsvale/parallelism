@@ -3,7 +3,7 @@
 -- The file holds the table printed after "plan: " in a "[parallelism]   plan: {...}" line.
 
 local here = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
-package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
+package.path = here .. "/../mod/content/gui/parallelism/?.lua;" .. package.path
 local geometry = require "parallelism_geometry"
 
 local file = assert(io.open(assert(arg[1], "usage: analyze_plan.lua <file>"), "r"))

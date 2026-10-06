@@ -1,4 +1,4 @@
-"""README.md -> _metadata/description.html, the mod's description in the game's mod
+"""README.md -> mod/_metadata/description.html, the mod's description in the game's mod
 browser and on mod.io.
 
 Only the formatting the official guidelines recommend for the in-game browser is
@@ -17,7 +17,7 @@ Markdown subset read:
   **bold**, __bold__  bold
   [text](url), <url>  links; bare http(s) urls are linked too
 
-Usage: python tools/readme_to_description.py [README.md] [_metadata/description.html]
+Usage: python tools/readme_to_description.py [README.md] [mod/_metadata/description.html]
 """
 
 import html
@@ -148,7 +148,7 @@ def convert(markdown):
 
 def main():
     source = Path(sys.argv[1]) if len(sys.argv) > 1 else ROOT / "README.md"
-    target = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "_metadata" / "description.html"
+    target = Path(sys.argv[2]) if len(sys.argv) > 2 else ROOT / "mod" / "_metadata" / "description.html"
     target.write_text(convert(source.read_text(encoding="utf-8")), encoding="utf-8", newline="\n")
     print("%s -> %s" % (source, target))
 

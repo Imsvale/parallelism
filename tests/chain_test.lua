@@ -3,7 +3,7 @@
 -- The cases are the native builds of 2026-10-03 (docs/design/2026-10-03_node-placement.md).
 
 local here = (arg and arg[0] or ""):match("^(.*)[/\\]") or "."
-package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
+package.path = here .. "/../mod/content/gui/parallelism/?.lua;" .. package.path
 local geometry = require "parallelism_geometry"
 local chain = require "parallelism_chain"
 

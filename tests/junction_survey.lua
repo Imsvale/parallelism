@@ -1,7 +1,7 @@
 -- Survey: the road builder's junctions from the game log (tests/junctions_from_log.py),
 -- 2026-10-02 01:11-01:18 UTC. Reported, not counted: see how far the rules reach.
 local here = arg and arg[0] and arg[0]:match("(.*)[/\\]") or "."
-package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
+package.path = here .. "/../mod/content/gui/parallelism/?.lua;" .. package.path
 rawset(_G, "api", rawget(_G, "api") or {})
 for __, name in ipairs({ "parallelism_config", "parallelism_shared", "parallelism_geometry", "parallelism_chain" }) do
 	package.preload[name .. ".lua"] = function() return require(name) end

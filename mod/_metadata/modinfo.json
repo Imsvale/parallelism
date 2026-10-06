@@ -1,0 +1,19 @@
+{
+    "authors": [
+        {
+            "name": "imsvale",
+            "role": "CREATOR"
+        }
+    ],
+    "name": "Parallelism",
+    "summary": "Parallel track and road tool.",
+    "tags": [
+        "Track",
+        "Track Construction",
+        "Road",
+        "Script Mod",
+        "Rail Crossing",
+        "Road Construction"
+    ],
+    "url": ""
+}

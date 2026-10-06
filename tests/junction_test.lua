@@ -2,7 +2,7 @@
 -- configs (docs/studies/2026-10-02_native-junctions.md). Run with any Lua 5.3+:
 --   lua-language-server.exe tests/junction_test.lua
 local here = arg and arg[0] and arg[0]:match("(.*)[/\\]") or "."
-package.path = here .. "/../content/gui/parallelism/?.lua;" .. package.path
+package.path = here .. "/../mod/content/gui/parallelism/?.lua;" .. package.path
 -- the planner logs through the game; outside it nothing is needed at load
 rawset(_G, "api", rawget(_G, "api") or {})
 -- in game modules are required with their extension ("parallelism_shared.lua")
