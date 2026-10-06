@@ -12,20 +12,15 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
 
 ## Open: features and gaps
 
-- **Show refused extra tracks.** When our own plan has a problem, the extra tracks are
-  not shown at all. Decided 2026-10-02: two modes drawn with `builtin.EdgeRenderable`
-  (not judged by the game): a stripped-down default with the problem segment in red;
-  the Wireframe view (all edges by kind) as the detailed option.
+- **Bend later, a maybe (2026-10-06).** Continuing a curving drag from staggered junctions
+  of ours: the mod keeps the bends concentric, the outer parallels kinked at their junctions.
+  A second option could start the bend at the outermost junction instead (the drawn road
+  straight on until level with it): no kinks, but not where the player started the bend.
+  The player can do it by hand already. docs/studies/2026-10-06_staggered-junction-bends.md
 - **Translations.** English only. Easy to add at any time.
 
 ## Open: known limits and to-confirm
 
-- **Curved continuation from our junctions, along the incoming roads (2026-10-06).** From a
-  triple T (three roads in at about 50 degrees onto a main road), a curved drag that
-  starts straight on along the incoming roads and then bends is refused for any bend more
-  than a little off straight ahead; dead straight (snapped to the guide) builds, and so
-  does continuing square to the main road. Seen 01:49-01:52Z; that log was overwritten
-  by a restart, so a new log of it is needed to look into it.
 - **Kinks at a bundle's end, the builder's own collision (2026-10-05).** A straight-mode
   kink from the end of a bundle collides with the untrimmed end of the parallel on the
   inside of the turn (side C: from about 63 degrees; earlier with the parallels on the
@@ -119,6 +114,12 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
   spacing those junctions give (in-world placement over the panel: wider or narrower
   than set). Straight and curved; at a level crossing the roads continue smoothly as
   native.
+- **Continuing from staggered junctions into a curve (2026-10-06).** Concentric, each
+  parallel through its own junction (kinked there if the bend has begun). Spacing through
+  the bend or the bend at the junction, not both: docs/studies/2026-10-06_staggered-junction-bends.md
+  and the picture https://claude.ai/artifact/HvkmV5af2qL8oSkqHVZxdh
+- **Showing refused plans (2026-10-06).** Instead of nothing: white lines, red where the
+  planner located the problem (all red if it could not).
 - **Corner filling (closed 2026-10-06).** Parallel corners at straight-mode kinks look like
   the drawn road's own, on the small town road and the large country road (6 lanes);
   past 90 degrees the outside corner gets a spike, as the drawn road's does.
