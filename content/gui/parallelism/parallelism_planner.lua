@@ -2011,6 +2011,18 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							return false
 						end)() then
 							-- done above
+						elseif alongDir then
+							-- a curving parallel, which one edge cannot follow: the piece is refitted
+							-- from the node in the parallel's direction there into its curve, as the
+							-- road would leave its own junction (a straight piece left the old end as a
+							-- node inside the junction's room, 2026-10-06: 32.8 m from it, 45.3 m
+							-- needed); too tight, the transition is made longer (below)
+							local far = atStart and natural.p0 or natural.p1
+							natural = atStart and geometry.arcCubic(x, alongDir, natural.p1, natural.t1)
+								or geometry.arcCubic(natural.p0, natural.t0, x, alongDir)
+							transition = { atStart = atStart, dir = alongDir }
+							log(string.format("  node %d: lengthened %.1f m to meet the road, refitted from the node into the curve",
+								slid.entity, geometry.horizontalDistance(x, far)))
 						else
 							local far = atStart and natural.p0 or natural.p1
 							local mid = newNode(far)
