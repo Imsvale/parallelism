@@ -952,6 +952,23 @@ local function makeParams(builder, resName)
 			checkEnabledFn = withExtras,
 		}
 	end
+	if streets and shared.DEBUG_CONTINUATION then
+		result[#result + 1] = {
+			group = "parallelTracks",
+			key = shared.KEY_CONTINUATION,
+			name = "Continuation",
+			tooltip = "Dev aid: a curving drag from our junctions where they are staggered along the roads. Smooth: each parallel leaves its junction straight on and curves in (the spacing varies through the bend). Concentric: each parallel follows the drag's curve through its junction (kinked there).",
+			values = { "Smooth", "Concentric" },
+			defaultIndex = shared.CONTINUE_SMOOTH,
+			resetOnCategoryChange = false,
+			resetOnMenuClose = false,
+			uiType = api.type["enum"].ScriptParamType.Button,
+			yearFrom = 0,
+			yearTo = 0,
+			location = api.type["enum"].ScriptParamLocation.Toolbar,
+			checkEnabledFn = withExtras,
+		}
+	end
 	if shared.DEBUG_WIREFRAME then
 		result[#result + 1] = {
 			group = "parallelTracks",
@@ -1042,10 +1059,18 @@ function patch.install()
 			spacing = spacingOf(params, builder, definition.resName)
 			readSpacingFrom(params)
 			reverse = builder == shared.STREET_BUILDER and params[shared.KEY_DIRECTION] == shared.DIRECTION_OPPOSITE
+			local continuation = shared.DEBUG_CONTINUATION and params[shared.KEY_CONTINUATION] or shared.CONTINUE_SMOOTH
+			planner.setContinuation(continuation)
 			-- the game script runs on another lua state, this event is the way across
 			api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_SET_PARAMS, {
 				builder = builder, count = count, side = side, spacing = spacing, reverse = reverse, resName = definition.resName,
+				continuation = continuation,
 			})
+			-- (planned again with the other continuation: the plan's signature has it)
+			if preview.continuation ~= continuation then
+				preview.continuation = continuation
+				clearPreview()
+			end
 		end
 
 		local result = getActionParams(definition, params, ...)

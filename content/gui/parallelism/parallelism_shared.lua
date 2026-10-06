@@ -66,6 +66,16 @@ local shared = {
 	SHOW_RADIUS = false,
 	KEY_WIREFRAME = "parallelismWireframe",
 
+	-- dev switch: a "Continuation" button in the road toolbar, to compare two ways a
+	-- curving drag continues from our junctions where they are staggered along the roads
+	-- (a diagonal cut): Smooth, each parallel leaving its junction straight on and curving
+	-- in to the drag's curve (the spacing varies through the bend); Concentric, each
+	-- parallel on the drag's own curve through its junction (kinked there).
+	DEBUG_CONTINUATION = true,
+	KEY_CONTINUATION = "parallelismContinuation",
+	CONTINUE_SMOOTH = 1,
+	CONTINUE_CONCENTRIC = 2,
+
 	-- dev experiment, roads with 2+ only: can the mod take the drawn road over? The
 	-- builder is told not to draw its own preview (skipRender), and an input catcher
 	-- logs the build click (IA_SELECT / IA_APPLY). Normal building is unchanged otherwise.

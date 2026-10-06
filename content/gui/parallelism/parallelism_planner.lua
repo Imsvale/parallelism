@@ -8,6 +8,15 @@ local chainModule = require "parallelism_chain.lua"
 
 local planner = {}
 
+-- How a curving drag continues from our staggered junctions (shared.CONTINUE_*; dev
+-- switch, set by the menu and the game script from the toolbar): Smooth by default.
+local continuation = shared.CONTINUE_SMOOTH
+
+function planner.setContinuation(mode)
+	continuation = mode == shared.CONTINUE_CONCENTRIC and shared.CONTINUE_CONCENTRIC or shared.CONTINUE_SMOOTH
+end
+
+
 -- CPU time in milliseconds, for timing logs; nil if the game does not offer it
 local function clockMs()
 	local ok, t = pcall(os.clock)
@@ -1489,7 +1498,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							-- (only for a junction alongside the drawn road, not behind its end)
 							local inward = endInfo[1] == drawn[1].node0 and 1 or -1
 							local ahead = ((j.position.x - endInfo[2].x) * endInfo[3].x + (j.position.y - endInfo[2].y) * endInfo[3].y) * inward
-							if rq and ahead > 0 then
+							if rq and ahead > 0 and continuation == shared.CONTINUE_CONCENTRIC then
 								endInfo = { endInfo[1], q, t }
 								r = rq
 							end
@@ -1734,6 +1743,18 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					if (atStart and d.node0 == entity) or (not atStart and d.node1 == entity) then
 						first = i
 					end
+				end
+				-- (Smooth: ahead on its straight line too, the curve refitted from the meeting point)
+				if continuation ~= shared.CONTINUE_CONCENTRIC then
+					first = nil
+					local aheadEnd = {
+						x = offsetPosition.x + inward * dir.x * reach, y = offsetPosition.y + inward * dir.y * reach, z = offsetPosition.z }
+					local line = { p0 = geometry.copy(offsetPosition), p1 = aheadEnd }
+					line.t0 = { x = line.p1.x - line.p0.x, y = line.p1.y - line.p0.y, z = 0 }
+					line.t1 = line.t0
+					paths[#paths + 1] = { edge = line, sAt = function(u)
+						return inward * u * reach
+					end }
 				end
 				local walked, i = 0, first
 				while i and drawn[i] and walked < reach do
@@ -3667,7 +3688,7 @@ end
 -- Identifies a drag and the settings it is planned with, to plan again only when one
 -- of them changed. The builder asks about the same drag many times.
 local function signatureOf(drawn, ...)
-	local parts = {}
+	local parts = { "c" .. tostring(continuation) }
 	-- by count, not ipairs: a setting may be nil (e.g. spacing left at the default)
 	for i = 1, select("#", ...) do
 		parts[#parts + 1] = tostring((select(i, ...)))
