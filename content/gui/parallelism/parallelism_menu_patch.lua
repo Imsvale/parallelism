@@ -647,8 +647,9 @@ end
 
 -- The Spacing slider only redraws its text when its value (or its definition) changes,
 -- so a change of Spacing from alone left it showing the other measure. The value is
--- moved by a millionth of a meter with the setting (on the step for Edge, just above it
--- for Center), which redraws it; the plan cannot tell the difference.
+-- moved by a millionth of a meter (onto its step if off it, else just above it), which
+-- redraws it; the plan cannot tell the difference. Always a change: tied to the setting,
+-- a value the player had moved onto a step meanwhile was not (2026-10-06).
 local lastSpacingFrom = nil
 
 local function showSpacingFrom()
@@ -663,10 +664,8 @@ local function showSpacingFrom()
 			local value = info and tonumber(info.value)
 			if value then
 				local step = shared.SPACING_STEP
-				local shown = math.floor(value / step + 0.5) * step + (spacingFromCenter and 1e-6 or 0)
-				if shown ~= value then
-					api_.changeParam(info.index, shown)
-				end
+				local onStep = math.floor(value / step + 0.5) * step
+				api_.changeParam(info.index, math.abs(value - onStep) < 5e-7 and onStep + 1e-6 or onStep)
 				return
 			end
 		end
@@ -810,9 +809,9 @@ local function makeParams(builder, resName)
 			key = shared.KEY_SPACING,
 			name = _("Spacing"),
 			tooltip = streets
-				and string.format(_("Between neighboring roads: the gap between their edges, or the distance between their centers (Spacing from). The road builder's own: %g m edge to edge, %g m center to center."),
+				and string.format(_("Standard spacing for selected road: %g m edge to edge, %g m center to center."),
 					spacingDefault, spacingDefault + width)
-				or string.format(_("Between neighboring tracks: the gap between their edges, or the distance between their centers (Spacing from). Standard for this track type: %g m edge to edge, %g m center to center."),
+				or string.format(_("Standard spacing for selected track: %g m edge to edge, %g m center to center."),
 					spacingDefault, spacingDefault + width),
 			numbers = spacing,
 			defaultIndex = math.floor((spacingDefault - spacingLow) / shared.SPACING_STEP + 0.5) + 1,
