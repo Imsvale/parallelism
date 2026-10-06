@@ -563,6 +563,24 @@ function geometry.liesOnAny(edge, others, tolerance)
 end
 
 -- How far the merged curve strays from the two pieces it replaces (see straysFrom).
+-- The piece of a road leaving x in direction d into a curve that starts ahead on the
+-- same line (the parallel lengthened back to a junction behind its start): one edge from
+-- x to the curve's end, fitted to the straight run to the curve and the curve itself.
+-- nil when the curve does not start ahead of x on that line. (2026-10-06: a straight
+-- piece there left the old start as a node inside the junction's room.)
+function geometry.refitFrom(x, d, curve)
+	local ahead = (curve.p0.x - x.x) * d.x + (curve.p0.y - x.y) * d.y
+	if ahead <= 0 or length2d(curve.p0.x - x.x, curve.p0.y - x.y) < 1e-6 then
+		return nil
+	end
+	local run = { x = curve.p0.x - x.x, y = curve.p0.y - x.y, z = curve.p0.z - x.z }
+	-- (only if the curve starts on the line from x: else the straight would kink)
+	if geometry.angleBetween(run, curve.t0) >= 1 then
+		return nil
+	end
+	return geometry.merge({ p0 = geometry.copy(x), p1 = geometry.copy(curve.p0), t0 = run, t1 = run }, curve)
+end
+
 function geometry.mergeDeviation(a, b, merged)
 	if a == b then
 		return geometry.straysFrom(merged, { a })

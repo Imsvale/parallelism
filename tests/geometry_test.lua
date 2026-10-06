@@ -275,5 +275,49 @@ do
 		string.format("%.2f m", geometry.minRadiusAlong(quarter)))
 end
 
+-- refitFrom: a parallel arc of 136 m radius turning left from (0, 0) heading +y, its
+-- junction 32.8 m behind its start on its line (lengthened back to it): one edge leaving
+-- the junction in that direction, ending with the curve, bending no harder at the
+-- junction than along the way and no tighter than the arc-like cubic; nothing for a
+-- junction ahead (that one is met on the curve itself, 2026-10-06).
+do
+	local R, turn = 136, math.rad(70)
+	local center = v(-R, 0)
+	local function onArc(a)
+		return v(center.x + R * math.cos(a), center.y + R * math.sin(a))
+	end
+	local function dirAt(a, len)
+		return v(-math.sin(a) * len, math.cos(a) * len, 0)
+	end
+	local k = 4 / 3 * math.tan(turn / 4) * R
+	local curve = { p0 = onArc(0), p1 = onArc(turn), t0 = dirAt(0, 3 * k), t1 = dirAt(turn, 3 * k) }
+	local d = v(0, 1, 0)
+	local function curvatureAt(e, u)
+		local a = geometry.hermiteDerivative(e.p0, e.p1, e.t0, e.t1, u)
+		local h = 1e-4
+		local b = geometry.hermiteDerivative(e.p0, e.p1, e.t0, e.t1, u + h)
+		local cross = a.x * (b.y - a.y) / h - a.y * (b.x - a.x) / h
+		return math.abs(cross) / (a.x * a.x + a.y * a.y) ^ 1.5
+	end
+	local x = v(0, -32.8)
+	local fitted = geometry.refitFrom(x, d, curve)
+	check("refitFrom behind: found a shape", fitted ~= nil)
+	if fitted then
+		local leaves = geometry.angleBetween(fitted.t0, d) < 1e-6
+		local ends = geometry.horizontalDistance(fitted.p1, curve.p1) < 1e-6 and geometry.angleBetween(fitted.t1, curve.t1) < 1e-6
+		check("refitFrom behind: leaves the junction in its direction, ends with the curve", leaves and ends)
+		local atStart, most = curvatureAt(fitted, 0.001), 0
+		for i = 1, 19 do
+			most = math.max(most, curvatureAt(fitted, i / 20))
+		end
+		check("refitFrom behind: no harder bend at the junction than along the way", atStart <= most * 1.05 + 1e-9,
+			string.format("radius at the junction %.1f m, tightest along %.1f m", 1 / math.max(atStart, 1e-12), 1 / math.max(most, 1e-12)))
+		local old = geometry.arcCubic(x, d, curve.p1, curve.t1)
+		check("refitFrom behind: not tighter than the arc-like cubic", geometry.minRadiusAlong(fitted) >= geometry.minRadiusAlong(old) - 1e-6,
+			string.format("%.1f m, arc-like %.1f m", geometry.minRadiusAlong(fitted), geometry.minRadiusAlong(old)))
+	end
+	check("refitFrom ahead: nothing", geometry.refitFrom(v(0, 32.8), d, curve) == nil)
+end
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

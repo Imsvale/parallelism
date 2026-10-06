@@ -1140,6 +1140,17 @@ local function throughRoad(nodeEntity, isDrawn, accept)
 	return nil
 end
 
+-- A parallel's end piece refitted from x (a node it now starts or ends at) in direction
+-- dir into the rest of its curve, shaped as geometry.refitFrom; the arc-like cubic when
+-- that finds no shape. atStart: x is the start of the piece, else its end.
+local function refitOnto(x, dir, curve, atStart)
+	if atStart then
+		return geometry.refitFrom(x, dir, curve) or geometry.arcCubic(x, dir, curve.p1, curve.t1)
+	end
+	local back = geometry.refitFrom(x, { x = -dir.x, y = -dir.y, z = -dir.z }, geometry.reverse(curve))
+	return back and geometry.reverse(back) or geometry.arcCubic(curve.p0, curve.t0, x, dir)
+end
+
 local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	if type(offsets) == "number" then
 		offsets = { offsets }
@@ -1459,7 +1470,30 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if useCount[endInfo[1]] == 1 then
 					local j = junctionOfOurs(endInfo[1], endInfo[2], endInfo[3])
 					if j then
+						-- the distance from the junction to the drawn road where it is nearest, so
+						-- the parallel (curving as the drawn road does) runs through the junction;
+						-- square to the end's direction when that is nearest (2026-10-06: square to
+						-- it on a curving drag, the parallel passed 3.9 m beside its junction)
 						local r = geometry.right(endInfo[3])
+						local nearest, nearestDistance = nil, math.huge
+						for __, d in ipairs(drawn) do
+							local u, distance = geometry.closestParameter(j.position, d.edge)
+							if distance < nearestDistance and u > 1e-4 and u < 1 - 1e-4 then
+								nearest, nearestDistance = { edge = d.edge, u = u }, distance
+							end
+						end
+						if nearest then
+							local q = geometry.hermite(nearest.edge.p0, nearest.edge.p1, nearest.edge.t0, nearest.edge.t1, nearest.u)
+							local t = geometry.hermiteDerivative(nearest.edge.p0, nearest.edge.p1, nearest.edge.t0, nearest.edge.t1, nearest.u)
+							local rq = geometry.right(t)
+							-- (only for a junction alongside the drawn road, not behind its end)
+							local inward = endInfo[1] == drawn[1].node0 and 1 or -1
+							local ahead = ((j.position.x - endInfo[2].x) * endInfo[3].x + (j.position.y - endInfo[2].y) * endInfo[3].y) * inward
+							if rq and ahead > 0 then
+								endInfo = { endInfo[1], q, t }
+								r = rq
+							end
+						end
 						if r then
 							local adopted = (j.position.x - endInfo[2].x) * r.x + (j.position.y - endInfo[2].y) * r.y
 							log(string.format("  continuing from our junction %d: parallel at %.1f m instead of %.1f m", j.entity, adopted, offset))
@@ -1607,7 +1641,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- parallel), where it then branches off as usual. The road is followed through its
 		-- plain nodes: at sharp angles and on curves the parallel meets it on a further
 		-- piece. Returns the point, or nil.
-		local function branchPoint(entity, position, tangent, offsetPosition)
+		local function branchPoint(entity, position, tangent, offsetPosition, atStart)
 			if not streets then
 				return nil
 			end
@@ -1679,34 +1713,76 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					end
 				end
 			end
-			-- the parallel's line, both ways, as a straight edge
-			local ray = {
-				p0 = { x = offsetPosition.x - dir.x * reach, y = offsetPosition.y - dir.y * reach, z = offsetPosition.z },
-				p1 = { x = offsetPosition.x + dir.x * reach, y = offsetPosition.y + dir.y * reach, z = offsetPosition.z },
-			}
-			ray.t0 = { x = ray.p1.x - ray.p0.x, y = ray.p1.y - ray.p0.y, z = 0 }
-			ray.t1 = ray.t0
+			-- Where the parallel meets the road: on the parallel itself ahead of this end (the
+			-- offset of the drawn edges, curving as they do), on its straight line behind it
+			-- (lengthened straight on). (2026-10-06: along its straight line ahead as well, a
+			-- curving parallel was cut off its curve, 3.6 m from the junction it should meet.)
+			-- s: how far along the parallel from this end, positive along the drawn direction.
+			local inward = atStart and 1 or -1
+			local paths = {}
+			local behindEnd = {
+				x = offsetPosition.x - inward * dir.x * reach, y = offsetPosition.y - inward * dir.y * reach, z = offsetPosition.z }
+			local behind = { p0 = behindEnd, p1 = geometry.copy(offsetPosition) }
+			behind.t0 = { x = behind.p1.x - behind.p0.x, y = behind.p1.y - behind.p0.y, z = 0 }
+			behind.t1 = behind.t0
+			paths[1] = { edge = behind, sAt = function(u)
+				return -inward * (1 - u) * reach
+			end }
+			do
+				local first = nil
+				for i, d in ipairs(drawn) do
+					if (atStart and d.node0 == entity) or (not atStart and d.node1 == entity) then
+						first = i
+					end
+				end
+				local walked, i = 0, first
+				while i and drawn[i] and walked < reach do
+					local d = drawn[i]
+					local q0 = geometry.offsetPoint(d.edge.p0, d.edge.t0, offset)
+					local q1 = geometry.offsetPoint(d.edge.p1, d.edge.t1, offset)
+					if q0 == nil or q1 == nil then
+						break
+					end
+					local t0, t1 = geometry.offsetTangents(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1, q0, q1)
+					local e = { p0 = q0, p1 = q1, t0 = t0, t1 = t1 }
+					if not atStart then
+						e = geometry.reverse(e)
+					end
+					local before, length = walked, geometry.arcLength(e)
+					paths[#paths + 1] = { edge = e, sAt = function(u)
+						return inward * (before + (u > 0 and geometry.arcLength((geometry.split(e, math.min(u, 1)))) or 0))
+					end }
+					walked = walked + length
+					i = i + inward
+					-- (the run goes on only through the next drawn edge from this one's far node)
+					local nextD = drawn[i]
+					if nextD and not ((atStart and nextD.node0 == d.node1) or (not atStart and nextD.node1 == d.node0)) then
+						break
+					end
+				end
+			end
 			local best, bestS = nil, math.huge
 			local reasons = {}
 			for __, road in ipairs(roads) do
-				-- the line through an end node of the road (an existing junction, e.g. a T
-				-- built earlier and now extended to an X): the intersection search below
-				-- misses points at an edge's very end (seen 2026-10-03)
-				for __, p in ipairs({ road.p0, road.p1 }) do
-					local dx, dy = p.x - offsetPosition.x, p.y - offsetPosition.y
-					local s = dx * dir.x + dy * dir.y
-					local off = math.abs(dx * dir.y - dy * dir.x)
-					if off < JUNCTION_REUSE_DISTANCE and math.abs(s) <= reach and math.abs(s) < math.abs(bestS) then
-						best, bestS = { x = p.x, y = p.y, z = offsetPosition.z }, s
+				for __, path in ipairs(paths) do
+					-- an end node of the road on the parallel (an existing junction, e.g. a T
+					-- built earlier and now extended to an X): the intersection search below
+					-- misses points at an edge's very end (seen 2026-10-03)
+					for __, p in ipairs({ road.p0, road.p1 }) do
+						local u, off = geometry.closestParameter(p, path.edge)
+						local s = path.sAt(u)
+						if off < JUNCTION_REUSE_DISTANCE and math.abs(s) <= reach and math.abs(s) < math.abs(bestS) then
+							best, bestS = { x = p.x, y = p.y, z = offsetPosition.z }, s
+						end
 					end
-				end
-				for __, x in ipairs(geometry.intersections(ray, road)) do
-					local angle = geometry.crossingAngle(ray, x.ua, road, x.ub)
-					local s = (x.pointB.x - offsetPosition.x) * dir.x + (x.pointB.y - offsetPosition.y) * dir.y
-					if angle < minAngle then
-						reasons[#reasons + 1] = string.format("meets at %.1f deg", angle)
-					elseif math.abs(s) < math.abs(bestS) then
-						best, bestS = { x = x.pointB.x, y = x.pointB.y, z = offsetPosition.z }, s
+					for __, x in ipairs(geometry.intersections(path.edge, road)) do
+						local angle = geometry.crossingAngle(path.edge, x.ua, road, x.ub)
+						local s = path.sAt(x.ua)
+						if angle < minAngle then
+							reasons[#reasons + 1] = string.format("meets at %.1f deg", angle)
+						elseif math.abs(s) < math.abs(bestS) then
+							best, bestS = { x = x.pointB.x, y = x.pointB.y, z = offsetPosition.z }, s
+						end
 					end
 				end
 			end
@@ -1737,7 +1813,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if useCount[entity] == 1 then
 					node = tryCorner(entity, position, tangent, atStart)
 					if node == nil then
-						local point = branchPoint(entity, position, tangent, newPosition)
+						local point = branchPoint(entity, position, tangent, newPosition, atStart)
 						if point then
 							slidFrom, newPosition = newPosition, point
 						end
@@ -1949,6 +2025,13 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							pastEnds[#pastEnds + 1] = { slid = slid, x = x, atStart = atStart,
 								other = atStart and node1 or node0, distance = distance, dir = alongDir }
 							skipEdge = true
+						elseif keptLength and refitHere then
+							-- (our own new road: how tight it may curve is the only limit, checked with
+							-- the plan; too tight, the transition is made longer, see below)
+							local first, second = geometry.split(natural, u)
+							natural = refitOnto(x, alongDir, atStart and second or first, atStart)
+							transition = { atStart = atStart, dir = alongDir, fitted = true }
+							log(string.format("  node %d: the parallel cut %.1f m off its curve, refitted from the node", slid.entity, distance))
 						elseif keptLength then
 							local first, second = geometry.split(natural, u)
 							natural = atStart and second or first
@@ -1957,16 +2040,13 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							else
 								natural.p1 = x
 							end
-							if continueDir or refitHere then
+							if continueDir then
 								local refit = atStart and geometry.arcCubic(x, alongDir, natural.p1, natural.t1)
 									or geometry.arcCubic(natural.p0, natural.t0, x, alongDir)
 								-- (our own new road: how tight it may curve is the only limit, checked
 								-- with the plan; too tight, the transition is made longer, see below)
 								natural = refit
 								transition = { atStart = atStart, dir = alongDir }
-								if refitHere then
-									log(string.format("  node %d: the parallel cut %.1f m off its curve, refitted from the node", slid.entity, distance))
-								end
 							end
 						elseif (function()
 							-- the meeting point behind the end (inside the edge, but too far off it
@@ -2018,9 +2098,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							-- node inside the junction's room, 2026-10-06: 32.8 m from it, 45.3 m
 							-- needed); too tight, the transition is made longer (below)
 							local far = atStart and natural.p0 or natural.p1
-							natural = atStart and geometry.arcCubic(x, alongDir, natural.p1, natural.t1)
-								or geometry.arcCubic(natural.p0, natural.t0, x, alongDir)
-							transition = { atStart = atStart, dir = alongDir }
+							natural = refitOnto(x, alongDir, natural, atStart)
+							transition = { atStart = atStart, dir = alongDir, fitted = true }
 							log(string.format("  node %d: lengthened %.1f m to meet the road, refitted from the node into the curve",
 								slid.entity, geometry.horizontalDistance(x, far)))
 						else
@@ -2133,11 +2212,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if pe.dir and u > 0.001 and u < 0.999 then
 					local first, second = geometry.split(oe.edge, u)
 					if pe.atStart then
-						oe.edge, oe.node0 = geometry.arcCubic(pe.x, pe.dir, second.p1, second.t1), pe.slid
+						oe.edge, oe.node0 = refitOnto(pe.x, pe.dir, second, true), pe.slid
 					else
-						oe.edge, oe.node1 = geometry.arcCubic(first.p0, first.t0, pe.x, pe.dir), pe.slid
+						oe.edge, oe.node1 = refitOnto(pe.x, pe.dir, first, false), pe.slid
 					end
-					oe.transition = { atStart = pe.atStart, dir = pe.dir }
+					oe.transition = { atStart = pe.atStart, dir = pe.dir, fitted = true }
 					movable[other.entity] = nil
 					log(string.format("  node %d: the parallel shortened past its node %d, %.1f m off its curve, refitted from the node",
 						pe.slid.entity, other.entity, distance))
@@ -2183,8 +2262,14 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if nb == nil or #nb.cuts > 0 or #oe.cuts > 0 or not movable[far.entity] then
 					break
 				end
-				local longer = t.atStart and geometry.arcCubic(oe.edge.p0, t.dir, nb.edge.p1, nb.edge.t1)
-					or geometry.arcCubic(nb.edge.p0, nb.edge.t0, oe.edge.p1, t.dir)
+				-- (a fitted refit keeps its shape: the two pieces merged into one)
+				local longer
+				if t.fitted then
+					longer = t.atStart and geometry.merge(oe.edge, nb.edge) or geometry.merge(nb.edge, oe.edge)
+				else
+					longer = t.atStart and geometry.arcCubic(oe.edge.p0, t.dir, nb.edge.p1, nb.edge.t1)
+						or geometry.arcCubic(nb.edge.p0, nb.edge.t0, oe.edge.p1, t.dir)
+				end
 				if geometry.minRadiusAlong(longer) <= geometry.minRadiusAlong(oe.edge) then
 					break
 				end
