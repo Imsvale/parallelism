@@ -2,10 +2,11 @@
 browser and on mod.io.
 
 Only the formatting the official guidelines recommend for the in-game browser is
-emitted: headings 1-3, paragraphs, bold, unordered and ordered lists, horizontal lines.
+emitted: headings 1-3, paragraphs, bold, unordered and ordered lists, horizontal lines;
+and links, which the game shows as their text and mod.io as links.
 The output is bare content, no <html>/<body> (the game wants it as it would sit inside
 a page's body). Anything else is reduced to plain text: italics and inline code lose
-their markers, a link becomes "text (url)", an image becomes its alt text.
+their markers, an image becomes its alt text.
 
 Markdown subset read:
   # / ## / ###        headings (deeper ones become h3)
@@ -14,6 +15,7 @@ Markdown subset read:
   indented items      nested lists (inside the parent <li>, as HTML has it)
   ---, ***, ___       horizontal line
   **bold**, __bold__  bold
+  [text](url), <url>  links; bare http(s) urls are linked too
 
 Usage: python tools/readme_to_description.py [README.md] [_metadata/description.html]
 """
@@ -30,21 +32,46 @@ HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
 RULE = re.compile(r"^\s*([-*_])(\s*\1){2,}\s*$")
 
 
-def inline(text):
-    """Markdown inline -> the allowed HTML (bold only), everything escaped."""
-    # images and links first, before escaping touches the brackets
-    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
-    text = re.sub(r"\[([^\]]+)\]\(([^)\s]+)[^)]*\)", lambda m: m.group(1) if m.group(1) == m.group(2)
-                  else "%s (%s)" % (m.group(1), m.group(2)), text)
-    text = re.sub(r"<(https?://[^>]+)>", r"\1", text)
-    # inline code: the text alone
-    text = re.sub(r"`([^`]*)`", r"\1", text)
-    text = html.escape(text, quote=False)
+def emphasis(text):
+    """Bold kept; italic markers dropped (italics are not supported in game)."""
     text = re.sub(r"\*\*(.+?)\*\*|__(.+?)__", lambda m: "<b>%s</b>" % (m.group(1) or m.group(2)), text)
-    # italics: not supported in game, markers dropped
     text = re.sub(r"(?<![\w*])\*(?!\s)(.+?)(?<!\s)\*(?![\w*])", r"\1", text)
     text = re.sub(r"(?<![\w_])_(?!\s)(.+?)(?<!\s)_(?![\w_])", r"\1", text)
-    return text.strip()
+    return text
+
+
+# stands in for a link while the rest of a line is converted
+LINK_MARK = "\x00%d\x00"
+LINK_MARK_RE = re.compile("\x00(\\d+)\x00")
+
+
+def inline(text):
+    """Markdown inline -> the allowed HTML (bold and links), everything else escaped."""
+    # links are taken out first and put back last, so escaping and the bold and italic
+    # markers leave them (and underscores in their urls) alone
+    links = []
+
+    def keep(label, url):
+        links.append((label, url))
+        return LINK_MARK % (len(links) - 1)
+
+    # images: their alt text
+    text = re.sub(r"!\[([^\]]*)\]\([^)]*\)", r"\1", text)
+    # (a url may hold balanced brackets: Vertex_(geometry); an optional "title" after it)
+    text = re.sub(r"\[([^\]]+)\]\(([^()\s]*(?:\([^()\s]*\)[^()\s]*)*)(?:\s+\"[^\"]*\")?\)",
+                  lambda m: keep(m.group(1), m.group(2)), text)
+    text = re.sub(r"<(https?://[^>]+)>", lambda m: keep(m.group(1), m.group(1)), text)
+    # bare urls, as GitHub links them (a closing bracket or full stop after one is not its)
+    text = re.sub(r"(?<![\w/])https?://[^\s<>()\x00]*[^\s<>().,;:!?\x00]", lambda m: keep(m.group(0), m.group(0)), text)
+    # inline code: the text alone
+    text = re.sub(r"`([^`]*)`", r"\1", text)
+    text = emphasis(html.escape(text, quote=False))
+
+    def link(m):
+        label, url = links[int(m.group(1))]
+        return '<a href="%s">%s</a>' % (html.escape(url, quote=True), emphasis(html.escape(label, quote=False)))
+
+    return LINK_MARK_RE.sub(link, text).strip()
 
 
 def convert(markdown):
