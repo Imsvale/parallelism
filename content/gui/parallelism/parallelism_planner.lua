@@ -51,6 +51,8 @@ local ROAD_JUNCTION_BEYOND = 26.0
 local ROAD_CORNER_GAP = 2.5
 -- the width of the roads being planned (set per plan; nil for tracks)
 local planRoadWidth = nil
+-- the width of the planned road or track (its template's lanes)
+local planWidth = nil
 -- an end of an offset track continues a loose end within this share of the distance
 -- between neighbouring tracks (below half, so never the neighbour's)
 local LOOSE_END_SHARE = 0.4
@@ -151,8 +153,6 @@ local function isLevelCrossable(comp)
 	return (isStreet(planned) and comp.roadType == trackRoadType()) or (planned == trackRoadType() and isStreet(comp.roadType))
 end
 
--- the width a level crossing takes into account for a road or a track
-local TRACK_WIDTH = 4.0
 -- beyond the overlap of the two surfaces, the stretch native keeps free of nodes at a
 -- level crossing (fitted 2026-10-03 on one 6.3 degree build: new nodes 110.0 m along the
 -- track and 109.6 m along the road; to check at a second angle)
@@ -485,9 +485,10 @@ local function junctionRoom(cut, alongWidth, acrossWidth)
 	return math.max(pieceMinimum(), CROSSING_CLEARANCE / math.tan(math.rad(math.max(cut.angle, 1)))), nil
 end
 
--- the width of what is being planned: the road's, or a track's
+-- the width of what is being planned: the road's, or a track's (its template's lanes;
+-- should the template not be readable, the standard track distance as a stand-in)
 local function plannedWidth()
-	return isStreet(planRoadType) and planRoadWidth or TRACK_WIDTH
+	return planWidth or DEFAULT_TRACK_DISTANCE
 end
 
 -- Lane connections at a road junction: the mod's own sensible default (2026-10-02), not
@@ -787,10 +788,12 @@ local function getTrackDistance(roadTemplate)
 	return DEFAULT_TRACK_DISTANCE
 end
 
--- The width of a road (its lanes, sidewalks included); nil for a track.
-local function roadWidth(roadTemplate)
+-- The width of a road or track: the sum of its template's lanes (a road's sidewalks
+-- included; a track's one lane is its ballast bed, which the game also collides with).
+-- nil if the template cannot be read.
+local function widthOf(roadTemplate)
 	local template = getTemplate(roadTemplate)
-	if not (template and isStreet(template.roadType)) then
+	if template == nil then
 		return nil
 	end
 	local width = 0
@@ -800,15 +803,34 @@ local function roadWidth(roadTemplate)
 	return width > 0 and width or nil
 end
 
--- Distance between the centre lines of neighbours for the Spacing value: for roads the
--- gap between them (default shared.ROAD_GAP), for tracks the distance between their
--- centres (default and minimum the template's).
-local function parallelDistance(roadTemplate, spacing)
-	local width = roadWidth(roadTemplate)
-	if width then
-		return width + math.max(0, spacing or shared.ROAD_GAP)
+-- The width of a road; nil for a track.
+local function roadWidth(roadTemplate)
+	local template = getTemplate(roadTemplate)
+	if not (template and isStreet(template.roadType)) then
+		return nil
 	end
-	return math.max(getTrackDistance(roadTemplate), spacing or 0)
+	return widthOf(roadTemplate)
+end
+
+-- The Spacing value is the gap between the edges of neighbours (the panel may show it
+-- from centre to centre instead). Its default: as the game places them, the road builder
+-- snapping a second road shared.ROAD_GAP away, a track's template trackDistance between
+-- centres.
+local function defaultGap(roadTemplate)
+	local width = widthOf(roadTemplate)
+	if width == nil then
+		return 0
+	end
+	return math.max(0, getTrackDistance(roadTemplate) - width)
+end
+
+-- Distance between the centre lines of neighbours for a Spacing value (the gap).
+local function parallelDistance(roadTemplate, spacing)
+	local width = widthOf(roadTemplate) or 0
+	if spacing == nil then
+		return getTrackDistance(roadTemplate)
+	end
+	return width + math.max(0, spacing)
 end
 
 local function formatRadius(r)
@@ -1128,8 +1150,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	node2segmentsCache = nil
 	planRoadType = drawn[1] and drawn[1].comp.roadType or trackRoadType()
 	planRoadWidth = nil
+	planWidth = nil
 	pcall(function()
-		planRoadWidth = roadWidth(nonEmpty(drawn[1].comp.roadTemplate) or drawn[1].template)
+		local template = nonEmpty(drawn[1].comp.roadTemplate) or drawn[1].template
+		planRoadWidth = roadWidth(template)
+		planWidth = widthOf(template)
 	end)
 	local streets = isStreet(planRoadType)
 	local noJunctions = streets and not ROAD_JUNCTIONS
@@ -1738,7 +1763,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							local a = geometry.angleBetween(tangent, comp.node0 == node.entity and e.t0 or e.t1)
 							cutNodes[node.entity] = true
 							cutAt[node.entity] = cutAt[node.entity] or { node = node, angle = math.min(a, 180 - a),
-								level = isLevelCrossable(comp) or nil, otherWidth = isLevelCrossable(comp) and (roadWidth(comp.roadTemplate) or TRACK_WIDTH) or nil }
+								level = isLevelCrossable(comp) or nil, otherWidth = isLevelCrossable(comp) and (widthOf(comp.roadTemplate) or plannedWidth()) or nil }
 						end
 					end
 				elseif useCount[entity] == 1 and streets then
@@ -1775,7 +1800,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						if anchoredComp and isLevelCrossable(anchoredComp) then
 							-- a road ending on a track: a level crossing T
 							anchorCuts[node.entity].level = true
-							anchorCuts[node.entity].otherWidth = roadWidth(anchoredComp.roadTemplate) or TRACK_WIDTH
+							anchorCuts[node.entity].otherWidth = widthOf(anchoredComp.roadTemplate) or plannedWidth()
 						end
 						stats.anchored = stats.anchored + 1
 						log("  node " .. entity .. ": anchored on edge " .. edgeEntity .. string.format(" at u = %.3f ", u) .. shared.vecToString(point))
@@ -2208,7 +2233,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								local node = newNode(x.pointA)
 								local u = math.max(0.001, math.min(0.999, x.ub))
 								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity, level = level or nil,
-									otherWidth = roadWidth(comp.roadTemplate) or TRACK_WIDTH }
+									otherWidth = widthOf(comp.roadTemplate) or plannedWidth() }
 								local cut = addSplit(entity, u, node, angle)
 								cut.level = level or nil
 								stats.crossings = stats.crossings + 1
@@ -2227,7 +2252,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							else
 								local node = newNode(x.pointA)
 								oe.cuts[#oe.cuts + 1] = { u = x.ua, node = node, angle = angle, entity = entity, level = level or nil,
-									otherWidth = roadWidth(comp.roadTemplate) or TRACK_WIDTH }
+									otherWidth = widthOf(comp.roadTemplate) or plannedWidth() }
 								local cut = addSplit(entity, x.ub, node, angle)
 								cut.level = level or nil
 								stats.crossings = stats.crossings + 1
@@ -2377,7 +2402,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 									crossingAtNode[node.entity] = true
 									local cut = addSplit(entity, u, node, angle)
 									if level then
-										cut.level, cut.otherWidth = true, roadWidth(comp.roadTemplate) or TRACK_WIDTH
+										cut.level, cut.otherWidth = true, widthOf(comp.roadTemplate) or plannedWidth()
 									end
 									stats.crossings = stats.crossings + 1
 									log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg, through own node %d ", u, angle, node.entity)
@@ -2624,7 +2649,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			for i, e in ipairs(c.edges) do
 				for __, cut in ipairs(splits[e.id] and splits[e.id].cuts or {}) do
 					-- measured along this (the crossed) road or track, ours across it
-					local keep, corner = junctionRoom(cut, roadWidth(c.edges[1].comp.roadTemplate) or TRACK_WIDTH, plannedWidth())
+					local keep, corner = junctionRoom(cut, widthOf(c.edges[1].comp.roadTemplate) or plannedWidth(), plannedWidth())
 					local j = { id = cut.node.entity, position = cut.node.position, keepBefore = keep, keepAfter = keep,
 						node = nodeIndex[cut.node.entity], edge = not nodeIndex[cut.node.entity] and i or nil, corner = corner }
 					junctions[#junctions + 1] = j
@@ -3671,6 +3696,8 @@ planner.toEdge = toEdge
 planner.getEdgeComp = readEdgeComp
 planner.getTrackDistance = getTrackDistance
 planner.roadWidth = roadWidth
+planner.widthOf = widthOf
+planner.defaultGap = defaultGap
 planner.parallelDistance = parallelDistance
 planner.formatRadius = formatRadius
 planner.collectDrawnSegments = collectDrawnSegments

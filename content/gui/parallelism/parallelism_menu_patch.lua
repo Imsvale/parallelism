@@ -630,16 +630,19 @@ end
 -- descriptor rendered right after it gets the preview components
 local injectPreview = false
 
--- Spacing, in meters: for roads the gap between neighbours (0 = edge to edge, default
--- the gap the road builder snaps to), for tracks the distance between their centres
--- (from the track type's own distance, which is the default, up). Returns the slider's
--- smallest, largest and default value.
-local function spacingRange(builder, resName)
-	if builder == shared.STREET_BUILDER then
-		return 0, shared.MAX_SPACING, shared.ROAD_GAP
-	end
-	local native = planner.getTrackDistance(resName)
-	return native, native + shared.MAX_SPACING, native
+-- Spacing, in meters: the gap between the edges of neighbouring roads or tracks (0 =
+-- touching), default the gap the game leaves (the road builder's snap, a track type's
+-- trackDistance less its width). Returns the slider's smallest, largest and default value.
+local function spacingRange(_builder, resName)
+	return 0, shared.MAX_SPACING, planner.defaultGap(resName)
+end
+
+-- the Spacing from setting as last seen: the slider shows the gap, or the distance
+-- between centres (the gap plus the width)
+local spacingFromCenter = false
+
+local function readSpacingFrom(params)
+	spacingFromCenter = params ~= nil and params[shared.KEY_SPACING_FROM] == shared.SPACING_FROM_CENTER
 end
 
 local function spacingNumbers(builder, resName)
@@ -725,6 +728,7 @@ local function makeParams(builder, resName)
 	end
 	local spacing = spacingNumbers(builder, resName)
 	local spacingLow, spacingHigh, spacingDefault = spacingRange(builder, resName)
+	local width = planner.widthOf(resName) or 0
 
 	-- the options for the extra tracks only matter with some
 	local function withExtras(params)
@@ -775,8 +779,10 @@ local function makeParams(builder, resName)
 			key = shared.KEY_SPACING,
 			name = _("Spacing"),
 			tooltip = streets
-				and string.format(_("Gap between neighbouring roads, 0 m is edge to edge. The road builder leaves %g m."), spacingDefault)
-				or string.format(_("Distance between the centres of neighbouring tracks. The standard for this track type is %g m."), spacingDefault),
+				and string.format(_("Between neighbouring roads: the gap between their edges, or the distance between their centers (Spacing from). The road builder's own: %g m edge to edge, %g m center to center."),
+					spacingDefault, spacingDefault + width)
+				or string.format(_("Between neighbouring tracks: the gap between their edges, or the distance between their centers (Spacing from). Standard for this track type: %g m edge to edge, %g m center to center."),
+					spacingDefault, spacingDefault + width),
 			numbers = spacing,
 			defaultIndex = math.floor((spacingDefault - spacingLow) / shared.SPACING_STEP + 0.5) + 1,
 			resetOnCategoryChange = false,
@@ -792,9 +798,31 @@ local function makeParams(builder, resName)
 				return math.max(spacingLow, math.min(spacingHigh, newValue))
 			end,
 			formatValueFn = function(value)
-				return string.format("%.1f m", value)
+				return string.format("%.1f m", spacingFromCenter and value + width or value)
 			end,
-			checkEnabledFn = withExtras,
+			checkEnabledFn = function(params)
+				readSpacingFrom(params)
+				return withExtras(params)
+			end,
+		},
+		{
+			group = "parallelTracks",
+			key = shared.KEY_SPACING_FROM,
+			name = _("Spacing from"),
+			tooltip = streets and _("Spacing measured between the edges of neighbouring roads, or between their centres.")
+				or _("Spacing measured between the edges of neighbouring tracks, or between their centres."),
+			values = { _("Edge"), _("Center") },
+			defaultIndex = shared.SPACING_FROM_EDGE,
+			resetOnCategoryChange = false,
+			resetOnMenuClose = false,
+			uiType = api.type["enum"].ScriptParamType.Button,
+			yearFrom = 0,
+			yearTo = 0,
+			location = api.type["enum"].ScriptParamLocation.Toolbar,
+			checkEnabledFn = function(params)
+				readSpacingFrom(params)
+				return withExtras(params)
+			end,
 		},
 	}
 	if streets then
@@ -902,6 +930,7 @@ function patch.install()
 			count = isDrawing(builder, params) and params[shared.KEY_COUNT] or 1
 			side = sideChoices(builder)[params[shared.KEY_SIDE] or 0] or shared.SIDE_RIGHT
 			spacing = spacingOf(params, builder, definition.resName)
+			readSpacingFrom(params)
 			reverse = builder == shared.STREET_BUILDER and params[shared.KEY_DIRECTION] == shared.DIRECTION_OPPOSITE
 			-- the game script runs on another lua state, this event is the way across
 			api.gui.fireGuiScriptEvent(shared.EVENT_ID, shared.EVENT_SET_PARAMS, {
