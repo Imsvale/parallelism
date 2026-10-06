@@ -5,8 +5,8 @@ return {
 	-- The most tracks or roads the Tracks / Roads buttons offer, the drawn one included.
 	-- These are the fallbacks: the mod settings (maxTracks and maxRoads in mod.json, whose
 	-- defaultIndex is the default there) decide when the game can tell them.
-	MAX_TRACKS = 8,
-	MAX_ROADS = 8,
+	MAX_TRACKS = 9,
+	MAX_ROADS = 9,
 
 	-- The Spacing slider: up to this many meters between neighboring tracks or roads
 	-- (edge to edge), in steps of this many meters (the slider's fine steps).
