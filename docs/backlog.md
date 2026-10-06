@@ -12,9 +12,6 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
 
 ## Open: features and gaps
 
-- **Corner filling.** Sharp corners only join the center lines. Roads are wide, so the
-  inside of a sharp corner overlaps and outside corners are spiky. To compare with a
-  native hand-built corner first: whether the game accepts and shapes it as it is.
 - **Show refused extra tracks.** When our own plan has a problem, the extra tracks are
   not shown at all. Decided 2026-10-02: two modes drawn with `builtin.EdgeRenderable`
   (not judged by the game): a stripped-down default with the problem segment in red;
@@ -23,6 +20,12 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
 
 ## Open: known limits and to-confirm
 
+- **Curved continuation from our junctions, along the incoming roads (2026-10-06).** From a
+  triple T (three roads in at about 50 degrees onto a main road), a curved drag that
+  starts straight on along the incoming roads and then bends is refused for any bend more
+  than a little off straight ahead; dead straight (snapped to the guide) builds, and so
+  does continuing square to the main road. Seen 01:49-01:52Z; that log was overwritten
+  by a restart, so a new log of it is needed to look into it.
 - **Kinks at a bundle's end, the builder's own collision (2026-10-05).** A straight-mode
   kink from the end of a bundle collides with the untrimmed end of the parallel on the
   inside of the turn (side C: from about 63 degrees; earlier with the parallels on the
@@ -116,6 +119,9 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
   spacing those junctions give (in-world placement over the panel: wider or narrower
   than set). Straight and curved; at a level crossing the roads continue smoothly as
   native.
+- **Corner filling (closed 2026-10-06).** Parallel corners at straight-mode kinks look like
+  the drawn road's own, on the small town road and the large country road (6 lanes);
+  past 90 degrees the outside corner gets a spike, as the drawn road's does.
 - **Corners at a bundle's end (2026-10-01, 2026-10-05).** The old parallel is cut back or
   extended to the miter corner at any kink (no cut-off), cut back over as many edges as
   it takes.
