@@ -29,6 +29,9 @@ local shared = {
 	SIDE_CENTER_RIGHT = 3,
 	SIDE_RIGHT = 4,
 
+	-- the first of the values of the mod settings maxTracks / maxRoads (mod.json)
+	COUNT_SETTING_FIRST = 2,
+
 	SPACING_STEP = config.SPACING_STEP,
 	MAX_SPACING = config.MAX_SPACING,
 	-- Roads side by side: the road builder snaps a second road a road width plus this
@@ -97,20 +100,20 @@ end
 function shared.maxCount(builder)
 	local streets = builder == shared.STREET_BUILDER
 	local key = streets and "maxRoads" or "maxTracks"
-	-- the settings' values run 1, 2, 3, ..., so the chosen value and its 1-based index
-	-- (which is what the game was seen to return) are the same number
-	local value = tonumber(shared.modParam(key))
+	-- the game gives the 1-based index of the chosen value, not its number (seen with an
+	-- earlier option: "No" of numbers 0 / 1 read as 1); the values run 2, 3, 4, ...
+	local index = tonumber(shared.modParam(key))
 	if not shared.loggedModParams then
 		shared.loggedModParams = {}
 	end
 	if not shared.loggedModParams[key] then
 		shared.loggedModParams[key] = true
-		shared.log("mod option " .. key .. " = " .. tostring(value))
+		shared.log("mod option " .. key .. " = " .. tostring(index))
 	end
-	if value == nil or value < 1 then
+	if index == nil or index < 1 then
 		return streets and config.MAX_ROADS or config.MAX_TRACKS
 	end
-	return math.floor(value)
+	return math.floor(index) + shared.COUNT_SETTING_FIRST - 1
 end
 
 -- a short fingerprint of a (long) string, to compare drag signatures in the log
