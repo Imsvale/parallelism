@@ -645,6 +645,37 @@ local function readSpacingFrom(params)
 	spacingFromCenter = params ~= nil and params[shared.KEY_SPACING_FROM] == shared.SPACING_FROM_CENTER
 end
 
+-- The Spacing slider only redraws its text when its value (or its definition) changes,
+-- so a change of Spacing from alone left it showing the other measure. The value is
+-- moved by a millionth of a meter with the setting (on the step for Edge, just above it
+-- for Center), which redraws it; the plan cannot tell the difference.
+local lastSpacingFrom = nil
+
+local function showSpacingFrom()
+	if lastSpacingFrom == spacingFromCenter then
+		return
+	end
+	lastSpacingFrom = spacingFromCenter
+	local ok, err = pcall(function()
+		for __, ref in ipairs(paramRefs) do
+			local api_ = paramsApi(ref)
+			local info = api_ and api_.getParamByKey(shared.KEY_SPACING)
+			local value = info and tonumber(info.value)
+			if value then
+				local step = shared.SPACING_STEP
+				local shown = math.floor(value / step + 0.5) * step + (spacingFromCenter and 1e-6 or 0)
+				if shown ~= value then
+					api_.changeParam(info.index, shown)
+				end
+				return
+			end
+		end
+	end)
+	if not ok then
+		shared.log("spacing redraw failed: " .. tostring(err))
+	end
+end
+
 local function spacingNumbers(builder, resName)
 	local low, high = spacingRange(builder, resName)
 	local numbers = {}
@@ -946,6 +977,7 @@ function patch.install()
 		if builder and count > 1 and actionParams and actionParams.getProposalStringsFn then
 			-- (repository, isGamepadMode, refParams, entity, notifications, refSublistParams)
 			paramRefs = { select(6, ...), select(3, ...) }
+			showSpacingFrom()
 			if preview.builder ~= builder or preview.count ~= count or preview.side ~= side or preview.spacing ~= spacing
 				or preview.reverse ~= reverse or preview.resName ~= definition.resName then
 				shared.log("menu spacing param = " .. tostring(params[shared.KEY_SPACING]))
