@@ -92,7 +92,8 @@ function chain.relay(c, junctions, opts)
 	opts = opts or {}
 	local joinTolerance = opts.joinTolerance or 0.05
 	local refitTolerance = opts.refitTolerance or 0.5
-	local result = { pieces = {}, removedNodes = {}, removedEdges = {}, problems = {} }
+	-- problemPoints: where the problems are, for showing a refused plan
+	local result = { pieces = {}, removedNodes = {}, removedEdges = {}, problems = {}, problemPoints = {} }
 
 	-- 1. distance along the chain of every node
 	local lengths, at = {}, { [1] = 0 }
@@ -151,6 +152,8 @@ function chain.relay(c, junctions, opts)
 				if p.s - last.s < need - EPS then
 					result.problems[#result.problems + 1] = string.format("junctions %s and %s only %.1f m apart, they need %.1f m",
 						tostring(last.id), tostring(p.id), p.s - last.s, need)
+					result.problemPoints[#result.problemPoints + 1] = last.position
+					result.problemPoints[#result.problemPoints + 1] = p.position
 				end
 			end
 			last = p
@@ -280,6 +283,8 @@ function chain.relay(c, junctions, opts)
 			if curve == nil then
 				result.problems[#result.problems + 1] = string.format(
 					"the road between %s and %s cannot be re-laid without bending it (strays %.2f m)", tostring(p0.id), tostring(p1.id), d)
+				result.problemPoints[#result.problemPoints + 1] = p0.position
+				result.problemPoints[#result.problemPoints + 1] = p1.position
 			elseif curve ~= true then
 				emit(p0, p1, curve, origins, reversed)
 			end

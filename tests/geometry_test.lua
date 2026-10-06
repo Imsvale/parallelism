@@ -186,8 +186,10 @@ local badCrossing = {
 	goodCrossing[1], goodCrossing[2], goodCrossing[3],
 	planEdge(-4, 9, 4, v(0, 0), v(50, 10), v(50, 10, 0)),
 }
-local problems = geometry.checkPlan(badCrossing)
+local problems, problemPoints = geometry.checkPlan(badCrossing)
 check("bent crossing is a problem", #problems == 1, problems[1])
+check("the bent crossing is located at its node", #problemPoints == 1 and math.abs(problemPoints[1].x) < 1e-9
+	and math.abs(problemPoints[1].y) < 1e-9, problemPoints[1] and (problemPoints[1].x .. "," .. problemPoints[1].y))
 
 -- miter: a path along +x turning left 90 degrees at the origin. Left (offset -16, the
 -- inside) the corner is behind both offset points: the old parallel gets shorter, the

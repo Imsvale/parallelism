@@ -1178,7 +1178,14 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		end
 		return t
 	end
-	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, junctions = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {}, problems = {} }
+	local stats = { edges = 0, minRadius = math.huge, reused = 0, anchored = 0, crossings = 0, junctions = 0, shallow = 0, moved = 0, dropped = 0, skipped = 0, plan = {}, problems = {},
+		problemPoints = {} }
+	-- where a problem is, for showing a refused plan (problemPoints)
+	local function problemAt(p)
+		if p then
+			stats.problemPoints[#stats.problemPoints + 1] = { x = p.x, y = p.y, z = p.z or 0 }
+		end
+	end
 	stats.minCrossingAngle = minCrossingAngle()
 	-- dev aid: why nodes were left where they are, kept even without a log (the preview
 	-- has none), for the log of a refused plan
@@ -1711,6 +1718,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					-- stopped short of the road or ran across it (2026-10-03, T under 15
 					-- degrees); refused as too shallow
 					stats.shallow = stats.shallow + 1
+					problemAt(offsetPosition)
 				end
 			end
 			return best
@@ -2229,6 +2237,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								stats.junctions = stats.junctions + 1
 							elseif angle < minAngle then
 								stats.shallow = stats.shallow + 1
+								problemAt(x.pointA)
 							else
 								local node = newNode(x.pointA)
 								local u = math.max(0.001, math.min(0.999, x.ub))
@@ -2248,6 +2257,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								-- the game crashes building the geometry of a crossing this
 								-- shallow, better let the build fail on the collision
 								stats.shallow = stats.shallow + 1
+								problemAt(x.pointA)
 								log(string.format("  crossing edge %d at %.1f deg is too shallow, not built", entity, angle))
 							else
 								local node = newNode(x.pointA)
@@ -2396,6 +2406,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 									stats.junctions = stats.junctions + 1
 								elseif angle < (level and MIN_CROSSING_ANGLE or minCrossingAngle()) then
 									stats.shallow = stats.shallow + 1
+									problemAt(node.position)
 								elseif snapOntoCrossing(node, other) then
 									u = geometry.closestParameter(node.position, other)
 									movable[node.entity] = nil
@@ -2702,6 +2713,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 			log(string.format("  re-laid road of edges %s: %d junctions, %d nodes removed, %d pieces", table.concat(ids, ","),
 				#junctions, #result.removedNodes, #result.pieces))
+			for __, p in ipairs(result.problemPoints or {}) do
+				problemAt(p)
+			end
 			for __, problem in ipairs(result.problems) do
 				log("  " .. problem)
 				stats.relayProblem = stats.relayProblem or problem
@@ -2722,7 +2736,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
 					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
 						length, shared.vecToString(n0.position), pieceMinimum())
-					stats.problemAt = n0.position
+					problemAt(n0.position)
 				end
 			end
 			for __, e in ipairs(result.removedEdges) do
@@ -2870,6 +2884,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				log(string.format("  re-laid our parallel: %d junctions, %d own nodes dropped, %d pieces", #junctions,
 					#result.removedNodes, #result.pieces))
 			end
+			for __, p in ipairs(result.problemPoints or {}) do
+				problemAt(p)
+			end
 			for __, problem in ipairs(result.problems) do
 				log("  " .. problem)
 				stats.relayProblem = stats.relayProblem or problem
@@ -2887,7 +2904,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
 						stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
 							length, shared.vecToString(n0.position), pieceMinimum())
-						stats.problemAt = n0.position
+						problemAt(n0.position)
 					end
 				end
 			end
@@ -2964,7 +2981,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 		end
 	end
-	stats.problems = geometry.checkPlan(stats.plan, nil, skipBend)
+	local planPoints
+	stats.problems, planPoints = geometry.checkPlan(stats.plan, nil, skipBend)
+	for __, p in ipairs(planPoints or {}) do
+		problemAt(p)
+	end
 	-- Roads: the finished plan against the native rules, whatever placed its nodes
 	-- (2026-10-03: nodes left near junctions by one mechanism or another kept turning up as
 	-- the game's "Construction Not Possible", and corners overlapping crashed the game in
@@ -3014,6 +3035,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if length < need then
 					stats.junctionsOverlap = stats.junctionsOverlap or string.format(
 						"junctions %d and %d only %.1f m apart, their corners need %.1f m", e.node0, e.node1, length, need)
+					problemAt(e.edge.p0)
+					problemAt(e.edge.p1)
 				end
 			end
 			for __, pair in ipairs({ { c0, e.node1 }, { c1, e.node0 } }) do
@@ -3023,6 +3046,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					stats.nodeInRoom = stats.nodeInRoom or string.format(
 						"node %d left %.1f m from junction %d, inside its %.1f m room", other, length,
 						e.node0 == other and e.node1 or e.node0, room)
+					problemAt(e.node0 == other and e.edge.p0 or e.edge.p1)
 				end
 			end
 		end
@@ -3083,10 +3107,14 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	-- The radius above takes each offset edge for an arc, from its ends. Merged edges
 	-- (dropped own nodes, moved nodes) can bend tighter in between, so sample the edges
 	-- we shape: our own pieces and merged existing edges, not plain cuts of existing ones.
+	local tightest = nil
 	for i, p in ipairs(pieces) do
 		local e = stats.plan[i] and stats.plan[i].edge
 		if e and (p.origins == nil or #p.origins > 1) then
-			stats.minRadius = math.min(stats.minRadius, geometry.minRadiusAlong(e))
+			local radius = geometry.minRadiusAlong(e)
+			if radius < stats.minRadius then
+				stats.minRadius, tightest = radius, e
+			end
 		elseif e and not stats.existingBend then
 			-- a plain cut of an existing track keeps its shape, but the game judges the
 			-- pieces again: a bend there tighter than its own type allows gets the plan
@@ -3095,6 +3123,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			local limit = allowedRadius(p.template)
 			if radius < limit then
 				stats.existingBend = string.format("an existing track is cut where it bends at %.1f m radius, its type needs %.0f m", radius, limit)
+				problemAt(geometry.hermite(e.p0, e.p1, e.t0, e.t1, 0.5))
 			end
 		end
 	end
@@ -3104,6 +3133,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	end
 	stats.tooTight = stats.minRadius < minRadius
 	if stats.tooTight then
+		problemAt(tightest and geometry.hermite(tightest.p0, tightest.p1, tightest.t0, tightest.t1, 0.5))
 		table.insert(stats.problems, 1, string.format("a parallel %s would curve at %.1f m radius, the type needs %.0f m",
 			streets and "road" or "track", stats.minRadius, minRadius))
 		log("  plan problem: " .. stats.problems[1])

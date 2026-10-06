@@ -704,11 +704,17 @@ end
 function geometry.checkPlan(plan, tolerance, corners)
 	tolerance = tolerance or 1.0
 	local problems = {}
+	-- where they are: positions of the nodes and short edges named
+	local points = {}
 	local byNode = {}
+	local positionOf = {}
 	for _, e in ipairs(plan) do
 		if horizontalDistance(e.edge.p0, e.edge.p1) < 0.5 then
 			problems[#problems + 1] = string.format("edge %d is only %.2f m long", e.entity, horizontalDistance(e.edge.p0, e.edge.p1))
+			points[#points + 1] = e.edge.p0
 		end
+		positionOf[e.node0] = e.edge.p0
+		positionOf[e.node1] = e.edge.p1
 		byNode[e.node0] = byNode[e.node0] or {}
 		byNode[e.node1] = byNode[e.node1] or {}
 		-- directions leaving the node
@@ -720,6 +726,7 @@ function geometry.checkPlan(plan, tolerance, corners)
 			local bend = 180 - angleBetween(dirs[1], dirs[2])
 			if bend > tolerance then
 				problems[#problems + 1] = string.format("track bends %.1f deg at node %d", bend, node)
+				points[#points + 1] = positionOf[node]
 			end
 		elseif #dirs == 4 then
 			local best = math.huge
@@ -728,10 +735,11 @@ function geometry.checkPlan(plan, tolerance, corners)
 			end
 			if best > tolerance then
 				problems[#problems + 1] = string.format("a track bends %.1f deg through the crossing at node %d", best, node)
+				points[#points + 1] = positionOf[node]
 			end
 		end
 	end
-	return problems
+	return problems, points
 end
 
 -- Signed offsets (positive = right of build direction) of the additional tracks.

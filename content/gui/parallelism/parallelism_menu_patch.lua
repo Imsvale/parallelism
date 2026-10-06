@@ -58,6 +58,10 @@ local function clearPreview()
 		preview.wireframeEdges = nil
 		preview.version = preview.version + 1
 	end
+	if preview.refused then
+		preview.refused = nil
+		preview.version = preview.version + 1
+	end
 	if #preview.proposals > 0 then
 		preview.proposals = {}
 		preview.costs = {}
@@ -75,6 +79,35 @@ local function signatureOf(drawn)
 end
 
 local previewDebounce = planner.newDebounce(planner.PLAN_EVERY, planner.CHEAP_PLAN_MS)
+
+-- A refused plan, to show instead of nothing: its edges, those at a problem the planner
+-- located marked red (the nearest ones to each spot, both where it is at a node); all
+-- red when it located none.
+local function refusedLines(stats)
+	local lines = {}
+	for __, e in ipairs(stats.plan or {}) do
+		lines[#lines + 1] = { edge = e.edge }
+	end
+	local points = stats.problemPoints or {}
+	for __, p in ipairs(points) do
+		local distances, best = {}, math.huge
+		for i, l in ipairs(lines) do
+			distances[i] = geometry.distanceToEdge(p, l.edge)
+			best = math.min(best, distances[i])
+		end
+		for i, l in ipairs(lines) do
+			if distances[i] <= best + 0.5 then
+				l.red = true
+			end
+		end
+	end
+	if #points == 0 then
+		for __, l in ipairs(lines) do
+			l.red = true
+		end
+	end
+	return #lines > 0 and lines or nil
+end
 
 -- dev aid: what the preview costs, logged every 100 tooltip calls (countPreviewCall)
 local previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0 }
@@ -166,6 +199,7 @@ local function updatePreview(proposal)
 		preview.bulldozeList = {}
 	end
 	preview.problems = #stats.problems
+	preview.refused = (stats.edges > 0 and #stats.problems > 0) and refusedLines(stats) or nil
 	preview.tooTight = stats.tooTight and stats.minAllowedRadius or nil
 	-- dev aid: what the preview planned, next to what the game says about it
 	local planned = string.format("%d drawn, %d edges, %d anchored, %d crossings, %d too shallow, %d moved, %d dropped, %d problems%s",
@@ -190,7 +224,7 @@ local function updatePreview(proposal)
 	preview.plan = stats.plan
 	preview.firstProblem = stats.problems[1]
 	preview.notes = stats.notes
-	preview.problemAt = stats.problemAt
+	preview.problemAt = stats.problemPoints and stats.problemPoints[1] or nil
 	preview.stillCalls = 0
 	preview.stillLogged = false
 	preview.shortPiece = stats.shortPiece ~= nil
@@ -369,6 +403,47 @@ local function nativeWireframe(proposal, builder)
 	end
 	return list, #drawn > 0 and string.format("%d|%.2f,%.2f|%.2f,%.2f|%d", #drawn, drawn[1].edge.p0.x, drawn[1].edge.p0.y,
 		drawn[#drawn].edge.p1.x, drawn[#drawn].edge.p1.y, #sp.addedSegments) or nil
+end
+
+-- A refused plan drawn as lines (preview.refused): white, the problem in red.
+local REFUSED_COLOR = { 1, 1, 1, 0.6 }
+local PROBLEM_COLOR = { 1, 0.15, 0.15, 1 }
+local refusedFailed = false
+
+local function makeRefused()
+	if refusedFailed or not preview.refused then
+		return nil
+	end
+	local ok, result = pcall(function()
+		local plain, red = {}, {}
+		for __, l in ipairs(preview.refused) do
+			local e = l.edge
+			-- (a zero-length edge crashed the game drawing it, see makeWireframe)
+			local t0 = math.sqrt(e.t0.x * e.t0.x + e.t0.y * e.t0.y)
+			local t1 = math.sqrt(e.t1.x * e.t1.x + e.t1.y * e.t1.y)
+			if geometry.arcLength(e) >= 0.1 and t0 > 1e-3 and t1 > 1e-3 then
+				if l.red then
+					red[#red + 1] = makeWireframeEdge(e, PROBLEM_COLOR, 0.8)
+				else
+					plain[#plain + 1] = makeWireframeEdge(e, REFUSED_COLOR, 0.4)
+				end
+			end
+		end
+		-- the red ones on top
+		for __, e in ipairs(red) do
+			plain[#plain + 1] = e
+		end
+		if #plain == 0 then
+			return nil
+		end
+		return builtin.EdgeRenderable{ edges = plain, ignoreDepth = true }
+	end)
+	if not ok then
+		refusedFailed = true
+		shared.log("drawing a refused plan failed, off until the game restarts: " .. tostring(result))
+		return nil
+	end
+	return result
 end
 
 local function makeWireframe()
@@ -1161,6 +1236,11 @@ function patch.install()
 					local wireframe = makeWireframe()
 					if wireframe then
 						params.children[#params.children + 1] = wireframe
+					end
+				elseif preview.refused and not preview.proposals[1] then
+					local refused = makeRefused()
+					if refused then
+						params.children[#params.children + 1] = refused
 					end
 				end
 				if SPIKE_SELECTOR and preview.builder == shared.STREET_BUILDER then
