@@ -522,6 +522,98 @@ local function makeWireframe()
 	return result
 end
 
+-- The Wireframe setting as last seen in a builder's toolbar; On keeps the world view
+-- (below) after the builder is closed.
+local wireframeMode = shared.WIREFRAME_OFF
+
+-- Wireframe On: the network around the camera as lines, with its nodes, also when no
+-- builder is open (drawn from the mod's entry plugin, parallelism_entry.script.lua).
+-- Around the camera: the spot it looks at, as far as it is away from it, so the view
+-- zoomed out covers more. (The caps only spare the game a view it could not read.)
+local WORLD_EDGES_MAX = 1500
+local WORLD_ROAD_COLOR = { 0.7, 0.75, 0.8, 0.8 }
+local WORLD_TRACK_COLOR = { 0.85, 0.7, 0.45, 0.8 }
+local world = { edges = nil, key = nil, failed = false }
+
+-- refreshes the world view; returns a number that changes when it did
+function patch.refreshWorldWireframe()
+	if not (shared.DEBUG_WIREFRAME and wireframeMode == shared.WIREFRAME_ON) or world.failed then
+		if world.edges then
+			world.edges, world.key = nil, nil
+		end
+		return world.version or 0
+	end
+	local ok, err = pcall(function()
+		local camera = api.gui.camera.getCameraData()
+		local radius = math.max(50, camera.z)
+		local list = {}
+		local tracks = api.type["enum"].RoadType.TRACK
+		for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(camera.x, camera.y), radius,
+			api.type.ComponentType.BASE_EDGE)) do
+			if #list >= WORLD_EDGES_MAX then
+				break
+			end
+			local comp = planner.getEdgeComp(entity)
+			if comp then
+				list[#list + 1] = { edge = planner.toEdge(comp), track = comp.roadType == tracks, node0 = comp.node0, node1 = comp.node1 }
+			end
+		end
+		world.edges = list
+		world.version = (world.version or 0) + 1
+	end)
+	if not ok then
+		world.failed = true
+		shared.log("world wireframe failed, off until the game restarts: " .. tostring(err))
+	end
+	return world.version or 0
+end
+
+-- the world view to render, or nil
+function patch.worldWireframe()
+	if world.failed or not world.edges or #world.edges == 0 then
+		return nil
+	end
+	local ok, result = pcall(function()
+		local edges, ends = {}, {}
+		for __, w in ipairs(world.edges) do
+			local e = w.edge
+			local t0 = math.sqrt(e.t0.x * e.t0.x + e.t0.y * e.t0.y)
+			local t1 = math.sqrt(e.t1.x * e.t1.x + e.t1.y * e.t1.y)
+			-- (a zero-length edge crashed the game drawing it, see makeWireframe)
+			if geometry.arcLength(e) >= 0.1 and t0 > 1e-3 and t1 > 1e-3 then
+				edges[#edges + 1] = makeWireframeEdge(e, w.track and WORLD_TRACK_COLOR or WORLD_ROAD_COLOR, 0.4)
+				for __, n in ipairs({ { w.node0, e.p0 }, { w.node1, e.p1 } }) do
+					local entry = ends[n[1]]
+					if entry == nil then
+						entry = { position = n[2], count = 0, track = w.track }
+						ends[n[1]] = entry
+						ends[#ends + 1] = entry
+					end
+					entry.count = entry.count + 1
+				end
+			end
+		end
+		local squares = {}
+		for i, n in ipairs(ends) do
+			if i > MAX_NODE_MARKERS then
+				break
+			end
+			local c = n.track and WORLD_TRACK_COLOR or WORLD_ROAD_COLOR
+			addSquare(squares, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 })
+		end
+		for __, s in ipairs(squares) do
+			edges[#edges + 1] = makeWireframeEdge(s, s.color, 0.3)
+		end
+		return builtin.EdgeRenderable{ edges = edges, ignoreDepth = true }
+	end)
+	if not ok then
+		world.failed = true
+		shared.log("world wireframe failed, off until the game restarts: " .. tostring(result))
+		return nil
+	end
+	return result
+end
+
 -- The preview of one extra track: the game's own proposal viewer, which draws the
 -- proposal and evaluates its costs and errors. It must go into the action descriptor
 -- as a builtin, a recipe of the mod's own there crashes the game.
@@ -957,8 +1049,8 @@ local function makeParams(builder, resName)
 			group = "parallelTracks",
 			key = shared.KEY_WIREFRAME,
 			name = "Wireframe",
-			tooltip = "Dev aid: draw the whole plan as lines, with a square at every node (larger where 3 or more edges meet). White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed. With one track or road: the builder's own plan, and gray: existing track or road around it.",
-			values = { "Off", "On" },
+			tooltip = "Dev aid: draw the whole plan as lines, with a square at every node (larger where 3 or more edges meet). White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed. With one track or road: the builder's own plan, and gray: existing track or road around it. Auto: while building. On: also when no tool is open, the network around the camera (roads blue-gray, tracks tan); stays on after the tool is closed, until set Off here.",
+			values = { "Off", "Auto", "On" },
 			defaultIndex = 1,
 			resetOnCategoryChange = false,
 			resetOnMenuClose = false,
@@ -1036,6 +1128,7 @@ function patch.install()
 		local count = 1
 		local side, spacing, reverse
 		if builder then
+			wireframeMode = params[shared.KEY_WIREFRAME] or shared.WIREFRAME_OFF
 			-- the replace / upgrade mode keeps the count value but must not build anything extra
 			count = isDrawing(builder, params) and params[shared.KEY_COUNT] or 1
 			side = sideChoices(builder)[params[shared.KEY_SIDE] or 0] or shared.SIDE_RIGHT
@@ -1068,7 +1161,7 @@ function patch.install()
 				preview.resName = definition.resName
 				clearPreview()
 			end
-			local wireframe = shared.DEBUG_WIREFRAME and params[shared.KEY_WIREFRAME] == 2 or false
+			local wireframe = shared.DEBUG_WIREFRAME and wireframeMode >= shared.WIREFRAME_AUTO or false
 			if wireframe ~= preview.wireframe then
 				preview.wireframe = wireframe
 				-- plan again, with or without the wireframe edges
@@ -1158,7 +1251,7 @@ function patch.install()
 				end
 				return strings
 			end
-		elseif builder and shared.DEBUG_WIREFRAME and params[shared.KEY_WIREFRAME] == 2 and actionParams
+		elseif builder and shared.DEBUG_WIREFRAME and (params[shared.KEY_WIREFRAME] or 1) >= shared.WIREFRAME_AUTO and actionParams
 			and actionParams.getProposalStringsFn then
 			-- a native build (count 1) with the wireframe on: the builder's own proposal
 			paramRefs = { select(6, ...), select(3, ...) }
