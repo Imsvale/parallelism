@@ -1315,7 +1315,24 @@ function patch.install()
 	-- are the builder action and its helpers. The preview components go in there too,
 	-- as the base game does with its proposal viewer for swapping bridge types.
 	local ActionDescriptor = builtin.ActionDescriptor
+	-- dev aid: the tools whose action descriptors are rendered, each logged once (where
+	-- else the world wireframe could go)
+	local loggedTools = {}
 	builtin.ActionDescriptor = function(params, ...)
+		local tool = params and params.tool
+		if tool ~= nil and not loggedTools[tostring(tool)] then
+			loggedTools[tostring(tool)] = true
+			shared.log("action descriptor for tool " .. tostring(tool))
+		end
+		-- Wireframe On: the world view in any action's descriptor that is not a builder's
+		-- with our preview (that one draws its own); it cannot go in the mod's entry plugin,
+		-- outside the renderer (2026-10-09: assertion IsTransformWithContext, a crash)
+		if not injectPreview and wireframeMode == shared.WIREFRAME_ON and params and params.children then
+			local view = patch.worldWireframe()
+			if view then
+				params.children[#params.children + 1] = view
+			end
+		end
 		if injectPreview and not shared.SHOW_PREVIEW then
 			injectPreview = false
 		end

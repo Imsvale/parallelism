@@ -10,8 +10,10 @@ if not ok then
 	shared.log("menu patch failed: " .. tostring(err))
 end
 
--- The plugin draws the Wireframe's world view (setting On), outside any builder: the
--- network around the camera, refreshed a few times a second. Nothing otherwise.
+-- The plugin keeps the Wireframe's world view (setting On) up to date: the network around
+-- the camera, refreshed a few times a second. It draws nothing itself: an edge renderable
+-- here, outside the renderer, crashed the game (2026-10-09: assertion
+-- IsTransformWithContext); the view goes into the action descriptors (menu patch).
 local REFRESH_SECONDS = 0.25
 
 -- (on every step, timed here: react.onStepTimer runs its function on a worker thread,
@@ -31,7 +33,7 @@ local Entry = react.RegisterPluginRecipe(mod_entry_point.ModEntryPointExtension,
 			version:set(v)
 		end
 	end)
-	return menu_patch.worldWireframe()
+	return nil
 end)
 
 function data()
