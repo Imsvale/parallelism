@@ -5,6 +5,7 @@
 
 local construction_react_util = require "::/gui/construction/construction_react_util.tl"
 local builtin = require "::/gui/main/builtin.lua"
+local react = require "::/gui/main/react.lua"
 local shared = require "parallelism_shared.lua"
 local geometry = require "parallelism_geometry.lua"
 local planner = require "parallelism_planner.lua"
@@ -613,6 +614,22 @@ function patch.worldWireframe()
 	end
 	return result
 end
+
+-- The world view as a component of its own, so it redraws itself when the view is
+-- refreshed (the action descriptor it sits in is only redrawn when its tool changes,
+-- 2026-10-09: the view stayed as it was when the construction menu closed). It always
+-- renders a node: a child of an action descriptor rendering nothing crashed the game
+-- (2026-09-30, identity2node).
+local WorldWireframe = react.RegisterRecipe("ImsvaleParallelismWorldWireframe", function()
+	local version = react.useState(world.version or 0)
+	react.onStep(function()
+		local v = world.version or 0
+		if v ~= version:old() then
+			version:set(v)
+		end
+	end)
+	return patch.worldWireframe() or builtin.EdgeRenderable{ edges = {}, ignoreDepth = true }
+end)
 
 -- The preview of one extra track: the game's own proposal viewer, which draws the
 -- proposal and evaluates its costs and errors. It must go into the action descriptor
@@ -1324,14 +1341,15 @@ function patch.install()
 			loggedTools[tostring(tool)] = true
 			shared.log("action descriptor for tool " .. tostring(tool))
 		end
+		if tool == nil and not loggedTools["(none)"] then
+			loggedTools["(none)"] = true
+			shared.log("action descriptor without a tool")
+		end
 		-- Wireframe On: the world view in any action's descriptor that is not a builder's
 		-- with our preview (that one draws its own); it cannot go in the mod's entry plugin,
 		-- outside the renderer (2026-10-09: assertion IsTransformWithContext, a crash)
-		if not injectPreview and wireframeMode == shared.WIREFRAME_ON and params and params.children then
-			local view = patch.worldWireframe()
-			if view then
-				params.children[#params.children + 1] = view
-			end
+		if not injectPreview and wireframeMode == shared.WIREFRAME_ON and params and params.children and not world.failed then
+			params.children[#params.children + 1] = WorldWireframe{}
 		end
 		if injectPreview and not shared.SHOW_PREVIEW then
 			injectPreview = false
