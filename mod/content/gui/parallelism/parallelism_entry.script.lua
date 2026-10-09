@@ -14,14 +14,23 @@ end
 -- network around the camera, refreshed a few times a second. Nothing otherwise.
 local REFRESH_SECONDS = 0.25
 
+-- (on every step, timed here: react.onStepTimer runs its function on a worker thread,
+-- where the game API is restricted, 2026-10-09: "API is currently restricted")
+local lastRefresh = nil
+
 local Entry = react.RegisterPluginRecipe(mod_entry_point.ModEntryPointExtension, "ImsvaleParallelTracksEntry", function()
 	local version = react.useState(0)
-	react.onStepTimer(function()
+	react.onStep(function()
+		local now = os.clock()
+		if lastRefresh and now - lastRefresh < REFRESH_SECONDS then
+			return
+		end
+		lastRefresh = now
 		local v = menu_patch.refreshWorldWireframe()
 		if v ~= version:old() then
 			version:set(v)
 		end
-	end, REFRESH_SECONDS)
+	end)
 	return menu_patch.worldWireframe()
 end)
 
