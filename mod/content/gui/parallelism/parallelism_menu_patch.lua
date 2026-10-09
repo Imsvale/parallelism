@@ -5,7 +5,6 @@
 
 local construction_react_util = require "::/gui/construction/construction_react_util.tl"
 local builtin = require "::/gui/main/builtin.lua"
-local react = require "::/gui/main/react.lua"
 local shared = require "parallelism_shared.lua"
 local geometry = require "parallelism_geometry.lua"
 local planner = require "parallelism_planner.lua"
@@ -547,6 +546,13 @@ function patch.refreshWorldWireframe()
 	local ok, err = pcall(function()
 		local camera = api.gui.camera.getCameraData()
 		local radius = math.max(50, camera.z)
+		-- only when the camera has moved or zoomed by a twentieth of the view
+		local step = radius / 20
+		local key = string.format("%d,%d,%d", math.floor(camera.x / step), math.floor(camera.y / step), math.floor(math.log(radius) * 20))
+		if key == world.key and world.edges then
+			return
+		end
+		world.key = key
 		local list = {}
 		local tracks = api.type["enum"].RoadType.TRACK
 		for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(camera.x, camera.y), radius,
@@ -561,6 +567,12 @@ function patch.refreshWorldWireframe()
 		end
 		world.edges = list
 		world.version = (world.version or 0) + 1
+		-- The view sits in the construction menu's action descriptor (the one it renders
+		-- while closed), which is redrawn only when the menu is: bumping the hidden redraw
+		-- param redraws it (2026-10-09: the view stayed as the menu was closed).
+		if patch.redrawForWorld then
+			patch.redrawForWorld(-world.version)
+		end
 	end)
 	if not ok then
 		world.failed = true
@@ -614,22 +626,6 @@ function patch.worldWireframe()
 	end
 	return result
 end
-
--- The world view as a component of its own, so it redraws itself when the view is
--- refreshed (the action descriptor it sits in is only redrawn when its tool changes,
--- 2026-10-09: the view stayed as it was when the construction menu closed). It always
--- renders a node: a child of an action descriptor rendering nothing crashed the game
--- (2026-09-30, identity2node).
-local WorldWireframe = react.RegisterRecipe("ImsvaleParallelismWorldWireframe", function()
-	local version = react.useState(world.version or 0)
-	react.onStep(function()
-		local v = world.version or 0
-		if v ~= version:old() then
-			version:set(v)
-		end
-	end)
-	return patch.worldWireframe() or builtin.EdgeRenderable{ edges = {}, ignoreDepth = true }
-end)
 
 -- The preview of one extra track: the game's own proposal viewer, which draws the
 -- proposal and evaluates its costs and errors. It must go into the action descriptor
@@ -772,6 +768,20 @@ local function paramsApi(ref)
 		return nil
 	end
 	return wrap:getApi()
+end
+
+-- redraws the construction menu (for the world wireframe, see refreshWorldWireframe)
+function patch.redrawForWorld(value)
+	pcall(function()
+		for __, ref in ipairs(paramRefs) do
+			local api_ = paramsApi(ref)
+			local info = api_ and api_.getParamByKey(shared.KEY_REDRAW)
+			if info then
+				api_.changeParam(info.index, value)
+				return
+			end
+		end
+	end)
 end
 
 local lastLoggedRedraw = nil
@@ -1348,8 +1358,13 @@ function patch.install()
 		-- Wireframe On: the world view in any action's descriptor that is not a builder's
 		-- with our preview (that one draws its own); it cannot go in the mod's entry plugin,
 		-- outside the renderer (2026-10-09: assertion IsTransformWithContext, a crash)
-		if not injectPreview and wireframeMode == shared.WIREFRAME_ON and params and params.children and not world.failed then
-			params.children[#params.children + 1] = WorldWireframe{}
+		-- (as a builtin: a recipe of the mod's own there crashed the game, 2026-10-09, also
+		-- one that renders a node: identity2node in CollectActionConfig)
+		if not injectPreview and wireframeMode == shared.WIREFRAME_ON and params and params.children then
+			local view = patch.worldWireframe()
+			if view then
+				params.children[#params.children + 1] = view
+			end
 		end
 		if injectPreview and not shared.SHOW_PREVIEW then
 			injectPreview = false
