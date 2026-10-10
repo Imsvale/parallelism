@@ -152,8 +152,10 @@ function overlay.version()
 	return state.version
 end
 
--- the overlay to render (a builtin edge renderable), or nil
-function overlay.view()
+-- The overlay's lines (edges of an edge renderable), or nil. An action descriptor takes
+-- one edge renderable at most (2026-10-10, a crash: "Must not specify more than 1
+-- EdgeRenderable"), so whoever adds it puts all lines into one (menu patch).
+function overlay.lines()
 	if not overlay.isOn() or not state.edges or #state.edges == 0 then
 		return nil
 	end
@@ -185,7 +187,7 @@ function overlay.view()
 		for __, s in ipairs(squares) do
 			edges[#edges + 1] = overlay.makeEdge(s, s.color, 0.3)
 		end
-		return builtin.EdgeRenderable{ edges = edges, ignoreDepth = true }
+		return edges
 	end)
 	if not ok then
 		state.failed = true

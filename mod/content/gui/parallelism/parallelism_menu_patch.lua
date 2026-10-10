@@ -416,7 +416,7 @@ local function makeRefused()
 		if #plain == 0 then
 			return nil
 		end
-		return builtin.EdgeRenderable{ edges = plain, ignoreDepth = true }
+		return plain
 	end)
 	if not ok then
 		refusedFailed = true
@@ -485,7 +485,7 @@ local function makeWireframe()
 		for __, s in ipairs(squares) do
 			edges[#edges + 1] = makeWireframeEdge(s, s.color, 0.3)
 		end
-		return builtin.EdgeRenderable{ edges = edges, ignoreDepth = true }
+		return edges
 	end)
 	if not ok then
 		-- once: a wrong guess at the API should not cost every frame
@@ -1200,11 +1200,16 @@ function patch.install()
 		-- the network overlay, while on, in every action (parallelism_overlay.lua); each
 		-- action subscribes to it, to be redrawn when its view changes
 		overlay.subscribe()
-		if overlay.isOn() and params and params.children then
-			local view = overlay.view()
-			if view then
-				params.children[#params.children + 1] = view
+		-- the lines the mod draws in this action, all in one edge renderable (an action
+		-- takes one at most, 2026-10-10: a second one crashed the game)
+		local lines = {}
+		local function addLines(list)
+			for __, e in ipairs(list or {}) do
+				lines[#lines + 1] = e
 			end
+		end
+		if overlay.isOn() and params and params.children then
+			addLines(overlay.lines())
 		end
 		if injectPreview and not shared.SHOW_PREVIEW then
 			injectPreview = false
@@ -1222,15 +1227,9 @@ function patch.install()
 					params.children[#params.children + 1] = makeViewer(1)
 				end
 				if preview.wireframe then
-					local wireframe = makeWireframe()
-					if wireframe then
-						params.children[#params.children + 1] = wireframe
-					end
+					addLines(makeWireframe())
 				elseif preview.refused and not preview.proposals[1] then
-					local refused = makeRefused()
-					if refused then
-						params.children[#params.children + 1] = refused
-					end
+					addLines(makeRefused())
 				end
 				if SPIKE_SELECTOR and preview.builder == shared.STREET_BUILDER then
 					-- experiment: does a script see the build click? A Selector is how the base
@@ -1254,6 +1253,9 @@ function patch.install()
 					}
 				end
 			end
+		end
+		if #lines > 0 and params and params.children then
+			params.children[#params.children + 1] = builtin.EdgeRenderable{ edges = lines, ignoreDepth = true }
 		end
 		return ActionDescriptor(params, ...)
 	end
