@@ -12,7 +12,7 @@ if not ok then
 end
 
 -- The plugin keeps the network overlay up to date (parallelism_overlay.lua): checked a
--- few times a second, redrawn when the camera has moved. It draws nothing itself: an
+-- few times a second, read again when the camera has moved. It draws nothing itself: an
 -- edge renderable here, outside the renderer, crashed the game (2026-10-09: assertion
 -- IsTransformWithContext).
 -- (on every step, timed here: react.onStepTimer runs its function on a worker thread,
@@ -27,7 +27,7 @@ local Entry = react.RegisterPluginRecipe(mod_entry_point.ModEntryPointExtension,
 			return
 		end
 		lastCheck = now
-		overlay.step(menu_patch.redrawForWorld)
+		overlay.step()
 	end)
 	return nil
 end)

@@ -5,17 +5,6 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
 
 ## Parked (the user brings these up)
 
-- **Network overlay (2026-10-09/10).** Every road and track edge around the camera with
-  its nodes, visible all the time, also through construction. Tried: an EdgeRenderable from
-  the mod entry plugin (crash: outside the renderer), in other tools' action descriptors
-  (shows, but frozen until that tool redraws), a custom recipe child in a descriptor
-  (crash: identity2node), a HUD mod button with a tool of the mod's own (works as a toggle,
-  but frozen, and tools are mutually exclusive: selecting anything or opening the
-  construction menu ends it). Data layers are a fixed list without an extension point, and a
-  layer config only switches the game's own visuals. What is left in the code: the button
-  and tool (`parallelism_overlay.lua`, a still snapshot), the overlay in the builders while
-  it is on. Ideas if picked up again: have the tool's own window recipe set its action on
-  each redraw (as the mission window does), or a separate mod.
 - **Fanned crossing (2026-10-01).** The drawn track runs down alongside a 6-track
   bundle and turns away; the extra tracks fan out and cross each other ("would cross
   each other"). Screenshot `2026-10-01 21_12_24-Transport Fever 3.png` (user's
@@ -23,6 +12,16 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
 
 ## Open: features and gaps
 
+- **Network overlay, in progress (2026-10-09/10).** Every road and track edge around the
+  camera with its nodes, visible all the time, also through construction; switched with a
+  HUD mod button. Learned so far: an EdgeRenderable from the mod entry plugin crashes
+  (outside the renderer); a custom recipe child in an action descriptor crashes
+  (identity2node); added to descriptors it shows but stays as drawn until that action
+  redraws; a tool of the mod's own ends as soon as another tool takes over (tools are
+  exclusive) and did not redraw on `setActionFn`; data layers are a fixed list without an
+  extension point, and a layer config only switches the game's own visuals. Now trying: a
+  plain toggle, the overlay in every action descriptor, each action subscribed to it with
+  state declared in its own recipe (an action function runs as a recipe).
 - **Bend later, a maybe (2026-10-06).** Continuing a curving drag from staggered junctions
   of ours: the mod keeps the bends concentric, the outer parallels kinked at their junctions.
   A second option could start the bend at the outermost junction instead (the drawn road

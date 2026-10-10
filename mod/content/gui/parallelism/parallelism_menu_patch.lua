@@ -639,20 +639,6 @@ local function paramsApi(ref)
 	return wrap:getApi()
 end
 
--- redraws the construction menu (for the network overlay, see parallelism_overlay.lua)
-function patch.redrawForWorld(value)
-	pcall(function()
-		for __, ref in ipairs(paramRefs) do
-			local api_ = paramsApi(ref)
-			local info = api_ and api_.getParamByKey(shared.KEY_REDRAW)
-			if info then
-				api_.changeParam(info.index, value)
-				return
-			end
-		end
-	end)
-end
-
 local lastLoggedRedraw = nil
 
 -- dev aid: how often the builder asks for its tooltip lines, how often that changes the
@@ -1191,11 +1177,6 @@ function patch.install()
 			end
 		else
 			clearPreview()
-			if builder and overlay.isOn() then
-				-- a single road or track with the network overlay on: its refs too, to redraw
-				-- the menu when the camera moves (patch.redrawForWorld)
-				paramRefs = { select(6, ...), select(3, ...) }
-			end
 			if builder and actionParams and actionParams.getProposalStringsFn and shared.SHOW_RADIUS then
 				local getProposalStrings = actionParams.getProposalStringsFn
 				actionParams.getProposalStringsFn = function(proposal, proposalData)
@@ -1216,10 +1197,10 @@ function patch.install()
 	-- as the base game does with its proposal viewer for swapping bridge types.
 	local ActionDescriptor = builtin.ActionDescriptor
 	builtin.ActionDescriptor = function(params, ...)
-		-- the network overlay, while on, in the construction menu's actions too (with the
-		-- menu open the overlay's own tool is below it, not drawn)
-		if overlay.isOn() and params and params.children and type(params.tool) == "string"
-			and params.tool:find("construction-menu-", 1, true) == 1 then
+		-- the network overlay, while on, in every action (parallelism_overlay.lua); each
+		-- action subscribes to it, to be redrawn when its view changes
+		overlay.subscribe()
+		if overlay.isOn() and params and params.children then
 			local view = overlay.view()
 			if view then
 				params.children[#params.children + 1] = view

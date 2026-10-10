@@ -3,19 +3,16 @@
 -- button in the HUD's mod button area (parallelism_overlay_button.script.lua).
 --
 -- A 3D overlay only renders as part of the active tool's action (an action descriptor):
--- from a mod's entry plugin it crashed the game (2026-10-09, IsTransformWithContext), and
--- a descriptor only shows a new overlay when the tool sets its action again. So while it
--- is on:
---   - with no tool open, a tool of the mod's own is on the tool stack, its action the
---     normal selector plus the overlay, set again whenever the camera has moved;
---   - with the construction menu open, the menu patch adds the overlay to the builder's
---     action and redraws the menu when the camera has moved.
--- (The game's own tool windows work the same way, e.g. the mission window's arrows.)
+-- from a mod's entry plugin it crashed the game (2026-10-09, IsTransformWithContext). So the
+-- menu patch adds it to every action descriptor while on. An action function runs as a
+-- recipe of its own (the construction menu's declares state and listens to events in it),
+-- and the descriptor is built inside it: there each action subscribes to the overlay
+-- (overlay.subscribe), so it is redrawn when the view changes. (A tool of the mod's own
+-- carrying the overlay ended as soon as another tool took over, tools being exclusive,
+-- and stayed as it was drawn, 2026-10-10.)
 
 local builtin = require "::/gui/main/builtin.lua"
 local react = require "::/gui/main/react.lua"
-local selector_react_util = require "::/gui/main/selector_react_util.tl"
-local game_react_globals = require "::/gui/main/game_react_globals.tl"
 local shared = require "parallelism_shared.lua"
 local geometry = require "parallelism_geometry.lua"
 local planner = require "parallelism_planner.lua"
@@ -73,8 +70,6 @@ end
 
 local state = {
 	on = false,
-	-- the overlay tool's context while it is on the stack (setActionFn)
-	toolCtx = nil,
 	edges = nil,
 	key = nil,
 	version = 0,
@@ -83,6 +78,34 @@ local state = {
 
 function overlay.isOn()
 	return state.on and not state.failed
+end
+
+-- switches the overlay on or off (the button)
+function overlay.setOn(on)
+	state.on = on and true or false
+	state.key = nil
+	if state.on then
+		overlay.refresh()
+	else
+		state.edges = nil
+	end
+	state.version = state.version + 1
+	shared.log("network overlay " .. (state.on and "on" or "off"))
+end
+
+-- Called while an action descriptor is being built, inside the action's own recipe: the
+-- action is redrawn whenever the overlay's view changes. Declared for every descriptor,
+-- on or off, so an action declares the same each time it is drawn. (Outside a recipe
+-- the hooks are refused, which is ignored.)
+function overlay.subscribe()
+	pcall(function()
+		local seen = react.useState(state.version)
+		react.onStep(function()
+			if seen:old() ~= state.version then
+				seen:set(state.version)
+			end
+		end)
+	end)
 end
 
 -- The network around the camera, read again when the camera has moved or zoomed by a
@@ -172,75 +195,10 @@ function overlay.view()
 	return result
 end
 
--- The overlay tool's action: the normal selector (clicking and selecting work as with
--- no tool open, as the data layers do it) plus the overlay. A new function each time, so
--- the tool stack takes it as a new action.
-local function makeAction()
-	return function()
-		local children = {}
-		local view = overlay.view()
-		if view then
-			children[#children + 1] = view
-		end
-		local ok, selector = pcall(function()
-			local selected = react.useRef(-1)
-			return selector_react_util.makeDefaultSelector(game_react_globals.getDefaultRendererComponent(), selected, true, nil, true)
-		end)
-		if ok and selector then
-			children[#children + 1] = selector
-		elseif not ok and not state.selectorLogged then
-			state.selectorLogged = true
-			shared.log("network overlay: no selector with it: " .. tostring(selector))
-		end
-		return builtin.ActionDescriptor{
-			tool = "parallelism-network-overlay",
-			children = children,
-		}
-	end
-end
-
-overlay.Tool = react.RegisterTool{
-	name = "ImsvaleParallelismNetworkOverlay",
-	push = function(ctx)
-		state.on = true
-		state.toolCtx = ctx
-		state.key = nil
-		overlay.refresh()
-		ctx.setActionFn(makeAction())
-		shared.log("network overlay on")
-	end,
-	pop = function()
-		state.on = false
-		state.toolCtx = nil
-		state.edges, state.key = nil, nil
-		shared.log("network overlay off")
-	end,
-	-- (another tool on top, e.g. the construction menu: the overlay stays on, drawn by the
-	-- menu patch in the builders' actions)
-	shelve = function(ctx, _param, shelve)
-		state.toolCtx = not shelve and ctx or nil
-		if not shelve then
-			state.key = nil
-			overlay.refresh()
-			ctx.setActionFn(makeAction())
-		end
-	end,
-}
-
--- Called on every step (from the entry plugin): refreshes the view when the camera has
--- moved and has whoever shows it redraw. redrawMenu: redraws the construction menu.
-function overlay.step(redrawMenu)
-	if not overlay.refresh() then
-		return
-	end
-	if state.toolCtx then
-		local ok, err = pcall(state.toolCtx.setActionFn, makeAction())
-		if not ok then
-			shared.log("network overlay: setting the action failed: " .. tostring(err))
-		end
-	elseif redrawMenu then
-		redrawMenu(-state.version)
-	end
+-- Called on every step (from the entry plugin): reads the network again when the camera
+-- has moved; the subscribed actions see the new version and redraw.
+function overlay.step()
+	overlay.refresh()
 end
 
 return overlay
