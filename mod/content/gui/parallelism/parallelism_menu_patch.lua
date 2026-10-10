@@ -8,6 +8,7 @@ local builtin = require "::/gui/main/builtin.lua"
 local shared = require "parallelism_shared.lua"
 local geometry = require "parallelism_geometry.lua"
 local planner = require "parallelism_planner.lua"
+local overlay = require "parallelism_overlay.lua"
 
 local patch = {}
 
@@ -331,40 +332,13 @@ local WIREFRAME_COLORS = {
 	removed = { 1, 0.1, 0.1, 0.6 },  -- existing track the plan removes
 	world = { 0.6, 0.6, 0.6, 0.6 },  -- existing track nearby, untouched (native builds)
 }
--- node markers: squares of this half size (meters), larger where 3 or more edges meet
-local NODE_MARKER = 0.75
-local JUNCTION_MARKER = 1.5
-local MAX_NODE_MARKERS = 400
-
-local function addSquare(edges, p, h, color)
-	local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
-	for i = 1, 4 do
-		local a, b = corners[i], corners[i % 4 + 1]
-		local p0 = { x = p.x + a[1], y = p.y + a[2], z = p.z }
-		local p1 = { x = p.x + b[1], y = p.y + b[2], z = p.z }
-		local t = { x = p1.x - p0.x, y = p1.y - p0.y, z = 0 }
-		edges[#edges + 1] = { p0 = p0, p1 = p1, t0 = t, t1 = t, color = color }
-	end
-end
+-- node markers and lines: the network overlay's (parallelism_overlay.lua)
+local NODE_MARKER = overlay.NODE_MARKER
+local JUNCTION_MARKER = overlay.JUNCTION_MARKER
+local MAX_NODE_MARKERS = overlay.MAX_NODE_MARKERS
+local addSquare = overlay.addSquare
+local makeWireframeEdge = overlay.makeEdge
 local wireframeFailed = false
-
-local function makeWireframeEdge(e, color, width)
-	local geom = api.type.EdgeGeometry.new()
-	geom.type = api.type.EdgeGeometry.Type.CUBIC_SPLINE
-	local spline = geom.cubicSpline
-	spline.pos = { api.type.Vec2f.new(e.p0.x, e.p0.y), api.type.Vec2f.new(e.p1.x, e.p1.y) }
-	spline.tangent = { api.type.Vec2f.new(e.t0.x, e.t0.y), api.type.Vec2f.new(e.t1.x, e.t1.y) }
-	geom.cubicSpline = spline
-	geom.height = api.type.Vec2f.new(e.p0.z, e.p1.z)
-	geom.length = geometry.arcLength(e)
-	geom.width = width
-	local edge = builtin.type.EdgeRenderable.Edge.new(geom)
-	edge.colors = { api.type.Vec4f.new(color[1], color[2], color[3], color[4]) }
-	edge.width = width
-	edge.offsetZ = 1.0
-	edge.stepSize = 1.0
-	return edge
-end
 
 -- The wireframe of a native build (count 1): the builder's live proposal (drawn edges,
 -- the pieces of edges it cuts, the edges it removes) and the existing edges around it,
@@ -522,111 +496,6 @@ local function makeWireframe()
 	return result
 end
 
--- The Wireframe setting as last seen in a builder's toolbar; On keeps the world view
--- (below) after the builder is closed.
-local wireframeMode = shared.WIREFRAME_OFF
-
--- Wireframe On: the network around the camera as lines, with its nodes, also when no
--- builder is open (drawn from the mod's entry plugin, parallelism_entry.script.lua).
--- Around the camera: the spot it looks at, as far as it is away from it, so the view
--- zoomed out covers more. (The caps only spare the game a view it could not read.)
-local WORLD_EDGES_MAX = 1500
-local WORLD_ROAD_COLOR = { 0.7, 0.75, 0.8, 0.8 }
-local WORLD_TRACK_COLOR = { 0.85, 0.7, 0.45, 0.8 }
-local world = { edges = nil, key = nil, failed = false }
-
--- refreshes the world view; returns a number that changes when it did
-function patch.refreshWorldWireframe()
-	if not (shared.DEBUG_WIREFRAME and wireframeMode == shared.WIREFRAME_ON) or world.failed then
-		if world.edges then
-			world.edges, world.key = nil, nil
-		end
-		return world.version or 0
-	end
-	local ok, err = pcall(function()
-		local camera = api.gui.camera.getCameraData()
-		local radius = math.max(50, camera.z)
-		-- only when the camera has moved or zoomed by a twentieth of the view
-		local step = radius / 20
-		local key = string.format("%d,%d,%d", math.floor(camera.x / step), math.floor(camera.y / step), math.floor(math.log(radius) * 20))
-		if key == world.key and world.edges then
-			return
-		end
-		world.key = key
-		local list = {}
-		local tracks = api.type["enum"].RoadType.TRACK
-		for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(camera.x, camera.y), radius,
-			api.type.ComponentType.BASE_EDGE)) do
-			if #list >= WORLD_EDGES_MAX then
-				break
-			end
-			local comp = planner.getEdgeComp(entity)
-			if comp then
-				list[#list + 1] = { edge = planner.toEdge(comp), track = comp.roadType == tracks, node0 = comp.node0, node1 = comp.node1 }
-			end
-		end
-		world.edges = list
-		world.version = (world.version or 0) + 1
-		-- The view sits in the construction menu's action descriptor (the one it renders
-		-- while closed), which is redrawn only when the menu is: bumping the hidden redraw
-		-- param redraws it (2026-10-09: the view stayed as the menu was closed).
-		if patch.redrawForWorld then
-			patch.redrawForWorld(-world.version)
-		end
-	end)
-	if not ok then
-		world.failed = true
-		shared.log("world wireframe failed, off until the game restarts: " .. tostring(err))
-	end
-	return world.version or 0
-end
-
--- the world view to render, or nil
-function patch.worldWireframe()
-	if world.failed or not world.edges or #world.edges == 0 then
-		return nil
-	end
-	local ok, result = pcall(function()
-		local edges, ends = {}, {}
-		for __, w in ipairs(world.edges) do
-			local e = w.edge
-			local t0 = math.sqrt(e.t0.x * e.t0.x + e.t0.y * e.t0.y)
-			local t1 = math.sqrt(e.t1.x * e.t1.x + e.t1.y * e.t1.y)
-			-- (a zero-length edge crashed the game drawing it, see makeWireframe)
-			if geometry.arcLength(e) >= 0.1 and t0 > 1e-3 and t1 > 1e-3 then
-				edges[#edges + 1] = makeWireframeEdge(e, w.track and WORLD_TRACK_COLOR or WORLD_ROAD_COLOR, 0.4)
-				for __, n in ipairs({ { w.node0, e.p0 }, { w.node1, e.p1 } }) do
-					local entry = ends[n[1]]
-					if entry == nil then
-						entry = { position = n[2], count = 0, track = w.track }
-						ends[n[1]] = entry
-						ends[#ends + 1] = entry
-					end
-					entry.count = entry.count + 1
-				end
-			end
-		end
-		local squares = {}
-		for i, n in ipairs(ends) do
-			if i > MAX_NODE_MARKERS then
-				break
-			end
-			local c = n.track and WORLD_TRACK_COLOR or WORLD_ROAD_COLOR
-			addSquare(squares, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 })
-		end
-		for __, s in ipairs(squares) do
-			edges[#edges + 1] = makeWireframeEdge(s, s.color, 0.3)
-		end
-		return builtin.EdgeRenderable{ edges = edges, ignoreDepth = true }
-	end)
-	if not ok then
-		world.failed = true
-		shared.log("world wireframe failed, off until the game restarts: " .. tostring(result))
-		return nil
-	end
-	return result
-end
-
 -- The preview of one extra track: the game's own proposal viewer, which draws the
 -- proposal and evaluates its costs and errors. It must go into the action descriptor
 -- as a builtin, a recipe of the mod's own there crashes the game.
@@ -770,7 +639,7 @@ local function paramsApi(ref)
 	return wrap:getApi()
 end
 
--- redraws the construction menu (for the world wireframe, see refreshWorldWireframe)
+-- redraws the construction menu (for the network overlay, see parallelism_overlay.lua)
 function patch.redrawForWorld(value)
 	pcall(function()
 		for __, ref in ipairs(paramRefs) do
@@ -1076,8 +945,8 @@ local function makeParams(builder, resName)
 			group = "parallelTracks",
 			key = shared.KEY_WIREFRAME,
 			name = "Wireframe",
-			tooltip = "Dev aid: draw the whole plan as lines, with a square at every node (larger where 3 or more edges meet). White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed. With one track or road: the builder's own plan, and gray: existing track or road around it. Auto: while building. On: also when no tool is open, the network around the camera (roads blue-gray, tracks tan); stays on after the tool is closed, until set Off here.",
-			values = { "Off", "Auto", "On" },
+			tooltip = "Dev aid: draw the whole plan as lines, with a square at every node (larger where 3 or more edges meet). White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed. With one track or road: the builder's own plan, and gray: existing track or road around it.",
+			values = { "Off", "On" },
 			defaultIndex = 1,
 			resetOnCategoryChange = false,
 			resetOnMenuClose = false,
@@ -1155,7 +1024,6 @@ function patch.install()
 		local count = 1
 		local side, spacing, reverse
 		if builder then
-			wireframeMode = params[shared.KEY_WIREFRAME] or shared.WIREFRAME_OFF
 			-- the replace / upgrade mode keeps the count value but must not build anything extra
 			count = isDrawing(builder, params) and params[shared.KEY_COUNT] or 1
 			side = sideChoices(builder)[params[shared.KEY_SIDE] or 0] or shared.SIDE_RIGHT
@@ -1188,7 +1056,7 @@ function patch.install()
 				preview.resName = definition.resName
 				clearPreview()
 			end
-			local wireframe = shared.DEBUG_WIREFRAME and wireframeMode >= shared.WIREFRAME_AUTO or false
+			local wireframe = shared.DEBUG_WIREFRAME and params[shared.KEY_WIREFRAME] == 2 or false
 			if wireframe ~= preview.wireframe then
 				preview.wireframe = wireframe
 				-- plan again, with or without the wireframe edges
@@ -1278,7 +1146,7 @@ function patch.install()
 				end
 				return strings
 			end
-		elseif builder and shared.DEBUG_WIREFRAME and (params[shared.KEY_WIREFRAME] or 1) >= shared.WIREFRAME_AUTO and actionParams
+		elseif builder and shared.DEBUG_WIREFRAME and params[shared.KEY_WIREFRAME] == 2 and actionParams
 			and actionParams.getProposalStringsFn then
 			-- a native build (count 1) with the wireframe on: the builder's own proposal
 			paramRefs = { select(6, ...), select(3, ...) }
@@ -1323,6 +1191,11 @@ function patch.install()
 			end
 		else
 			clearPreview()
+			if builder and overlay.isOn() then
+				-- a single road or track with the network overlay on: its refs too, to redraw
+				-- the menu when the camera moves (patch.redrawForWorld)
+				paramRefs = { select(6, ...), select(3, ...) }
+			end
 			if builder and actionParams and actionParams.getProposalStringsFn and shared.SHOW_RADIUS then
 				local getProposalStrings = actionParams.getProposalStringsFn
 				actionParams.getProposalStringsFn = function(proposal, proposalData)
@@ -1342,26 +1215,12 @@ function patch.install()
 	-- are the builder action and its helpers. The preview components go in there too,
 	-- as the base game does with its proposal viewer for swapping bridge types.
 	local ActionDescriptor = builtin.ActionDescriptor
-	-- dev aid: the tools whose action descriptors are rendered, each logged once (where
-	-- else the world wireframe could go)
-	local loggedTools = {}
 	builtin.ActionDescriptor = function(params, ...)
-		local tool = params and params.tool
-		if tool ~= nil and not loggedTools[tostring(tool)] then
-			loggedTools[tostring(tool)] = true
-			shared.log("action descriptor for tool " .. tostring(tool))
-		end
-		if tool == nil and not loggedTools["(none)"] then
-			loggedTools["(none)"] = true
-			shared.log("action descriptor without a tool")
-		end
-		-- Wireframe On: the world view in any action's descriptor that is not a builder's
-		-- with our preview (that one draws its own); it cannot go in the mod's entry plugin,
-		-- outside the renderer (2026-10-09: assertion IsTransformWithContext, a crash)
-		-- (as a builtin: a recipe of the mod's own there crashed the game, 2026-10-09, also
-		-- one that renders a node: identity2node in CollectActionConfig)
-		if not injectPreview and wireframeMode == shared.WIREFRAME_ON and params and params.children then
-			local view = patch.worldWireframe()
+		-- the network overlay, while on, in the construction menu's actions too (with the
+		-- menu open the overlay's own tool is below it, not drawn)
+		if overlay.isOn() and params and params.children and type(params.tool) == "string"
+			and params.tool:find("construction-menu-", 1, true) == 1 then
+			local view = overlay.view()
 			if view then
 				params.children[#params.children + 1] = view
 			end

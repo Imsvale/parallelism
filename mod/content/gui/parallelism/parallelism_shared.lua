@@ -65,10 +65,6 @@ local shared = {
 	-- here to not show it twice.
 	SHOW_RADIUS = false,
 	KEY_WIREFRAME = "parallelismWireframe",
-	-- Off; Auto: while building; On: also when not building, the network around the camera
-	WIREFRAME_OFF = 1,
-	WIREFRAME_AUTO = 2,
-	WIREFRAME_ON = 3,
 
 	-- dev experiment, roads with 2+ only: can the mod take the drawn road over? The
 	-- builder is told not to draw its own preview (skipRender), and an input catcher
