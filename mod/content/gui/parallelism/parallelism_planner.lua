@@ -3800,10 +3800,13 @@ end
 -- Decides when to plan a drag that keeps changing. The builder asks about the drag
 -- continuously, also while it holds still. As long as planning is cheap (open ground)
 -- every change is planned, so the preview follows the mouse exactly. When it gets
--- expensive (many tracks nearby), only every n-th change is planned while the drag
--- moves, and the drag as soon as it holds still (the same drag asked about twice).
+-- expensive (many tracks nearby), a change is planned once twice the last plan's cost has
+-- passed since it (planning takes at most about half the time), or every n-th change
+-- where the time cannot be read; and the drag as soon as it holds still (the same drag
+-- asked about twice). (2026-10-11: counted in changes only, a slow drag with snapping
+-- gave few changes, and the preview stood still for a second or more.)
 local function newDebounce(every, cheapMs)
-	local d = { lastSeen = nil, lastPlanned = nil, skipped = 0, lastCost = nil }
+	local d = { lastSeen = nil, lastPlanned = nil, skipped = 0, lastCost = nil, lastTime = nil }
 	function d.shouldPlan(signature)
 		if signature == d.lastPlanned then
 			return false
@@ -3815,6 +3818,10 @@ local function newDebounce(every, cheapMs)
 			return true
 		end
 		d.lastSeen = signature
+		local now = clockMs()
+		if now and d.lastTime then
+			return now - d.lastTime >= 2 * d.lastCost
+		end
 		d.skipped = d.skipped + 1
 		return d.skipped >= every
 	end
@@ -3824,6 +3831,7 @@ local function newDebounce(every, cheapMs)
 		d.lastSeen = signature
 		d.skipped = 0
 		d.lastCost = cost
+		d.lastTime = clockMs()
 	end
 	return d
 end
