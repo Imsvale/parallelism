@@ -487,6 +487,10 @@ local function checkPlayerProposal(param)
 	elseif stats.shallow > 0 then
 		-- (the limit itself means nothing to the player: just that it cannot be done, and why)
 		message = "Angle is too shallow"
+	elseif stats.nearBend then
+		-- a junction too close to where an existing road changes shape (straight into a bend):
+		-- re-laid around the junction, the road would lose its shape
+		message = "Too close to a bend"
 	elseif stats.junctionsTooClose then
 		message = "Too close to another junction"
 	elseif stats.tooTight then

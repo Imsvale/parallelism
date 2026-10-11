@@ -16,8 +16,6 @@ end
 
 -- an added segment within this distance of a removed one is a leftover of splitting it
 local REMNANT_TOLERANCE = 0.25
--- ...and within this for a piece that branches off the drawn chain (see collectDrawnSegments)
-local REMNANT_LOOSE_TOLERANCE = 1.0
 local DEFAULT_TRACK_DISTANCE = 5.0
 -- An existing node this close to where a new one would go is used instead, e.g. the
 -- end of the previous drag's parallel, which a smooth continuation meets to within
@@ -866,9 +864,10 @@ local function collectDrawnSegments(streetProposal, roadType)
 	-- a re-fitted curve, moves nodes); such a piece can stray further than
 	-- REMNANT_TOLERANCE and was taken for drawn (seen in game: the extra tracks branched
 	-- off at the crossing and crossed each other). The drawn track is one chain that runs
-	-- straight through its nodes, so where three or more pieces meet, the pair that goes
-	-- straight through is drawn and the others are remnants if they run along a removed
-	-- edge more loosely.
+	-- straight through its nodes and never branches, so where three or more pieces meet,
+	-- the pair that goes straight through is drawn and the others are the builder's
+	-- (2026-10-11: a crossing where a road begins to bend, the bend re-laid from the new
+	-- junction strayed more than a loose 1 m from the old one and was taken for drawn).
 	local changed = true
 	while changed do
 		changed = false
@@ -891,8 +890,7 @@ local function collectDrawnSegments(streetProposal, roadType)
 					end
 				end
 				for k = #list, 1, -1 do
-					local d = drawn[list[k].index]
-					if k ~= bestI and k ~= bestJ and geometry.liesOnAny(d.edge, removed, REMNANT_LOOSE_TOLERANCE) then
+					if k ~= bestI and k ~= bestJ then
 						table.remove(drawn, list[k].index)
 						changed = true
 						break
@@ -2942,6 +2940,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if problem:find("apart, they need", 1, true) then
 					-- two junctions closer than their corners allow (refusal text, see the script)
 					stats.junctionsTooClose = true
+				elseif problem:find("without bending it", 1, true) then
+					-- a junction's room takes in a node where the road changes shape (straight
+					-- into a bend, a kink): one piece cannot follow both (refusal text, see the
+					-- script; 2026-10-11)
+					stats.nearBend = true
 				end
 			end
 			for __, p in ipairs(result.pieces) do
@@ -3113,6 +3116,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if problem:find("apart, they need", 1, true) then
 					-- two junctions closer than their corners allow (refusal text, see the script)
 					stats.junctionsTooClose = true
+				elseif problem:find("without bending it", 1, true) then
+					-- a junction's room takes in a node where the road changes shape (straight
+					-- into a bend, a kink): one piece cannot follow both (refusal text, see the
+					-- script; 2026-10-11)
+					stats.nearBend = true
 				end
 			end
 			stats.dropped = stats.dropped + #result.removedNodes
