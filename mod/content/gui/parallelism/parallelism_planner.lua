@@ -1291,18 +1291,48 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	if not options.step and #offsets > 0 and step < math.huge then
 		local count = #offsets + 1
 		local continued = {}
-		local function scan(position, tangent)
+		local drawnSet = {}
+		for __, d in ipairs(drawn) do
+			drawnSet[d.entity] = true
+		end
+		-- the direction a road leaves its loose end in, if the node is one (one edge of the
+		-- planned type, the drawn ones not counted)
+		local function looseEndDirection(node)
+			local found = nil
+			for __, seg in ipairs(node and getNode2Segments()[node] or {}) do
+				local c = not drawnSet[seg] and getEdgeComp(seg) or nil
+				if c then
+					if found or not isPlanned(c) then
+						return nil
+					end
+					local e = toEdge(c)
+					found = c.node0 == node and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = -e.t1.z }
+				end
+			end
+			return found
+		end
+		-- Only at an end where the drawn road continues a road from its loose end, and only
+		-- loose ends of roads running parallel to that one, as a bundle's do (2026-10-11: at a
+		-- T on a road, the dead end of a road crossed square was taken for one, and a
+		-- parallel went to the other side, against the Side setting).
+		local function scan(node, position, tangent)
+			local own = looseEndDirection(node)
+			if own == nil then
+				return
+			end
 			for k = -(count - 1), count - 1 do
 				if k ~= 0 then
 					local p = geometry.offsetPoint(position, tangent, k * step)
-					if p and findLooseEnd(p, looseEndRadius) then
+					local found = p and findLooseEnd(p, looseEndRadius)
+					local dir = found and looseEndDirection(found.entity)
+					if dir and geometry.angleBetween(dir, own) < 1 then
 						continued[k] = true
 					end
 				end
 			end
 		end
-		scan(drawn[1].edge.p0, drawn[1].edge.t0)
-		scan(drawn[#drawn].edge.p1, drawn[#drawn].edge.t1)
+		scan(drawn[1].node0, drawn[1].edge.p0, drawn[1].edge.t0)
+		scan(drawn[#drawn].node1, drawn[#drawn].edge.p1, drawn[#drawn].edge.t1)
 		if next(continued) then
 			local function score(set)
 				local n = 0

@@ -94,10 +94,15 @@ function overlay.setOn(on)
 end
 
 -- Called while an action descriptor is being built, inside the action's own recipe: the
--- action is redrawn whenever the overlay's view changes. Declared for every descriptor,
--- on or off, so an action declares the same each time it is drawn. (Outside a recipe
+-- action is redrawn whenever the overlay's view changes. Only while the overlay is on:
+-- off, the actions are as without the mod (2026-10-11: with it declared in every action
+-- all the time, the builder's preview display stopped following the plans now and then).
+-- An action subscribed while on is redrawn once more when it goes off. (Outside a recipe
 -- the hooks are refused, which is ignored.)
 function overlay.subscribe()
+	if not overlay.isOn() then
+		return
+	end
 	pcall(function()
 		local seen = react.useState(state.version)
 		react.onStep(function()
