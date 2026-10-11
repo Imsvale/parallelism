@@ -197,10 +197,18 @@ function overlay.lines()
 	return result
 end
 
+-- Called after each change of the view, besides the subscriptions: the menu patch
+-- redraws an open builder this way (a subscription declared from a builder's action can
+-- miss the first time a builder opens, the action having drawn the selector before:
+-- 2026-10-11, the overlay stood still until the builder was opened again).
+overlay.onChange = nil
+
 -- Called on every step (from the entry plugin): reads the network again when the camera
 -- has moved; the subscribed actions see the new version and redraw.
 function overlay.step()
-	overlay.refresh()
+	if overlay.refresh() and overlay.onChange then
+		pcall(overlay.onChange, state.version)
+	end
 end
 
 return overlay

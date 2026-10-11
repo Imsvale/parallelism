@@ -639,6 +639,19 @@ local function paramsApi(ref)
 	return wrap:getApi()
 end
 
+-- An open builder is redrawn when the network overlay changes: the hidden redraw param
+-- is bumped (negative values: not the preview's versions). Nothing while no builder is.
+overlay.onChange = function(version)
+	for __, ref in ipairs(paramRefs) do
+		local api_ = paramsApi(ref)
+		local info = api_ and api_.getParamByKey(shared.KEY_REDRAW)
+		if info then
+			api_.changeParam(info.index, -version)
+			return
+		end
+	end
+end
+
 local lastLoggedRedraw = nil
 
 -- dev aid: how often the builder asks for its tooltip lines, how often that changes the
@@ -1177,6 +1190,11 @@ function patch.install()
 			end
 		else
 			clearPreview()
+			if builder and overlay.isOn() then
+				-- a single road or track with the network overlay on: its refs too, to redraw
+				-- the menu when the overlay changes (overlay.onChange below)
+				paramRefs = { select(6, ...), select(3, ...) }
+			end
 			if builder and actionParams and actionParams.getProposalStringsFn and shared.SHOW_RADIUS then
 				local getProposalStrings = actionParams.getProposalStringsFn
 				actionParams.getProposalStringsFn = function(proposal, proposalData)
