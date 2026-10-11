@@ -191,6 +191,44 @@ do
 		findPiece(r, "J", "c") ~= nil and not set(r.removedEdges)["s3"], pieceLengths(r))
 end
 
+-- Native 2026-10-11 06:51:20: a road crossing at 80 degrees 16.6 m before the crossed
+-- road bends (node 3119, where its straight part ends). Native removed 2927 and 3119, put
+-- a new node 3144 (1677.18, -98.51) on the old bend and laid the arc-like curve from the
+-- junction to it (tangents 34.08 / 34.09), the rest of the bend kept.
+do
+	local p1346, p2927, p3119, p3120 = v(1659.89, -223.18), v(1661.27, -159.20), v(1662.32, -110.12), v(1707.14, -83.10)
+	local c = {
+		nodes = { { id = "n1346", position = p1346 }, { id = "n2927", position = p2927 }, { id = "n3119", position = p3119 },
+			{ id = "n3120", position = p3120 } },
+		edges = {
+			{ id = "e1429", edge = straight(p1346, p2927) },
+			{ id = "e686", edge = straight(p2927, p3119) },
+			{ id = "e1526", edge = { p0 = p3119, p1 = p3120, t0 = { x = 38.98, y = 37.35, z = 0 }, t1 = { x = 47.15, y = 20.94, z = 0 } } },
+		},
+	}
+	local angle = 80
+	local keep, corner = chain.roadKeepOut(16, angle), chain.corner(16, angle)
+	local made = nil
+	local r = chain.relay(c, { { id = "J", position = v(1661.97, -126.77), keepBefore = keep, keepAfter = keep, corner = corner } },
+		{ junctionGap = chain.ROAD_JUNCTION_GAP, newNode = function(position)
+			made = position
+			return "N"
+		end })
+	local removed = set(r.removedNodes)
+	check("bend 16.6 m beyond a junction: no problems", #r.problems == 0, table.concat(r.problems, "; "))
+	check("bend: the nodes within the room go, the bend's start among them", removed["n2927"] and removed["n3119"],
+		table.concat(r.removedNodes, " "))
+	check("bend: a new node on the bend where native put 3144", made ~= nil and geometry.horizontalDistance(made, v(1677.18, -98.51)) < 1.0,
+		made and string.format("(%.2f, %.2f)", made.x, made.y) or "none")
+	local toNew = findPiece(r, "J", "N")
+	local native = { p0 = v(1661.97, -126.77), p1 = v(1677.18, -98.51), t0 = { x = 0.73, y = 34.08, z = 0 }, t1 = { x = 28.63, y = 18.49, z = 0 } }
+	local off = toNew and math.max(geometry.straysFrom(toNew.edge, { native }), geometry.straysFrom(native, { toNew.edge })) or math.huge
+	check("bend: the junction to it as native's arc-like curve", off < 1.0, pieceLengths(r) .. string.format("; %.2f m off native", off))
+	local rest = findPiece(r, "N", "n3120")
+	-- (the piece left lies on the old bend: measured from the old bend to it)
+	check("bend: the rest of the bend kept", rest ~= nil and geometry.straysFrom(c.edges[3].edge, { rest.edge }) < 0.05, pieceLengths(r))
+end
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 if failures > 0 then
 	os.exit(1)

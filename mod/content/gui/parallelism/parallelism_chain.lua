@@ -273,6 +273,24 @@ function chain.relay(c, junctions, opts)
 					local bPieces, bOrigins = stretch(s, p1.s)
 					local aCurve = oneCurve(aPieces, p0, mid)
 					local bCurve = oneCurve(bPieces, mid, p1)
+					-- On the junction's side the piece is refitted as native refits, however far
+					-- that strays: native, crossing a road 16.6 m before it bends, removed the node
+					-- where the bend begins, put a new one on the bend just beyond the junction's
+					-- room and laid the arc-like curve from the junction to it (2026-10-11, tangents
+					-- within 0.1 %). Only how tight it bends limits it (opts.accept).
+					local function nativeArc(pieces, a, b)
+						local arc = geometry.arcCubic(a.position, unit(pieces[1].t0), b.position, unit(pieces[#pieces].t1))
+						if opts.accept == nil or opts.accept(arc, pieces) then
+							return arc
+						end
+						return nil
+					end
+					if aCurve == nil and jAt == p0 and #aPieces > 0 then
+						aCurve = nativeArc(aPieces, p0, mid)
+					end
+					if bCurve == nil and jAt == p1 and #bPieces > 0 then
+						bCurve = nativeArc(bPieces, mid, p1)
+					end
 					if aCurve and bCurve then
 						emit(p0, mid, aCurve, aOrigins, reversed)
 						emit(mid, p1, bCurve, bOrigins, reversed)
