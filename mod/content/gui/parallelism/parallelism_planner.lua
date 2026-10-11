@@ -3836,6 +3836,46 @@ local function newDebounce(every, cheapMs)
 	return d
 end
 
+-- A refused plan, to show instead of nothing: its edges, those at a problem the planner
+-- located marked red (the nearest ones to each spot, both where it is at a node); all
+-- red when it located none. Plain tables (it crosses to the menu's lua state, see the
+-- game script's check view).
+local function refusedLines(stats)
+	local lines = {}
+	local function plainEdge(e)
+		local function v(p)
+			return { x = p.x, y = p.y, z = p.z or 0 }
+		end
+		return { p0 = v(e.p0), p1 = v(e.p1), t0 = v(e.t0), t1 = v(e.t1) }
+	end
+	for __, e in ipairs(stats.plan or {}) do
+		lines[#lines + 1] = { edge = plainEdge(e.edge) }
+	end
+	-- a parallel the planner could not place at all: red
+	for __, e in ipairs(stats.unplaced or {}) do
+		lines[#lines + 1] = { edge = plainEdge(e), red = true }
+	end
+	local points = stats.problemPoints or {}
+	for __, p in ipairs(points) do
+		local distances, best = {}, math.huge
+		for i, l in ipairs(lines) do
+			distances[i] = geometry.distanceToEdge(p, l.edge)
+			best = math.min(best, distances[i])
+		end
+		for i, l in ipairs(lines) do
+			if distances[i] <= best + 0.5 then
+				l.red = true
+			end
+		end
+	end
+	if #points == 0 then
+		for __, l in ipairs(lines) do
+			l.red = true
+		end
+	end
+	return #lines > 0 and lines or nil
+end
+
 local function planToString(plan)
 	local function vec(v)
 		return string.format("{x=%.4f,y=%.4f,z=%.4f}", v.x, v.y, v.z)
@@ -4362,6 +4402,7 @@ planner.refsStillThere = refsStillThere
 planner.makeProposal = makeProposal
 planner.joinWithBuilder = joinWithBuilder
 planner.planToString = planToString
+planner.refusedLines = refusedLines
 planner.signatureOf = signatureOf
 planner.newDebounce = newDebounce
 -- while a drag moves and planning it is expensive, plan only every this many changes
