@@ -904,6 +904,42 @@ local function collectDrawnSegments(streetProposal, roadType)
 			end
 		end
 	end
+
+	-- One drag is one road: a single chain of pieces joined at their nodes. A piece not
+	-- joined to it is one the builder re-laid (2026-10-11: a T on a road where its bend
+	-- begins, a piece of the bend re-laid beside it was taken for drawn, and parallels were
+	-- planned along it too, swinging across the drawn road). The longest chain is the drawn
+	-- road.
+	if #drawn > 1 then
+		local parent = {}
+		local function find(n)
+			while parent[n] and parent[n] ~= n do
+				n = parent[n]
+			end
+			return n
+		end
+		for __, d in ipairs(drawn) do
+			parent[d.comp.node0] = parent[d.comp.node0] or d.comp.node0
+			parent[d.comp.node1] = parent[d.comp.node1] or d.comp.node1
+			local a, b = find(d.comp.node0), find(d.comp.node1)
+			if a ~= b then
+				parent[a] = b
+			end
+		end
+		local lengthOf, best = {}, nil
+		for __, d in ipairs(drawn) do
+			local root = find(d.comp.node0)
+			lengthOf[root] = (lengthOf[root] or 0) + geometry.arcLength(d.edge)
+			if best == nil or lengthOf[root] > lengthOf[best] then
+				best = root
+			end
+		end
+		for i = #drawn, 1, -1 do
+			if find(drawn[i].comp.node0) ~= best then
+				table.remove(drawn, i)
+			end
+		end
+	end
 	return drawn
 end
 
