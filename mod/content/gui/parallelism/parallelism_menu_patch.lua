@@ -115,7 +115,7 @@ local function refusedLines(stats)
 end
 
 -- dev aid: what the preview costs, logged every 100 tooltip calls (countPreviewCall)
-local previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0 }
+local previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0, paced = 0, rendered = 0, lagMs = 0, maxLagMs = 0 }
 
 local function updatePreview(proposal)
 	local drawn = planner.collectDrawnSegments(proposal.proposal, shared.roadTypeOf(preview.builder))
@@ -131,6 +131,7 @@ local function updatePreview(proposal)
 	-- stops; a building newly found in the way is planned again right away
 	local planKey = signature .. "|" .. preview.bulldozeVersion
 	if not previewDebounce.shouldPlan(planKey) then
+		previewPerf.paced = previewPerf.paced + 1
 		return
 	end
 	previewDebounce.planned(planKey)
@@ -252,6 +253,8 @@ local function updatePreview(proposal)
 	preview.warning = nil
 	preview.gameMessage = nil
 	preview.version = preview.version + 1
+	-- dev aid: when this plan was made, to measure how long it takes to be drawn
+	preview.plannedAt = planner.clockMs()
 end
 
 -- Tooltip line with the tightest curve of the drawn track: by its ends (as an arc) and
@@ -671,9 +674,10 @@ local function countPreviewCall(changed, started)
 		previewPerf.ms = previewPerf.ms + (now - started)
 	end
 	if previewPerf.calls >= 100 then
-		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua (of which %d judged by the game in %.0f ms)",
-			previewPerf.calls, previewPerf.changes, previewPerf.ms, previewPerf.judged, previewPerf.judgeMs))
-		previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0 }
+		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua (of which %d judged by the game in %.0f ms); %d changes held back by pacing, %d plans drawn, %.0f ms on average from plan to drawn (most %.0f ms)",
+			previewPerf.calls, previewPerf.changes, previewPerf.ms, previewPerf.judged, previewPerf.judgeMs,
+			previewPerf.paced, previewPerf.rendered, previewPerf.rendered > 0 and previewPerf.lagMs / previewPerf.rendered or 0, previewPerf.maxLagMs))
+		previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0, paced = 0, rendered = 0, lagMs = 0, maxLagMs = 0 }
 	end
 end
 
@@ -1237,6 +1241,16 @@ function patch.install()
 		end
 		if injectPreview then
 			injectPreview = false
+			-- dev aid: a new plan drawn, and how long after it was made
+			if preview.version ~= preview.drawnVersion then
+				preview.drawnVersion = preview.version
+				local now = planner.clockMs()
+				if now and preview.plannedAt then
+					previewPerf.rendered = previewPerf.rendered + 1
+					previewPerf.lagMs = previewPerf.lagMs + (now - preview.plannedAt)
+					previewPerf.maxLagMs = math.max(previewPerf.maxLagMs, now - preview.plannedAt)
+				end
+			end
 			if params and params.children and type(params.tool) == "string" and params.tool:find("construction-menu-", 1, true) == 1 then
 				-- one at most: a second proposal viewer in an action crashes the game
 				-- (only while it still matches the world: a preview kept past a build can name
