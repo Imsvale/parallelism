@@ -17,6 +17,7 @@ The mod is in a pretty good place now, but I'll keep hunting for edge cases to m
 * Straight and curved roads alike
 * Spacing between the parallels, measured between edges or centers (toggleable)
 * Wireframe overlay to visualize [nodes](https://en.wikipedia.org/wiki/Vertex_(geometry)) and [edges](https://en.wikipedia.org/wiki/Edge_(geometry)) for advanced users
+* Setting to hide Parallelism's build preview (see Mod Compatibility: Auto Bridges)
 
 ### Limitations
 
@@ -30,9 +31,11 @@ I might look into ways to present more options more cleanly, but needing more th
 
 Who knows, maybe the devs are already working on it, but couldn't iron out all the kinks in time for release.
 
-### Compatibility
+### Mod Compatibility
 
-* **Auto Bridges:** Works together. While dragging, only one of the two previews can show, and it'll be Parallelism's. If you'd rather see the bridges, tick *Hide Parallelism's build preview* in the mod settings. The bridges get built either way.
+* **Auto Bridges:** Works together with a limitation – while dragging, only one of the two previews can show. Because of how the mods are structured, Parallelism's preview is the one that ends up showing. If you'd rather see the bridges, tick *Hide Parallelism's build preview* in the mod settings. The wireframe can still be used to see the parallels. Hiding the preview does not affect what gets built.
+
+Auto Bridges also only builds bridges within a certain distance or radius of the primary road being built. Parallelism can potentially act much wider, so you would end up with bridges nearest the primary, and no bridges on the rest. It's also sensitive to the spacing, especially with tracks. If you get no bridges, try increasing the spacing a bit. At 20 m spacing, 9 parallel roads (C) only get bridges on the 5 central roads, while at 4 m spacing all 9 get bridges. Tracks are more temperamental still.
 
 ### Known issues
 
