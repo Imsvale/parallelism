@@ -1137,7 +1137,7 @@ function patch.install()
 							shared.log("  refused plan: " .. planner.planToString(preview.plan))
 						end
 					end
-					if preview.version ~= version and shared.SHOW_PREVIEW then
+					if preview.version ~= version and (shared.showPreview() or preview.wireframe) then
 						requestRedraw()
 					end
 					local radius = radiusLine(proposal, builder)
@@ -1254,9 +1254,6 @@ function patch.install()
 		end
 	end
 	builtin.ActionDescriptor = function(params, ...)
-		if injectPreview and not shared.SHOW_PREVIEW then
-			injectPreview = false
-		end
 		if injectPreview then
 			injectPreview = false
 			if params and params.children and type(params.tool) == "string" and params.tool:find("construction-menu-", 1, true) == 1 then
@@ -1266,7 +1263,7 @@ function patch.install()
 				if preview.proposals[1] and not planner.refsStillThere(preview.refs) then
 					clearPreview()
 				end
-				if preview.proposals[1] then
+				if preview.proposals[1] and shared.showPreview() then
 					if holdsViewer(params.children) then
 						secondViewerLeftOut("another mod's already there, ours")
 					else
@@ -1278,7 +1275,7 @@ function patch.install()
 					if wireframe then
 						params.children[#params.children + 1] = wireframe
 					end
-				elseif preview.refused and not preview.proposals[1] then
+				elseif preview.refused and not preview.proposals[1] and shared.showPreview() then
 					local refused = makeRefused()
 					if refused then
 						params.children[#params.children + 1] = refused

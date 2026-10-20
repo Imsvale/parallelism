@@ -7,6 +7,15 @@
     "cosmetic": false,
     "params": [
         {
+            "key": "showPreview",
+            "name": "Show Parallelism's build preview",
+            "tooltip": "Off: the extra roads and tracks are not drawn while dragging, but still built.",
+            "uiType": "CheckBox",
+            "values": ["No", "Yes"],
+            "numbers": [0.0, 1.0],
+            "defaultIndex": 1
+        },
+        {
             "key": "maxTracks",
             "name": "Tracks slider goes to",
             "tooltip": "The highest selectable number of tracks in the construction panel.",
