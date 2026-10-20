@@ -27,6 +27,20 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
   A second option could start the bend at the outermost junction instead (the drawn road
   straight on until level with it): no kinks, but not where the player started the bend.
   The player can do it by hand already. docs/studies/2026-10-06_staggered-junction-bends.md
+- **Splitting a two-way road into two one-way carriageways, an idea (2026-10-15).** From
+  the Smart traffic lights mod's study (its docs/studies/2026-10-15_traffic-manager-feasibility.md):
+  a turn bay (an added left lane before a junction) on a two-way road forces the through
+  lanes of that direction to jog sideways by a lane width at one node, in the engine's
+  short transition (cars brake to ~22 km/h). As two one-way carriageways, each can be
+  placed on its own: the 4-lane carriageway offset by half a lane lines its right three
+  lanes up with the 3-lane one before it, the added lane appears beside them, and the
+  widening becomes a gentle curve of any length. The player can build the split from a
+  two-way road to two one-way roads nicely by hand with care (screenshot
+  `2026-10-15 23_47_24-Transport Fever 3.png`, user's Screenshots folder), but it's
+  fiddly: a semi-automatic version (split a stretch of two-way road into parallel
+  one-way roads with a clean split node, optionally with a turn bay before a junction)
+  would fit this mod's road placement. Usually the whole road might as well be split;
+  the two-way only stays where e.g. a highway meets city roads that can't be split.
 - **Translations.** English only. Easy to add at any time.
 
 ## Open: known limits and to-confirm
