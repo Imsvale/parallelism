@@ -30,6 +30,10 @@ I might look into ways to present more options more cleanly, but needing more th
 
 Who knows, maybe the devs are already working on it, but couldn't iron out all the kinks in time for release.
 
+### Compatibility
+
+* **Auto Bridges:** Works together. While dragging, only one of the two previews can show, and it'll be Parallelism's. If you'd rather see the bridges, tick *Hide Parallelism's build preview* in the mod settings. The bridges get built either way.
+
 ### Known issues
 
 * Road: Angled (non-orthogonal) T junction into curve has a limited angular range on the curve. The possible range expands the closer to 90° the T junction is.
