@@ -78,10 +78,6 @@ local shared = {
 	EVENT_SET_PARAMS = "parallelism.setParams",
 	-- the game's verdict on the preview, for the drag check: { signature, critical, message }
 	EVENT_PREVIEW_VERDICT = "parallelism.previewVerdict",
-	-- the menu asks the game script for its latest refused plan (the check view), answered
-	-- with the event's return value: the preview gets no proposals from the builder while
-	-- the drag check refuses (2026-10-11)
-	EVENT_GET_CHECK_VIEW = "parallelism.getCheckView",
 }
 
 function shared.log(msg)

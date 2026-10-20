@@ -22,8 +22,6 @@ local lastCheck = nil
 
 local Entry = react.RegisterPluginRecipe(mod_entry_point.ModEntryPointExtension, "ImsvaleParallelTracksEntry", function()
 	react.onStep(function()
-		-- the drag check's refused plan for the preview, while one is refused
-		menu_patch.pollCheckView()
 		local now = os.clock()
 		if lastCheck and now - lastCheck < CHECK_SECONDS then
 			return

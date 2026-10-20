@@ -165,8 +165,6 @@ end
 -- one of the extra tracks would cross another track flatter than the game allows, the
 -- whole drag is refused, with the reason, instead of building the rest around it.
 local lastRefusal = nil
--- the latest plan of the drag check, for the menu's preview (see checkPlayerProposal)
-local checkView = { version = 0, refused = false }
 -- the last drag checked and the answer
 local lastCheck = { signature = nil, result = nil }
 -- dev aid: how often the builder asks and what answering costs, logged every so often
@@ -512,10 +510,6 @@ local function checkPlayerProposal(param)
 		lastRefusal = message
 		shared.log("check: " .. (message or "ok"))
 	end
-	-- for the menu's preview: the builder stops handing it proposals while this refuses,
-	-- so it shows this refused plan instead (EVENT_GET_CHECK_VIEW)
-	checkView = { version = checkView.version + 1, refused = message ~= nil,
-		lines = message ~= nil and planner.refusedLines(stats) or nil }
 	local result = nil
 	if message ~= nil then
 		local errorMessages = {}
@@ -927,13 +921,6 @@ return {
 	end,
 
 	guiHandleEvent = function(_userParams, _state, _guiState, _src, id, name, param)
-		if name == shared.EVENT_GET_CHECK_VIEW then
-			-- (only the version when the menu has this one already)
-			if param and param.since == checkView.version then
-				return { version = checkView.version }
-			end
-			return checkView
-		end
 		if name == shared.EVENT_SET_PARAMS then
 			current.resName = param.resName
 			local builder = param.builder or shared.TRACK_BUILDER

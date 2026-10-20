@@ -81,6 +81,39 @@ end
 
 local previewDebounce = planner.newDebounce(planner.PLAN_EVERY, planner.CHEAP_PLAN_MS)
 
+-- A refused plan, to show instead of nothing: its edges, those at a problem the planner
+-- located marked red (the nearest ones to each spot, both where it is at a node); all
+-- red when it located none.
+local function refusedLines(stats)
+	local lines = {}
+	for __, e in ipairs(stats.plan or {}) do
+		lines[#lines + 1] = { edge = e.edge }
+	end
+	-- a parallel the planner could not place at all: red
+	for __, e in ipairs(stats.unplaced or {}) do
+		lines[#lines + 1] = { edge = e, red = true }
+	end
+	local points = stats.problemPoints or {}
+	for __, p in ipairs(points) do
+		local distances, best = {}, math.huge
+		for i, l in ipairs(lines) do
+			distances[i] = geometry.distanceToEdge(p, l.edge)
+			best = math.min(best, distances[i])
+		end
+		for i, l in ipairs(lines) do
+			if distances[i] <= best + 0.5 then
+				l.red = true
+			end
+		end
+	end
+	if #points == 0 then
+		for __, l in ipairs(lines) do
+			l.red = true
+		end
+	end
+	return #lines > 0 and lines or nil
+end
+
 -- dev aid: what the preview costs, logged every 100 tooltip calls (countPreviewCall)
 local previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0, paced = 0, rendered = 0, lagMs = 0, maxLagMs = 0 }
 
@@ -174,7 +207,7 @@ local function updatePreview(proposal)
 	preview.problems = #stats.problems
 	-- (also a plan of no problems of ours the game could not judge: shown all red)
 	preview.refused = ((stats.edges > 0 or #(stats.unplaced or {}) > 0) and (#stats.problems > 0 or proposals[1] == nil))
-		and planner.refusedLines(stats) or nil
+		and refusedLines(stats) or nil
 	preview.tooTight = stats.tooTight and stats.minAllowedRadius or nil
 	-- dev aid: what the preview planned, next to what the game says about it
 	local planned = string.format("%d drawn, %d edges, %d anchored, %d crossings, %d too shallow, %d moved, %d dropped, %d problems%s",
@@ -665,44 +698,6 @@ local function requestRedraw()
 	end)
 	if not ok then
 		shared.log("preview redraw failed: " .. tostring(err))
-	end
-end
-
--- While the drag check refuses, the builder stops handing the preview its proposals (it
--- shows the refusal instead of asking for tooltip lines), and the preview stood on the plan
--- from before the refusal (2026-10-11: 19 s, the check meanwhile judging ~8 changes a
--- second). So the preview takes the check's refused plan from the game script, asked with
--- an event whose return value is the answer (called on every step, entry plugin).
-local checkView = { version = nil, failed = false, noAnswerLogged = false }
-
-function patch.pollCheckView()
-	if checkView.failed or not preview.builder or (preview.count or 1) < 2 then
-		return
-	end
-	local ok, view = pcall(api.gui.fireGuiScriptEvent, shared.EVENT_ID, shared.EVENT_GET_CHECK_VIEW, { since = checkView.version })
-	if not ok then
-		checkView.failed = true
-		shared.log("check view: asking the game script failed, off until the game restarts: " .. tostring(view))
-		return
-	end
-	if type(view) ~= "table" or view.version == nil then
-		if not checkView.noAnswerLogged then
-			checkView.noAnswerLogged = true
-			shared.log("check view: no answer from the game script (" .. type(view) .. ")")
-		end
-		return
-	end
-	if view.version == checkView.version then
-		return
-	end
-	checkView.version = view.version
-	if view.refused and type(view.lines) == "table" and #view.lines > 0 then
-		preview.refused = view.lines
-		preview.proposals = {}
-		preview.signature = nil
-		preview.version = preview.version + 1
-		preview.plannedAt = planner.clockMs()
-		requestRedraw()
 	end
 end
 
