@@ -3,6 +3,10 @@
 Each release: version, the `revision` in `mod/mod.json` (what the game shows), date. The
 entry is also the changelog text for the mod.io upload.
 
+## 1.0.2 (revision 3), 2026-10-21
+
+- New setting: Hide Parallelism's build preview. Tick it to see Auto Bridges' preview instead.
+
 ## 1.0.1 (revision 2), 2026-10-21
 
 - Fixed a crash when used together with Auto Bridges.
