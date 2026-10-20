@@ -1226,6 +1226,37 @@ function patch.install()
 	-- are the builder action and its helpers. The preview components go in there too,
 	-- as the base game does with its proposal viewer for swapping bridge types.
 	local ActionDescriptor = builtin.ActionDescriptor
+
+	-- An action descriptor takes one ProposalViewer at most: a second one is a fatal
+	-- assertion ("Must not specify more than 1 ProposalViewer", 2026-10-20, with Auto
+	-- Bridges, which adds its bridge preview to the builder's descriptor the same way).
+	-- Viewers are recognised by their constructor, whoever makes them; the first one in a
+	-- descriptor stays, a second is left out (ours not added, another mod's refused while
+	-- the descriptor is passed on to the wrappers after ours).
+	local viewers = {}
+	local ProposalViewer = builtin.ProposalViewer
+	builtin.ProposalViewer = function(...)
+		local node = ProposalViewer(...)
+		if node ~= nil then
+			viewers[node] = true
+		end
+		return node
+	end
+	local function holdsViewer(children)
+		for __, child in ipairs(children) do
+			if viewers[child] then
+				return true
+			end
+		end
+		return false
+	end
+	local loggedSecondViewer = false
+	local function secondViewerLeftOut(by)
+		if not loggedSecondViewer then
+			loggedSecondViewer = true
+			shared.log("a second preview in the builder left out (" .. by .. "): the game takes one")
+		end
+	end
 	builtin.ActionDescriptor = function(params, ...)
 		-- the network overlay, while on, in every action (parallelism_overlay.lua); each
 		-- action subscribes to it, to be redrawn when its view changes
@@ -1264,7 +1295,11 @@ function patch.install()
 					clearPreview()
 				end
 				if preview.proposals[1] then
-					params.children[#params.children + 1] = makeViewer(1)
+					if holdsViewer(params.children) then
+						secondViewerLeftOut("another mod's already there, ours")
+					else
+						params.children[#params.children + 1] = makeViewer(1)
+					end
 				end
 				if preview.wireframe then
 					addLines(makeWireframe())
@@ -1297,7 +1332,23 @@ function patch.install()
 		if #lines > 0 and params and params.children then
 			params.children[#params.children + 1] = builtin.EdgeRenderable{ edges = lines, ignoreDepth = true }
 		end
-		return ActionDescriptor(params, ...)
+		-- (another mod's wrapper after ours adding a second viewer: refused)
+		local children = params and type(params.children) == "table" and params.children or nil
+		if children and getmetatable(children) == nil then
+			setmetatable(children, { __newindex = function(t, k, v)
+				if viewers[v] and holdsViewer(t) then
+					secondViewerLeftOut("another mod's")
+					return
+				end
+				rawset(t, k, v)
+			end })
+		end
+		local result = ActionDescriptor(params, ...)
+		if children and getmetatable(children) ~= nil then
+			setmetatable(children, nil)
+		end
+		viewers = {}
+		return result
 	end
 
 	-- dev aid: parallelismDump() in the console
