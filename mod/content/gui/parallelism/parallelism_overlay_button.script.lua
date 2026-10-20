@@ -2,11 +2,16 @@ local react = require "::/gui/main/react.lua"
 local builtin = require "::/gui/main/builtin.lua"
 local main_mod_button_area = require "::/gui/main/main_mod_button_area.tl"
 local overlay = require "parallelism_overlay.lua"
+local shared = require "parallelism_shared.lua"
 
 -- The network overlay's switch: a toggle button in the HUD's mod button area. (Not a
 -- tool: tools are exclusive, any other tool ended it, 2026-10-10.)
 local Button = react.RegisterPluginRecipe(main_mod_button_area.MainModButtonAreaExtension, "ImsvaleParallelismOverlayButton", function()
 	local on = react.useState(overlay.isOn() and 1 or 0)
+	-- (in progress: a dev build only)
+	if not shared.NETWORK_OVERLAY then
+		return builtin.BoxLayout{ children = {} }
+	end
 	return builtin.BoxLayout{
 		children = {
 			builtin.ToggleButton{

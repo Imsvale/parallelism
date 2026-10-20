@@ -5,6 +5,14 @@
 -- the tweakables (counts, spacing range): see parallelism_config.lua
 local config = require "parallelism_config.lua"
 
+-- Dev switches: on only where parallelism_dev.lua exists. Git ignores that file, so it is
+-- in the dev working copy only and a release (exported from main) has them all off. See
+-- mods\RELEASING.md.
+local okDev, dev = pcall(require, "parallelism_dev.lua")
+if not okDev or type(dev) ~= "table" then
+	dev = {}
+end
+
 local shared = {
 	KEY_COUNT = "parallelismCount",
 	KEY_SIDE = "parallelismSide",
@@ -57,7 +65,17 @@ local shared = {
 	-- dev switch: a "Wireframe" button in the track and road toolbars that draws the whole
 	-- plan of the preview as lines (drawn track, new pieces, existing pieces cut and
 	-- added again, removed edges), also for plans that are refused
-	DEBUG_WIREFRAME = true,
+	DEBUG_WIREFRAME = dev.wireframe == true,
+
+	-- dev switch: the network overlay's button in the HUD (parallelism_overlay.lua), in
+	-- progress
+	NETWORK_OVERLAY = dev.networkOverlay == true,
+
+	-- dev switches of the game script (parallelism.script.lua): the full proposal of every
+	-- build in the log, the network around a drag's start node, the crossings measured
+	DUMP_BUILDS = dev.dumpBuilds == true,
+	DUMP_AT_DRAG_START = dev.dumpAtDragStart == true,
+	MEASURE_CROSSINGS = dev.measureCrossings == true,
 
 	-- dev aid: a "Radius" line in the track and road builder tooltip (tightest curve of the
 	-- drawn track), also for single tracks. Out of scope for this mod: the sibling mod
