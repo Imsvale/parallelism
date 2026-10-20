@@ -951,7 +951,7 @@ local function makeParams(builder, resName)
 			group = "parallelTracks",
 			key = shared.KEY_WIREFRAME,
 			name = "Wireframe",
-			tooltip = "Dev aid: draw the whole plan as lines, with a square at every node (larger where 3 or more edges meet). White: drawn track as the mod reads it. Cyan: new track. Yellow: existing track cut and added again. Red: existing track removed. With one track or road: the builder's own plan, and gray: existing track or road around it.",
+			tooltip = "White: drawn. Cyan: new. Yellow: re-laid. Red: removed. Gray: existing.",
 			values = { "Off", "On" },
 			defaultIndex = 1,
 			resetOnCategoryChange = false,

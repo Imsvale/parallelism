@@ -62,10 +62,10 @@ local shared = {
 	-- search, caches for templates, components and edge geometry), to compare with them
 	PERF_MEASURES = true,
 
-	-- dev switch: a "Wireframe" button in the track and road toolbars that draws the whole
-	-- plan of the preview as lines (drawn track, new pieces, existing pieces cut and
-	-- added again, removed edges), also for plans that are refused
-	DEBUG_WIREFRAME = dev.wireframe == true,
+	-- a "Wireframe" button in the track and road toolbars that draws the whole plan of the
+	-- preview as lines (drawn track, new pieces, existing pieces cut and added again,
+	-- removed edges), also for plans that are refused (public: players like it, 2026-10-20)
+	DEBUG_WIREFRAME = true,
 
 	-- dev switch: the network overlay's button in the HUD (parallelism_overlay.lua), in
 	-- progress
