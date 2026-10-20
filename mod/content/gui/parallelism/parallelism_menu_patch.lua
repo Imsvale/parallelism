@@ -1131,7 +1131,7 @@ function patch.install()
 							shared.log("  refused plan: " .. planner.planToString(preview.plan))
 						end
 					end
-					if preview.version ~= version and shared.SHOW_PREVIEW then
+					if preview.version ~= version and (shared.showPreview() or preview.wireframe) then
 						requestRedraw()
 					end
 					local radius = radiusLine(proposal, builder)
@@ -1267,9 +1267,6 @@ function patch.install()
 		if overlay.isOn() and params and params.children then
 			addLines(overlay.lines())
 		end
-		if injectPreview and not shared.SHOW_PREVIEW then
-			injectPreview = false
-		end
 		if injectPreview then
 			injectPreview = false
 			-- dev aid: a new plan drawn, and how long after it was made
@@ -1289,7 +1286,7 @@ function patch.install()
 				if preview.proposals[1] and not planner.refsStillThere(preview.refs) then
 					clearPreview()
 				end
-				if preview.proposals[1] then
+				if preview.proposals[1] and shared.showPreview() then
 					if holdsViewer(params.children) then
 						secondViewerLeftOut("another mod's already there, ours")
 					else
@@ -1298,7 +1295,7 @@ function patch.install()
 				end
 				if preview.wireframe then
 					addLines(makeWireframe())
-				elseif preview.refused and not preview.proposals[1] then
+				elseif preview.refused and not preview.proposals[1] and shared.showPreview() then
 					addLines(makeRefused())
 				end
 				if SPIKE_SELECTOR and preview.builder == shared.STREET_BUILDER then

@@ -119,6 +119,22 @@ end
 
 -- the most tracks or roads (the drawn one included) a builder offers: the mod settings
 -- maxTracks / maxRoads, else the config's
+-- The mod setting "Show Parallelism's build preview" (a checkbox: index 1 unchecked, 2
+-- checked; checked when it cannot be read). Off, the extra roads are planned and checked
+-- as always but not drawn while dragging (another mod's preview, e.g. Auto Bridges', then
+-- gets the builder's one preview slot); Wireframe still draws.
+function shared.showPreview()
+	if not shared.SHOW_PREVIEW then
+		return false
+	end
+	local index = tonumber(shared.modParam("showPreview"))
+	if not shared.loggedShowPreview then
+		shared.loggedShowPreview = true
+		shared.log("mod option showPreview: index " .. tostring(index))
+	end
+	return index ~= 1
+end
+
 function shared.maxCount(builder)
 	local streets = builder == shared.STREET_BUILDER
 	local key = streets and "maxRoads" or "maxTracks"
