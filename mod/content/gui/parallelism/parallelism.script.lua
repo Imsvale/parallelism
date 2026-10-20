@@ -20,7 +20,7 @@ local dump = require "parallelism_dump.lua"
 local PENDING_MAX_FRAMES = 300
 
 -- dev aid: log the whole proposal of every track build, also with a track count of 1
-local DEBUG_DUMP = true
+local DEBUG_DUMP = false
 
 -- dev aid: when the combined build of the extra tracks fails, build them one by one, to
 -- see which one fails and why. Builds part of a drag, so never on in play.
@@ -56,7 +56,7 @@ local spikeLogged = false
 -- dev aid: a drag starting at an existing node dumps the edges and nodes around it
 -- (parallelism_dump.lua), once per node; the console runs on a lua state of its own, so
 -- this is the way to trigger it
-local DUMP_AT_DRAG_START = true
+local DUMP_AT_DRAG_START = false
 local lastDumpedNode = nil
 
 local function dumpAtDragStart(param)
@@ -88,7 +88,7 @@ local pending = {}
 
 -- dev aid: measures the crossings in the builder's proposal while dragging, next to the
 -- game's verdict, to find out which crossings the game refuses
-local MEASURE_CROSSINGS = true
+local MEASURE_CROSSINGS = false
 -- dev aid (2026-10-03): the drag check's joined proposal in full before the game judges it;
 -- after a crash in StreetShapeFactory the last such dump is what crashed it. Verbose.
 local DUMP_BEFORE_JUDGING = false

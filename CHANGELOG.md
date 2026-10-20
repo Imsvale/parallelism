@@ -6,6 +6,7 @@ entry is also the changelog text for the mod.io upload.
 ## 1.0.1 (revision 2), 2026-10-21
 
 - Fixed a crash when used together with Auto Bridges.
+- Writes much less to the game log.
 
 ## 1.0.0 (revision 1), 2026-10-06
 
