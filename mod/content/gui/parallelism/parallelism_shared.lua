@@ -5,9 +5,8 @@
 -- the tweakables (counts, spacing range): see parallelism_config.lua
 local config = require "parallelism_config.lua"
 
--- Dev switches: on only where parallelism_dev.lua exists. Git ignores that file, so it is
--- in the dev working copy only and a release (exported from main) has them all off. See
--- mods\RELEASING.md.
+-- Dev switches from parallelism_dev.lua: committed with all off (a release), filled in by
+-- dev mode on the dev branch (tools/devmode.sh, devmode/). See mods\RELEASING.md.
 local okDev, dev = pcall(require, "parallelism_dev.lua")
 if not okDev or type(dev) ~= "table" then
 	dev = {}
