@@ -80,6 +80,31 @@ function overlay.isOn()
 	return state.on and not state.failed
 end
 
+-- The builder's own view of the network: with the toolbar's Wireframe on, the builder
+-- shows the network around the camera too, also while not dragging (set by the menu
+-- patch; only in the construction menu's actions, independent of the button above).
+function overlay.builderView()
+	return state.builderView == true and not state.failed
+end
+
+function overlay.setBuilderView(on)
+	on = on and true or false
+	if state.builderView == on then
+		return
+	end
+	state.builderView = on
+	state.key = nil
+	if on then
+		overlay.refresh()
+	end
+	state.version = state.version + 1
+end
+
+-- whether the network is read at all: for the button's overlay or the builder's view
+local function wanted()
+	return (state.on or state.builderView) and not state.failed
+end
+
 -- switches the overlay on or off (the button)
 function overlay.setOn(on)
 	state.on = on and true or false
@@ -116,7 +141,7 @@ end
 -- The network around the camera, read again when the camera has moved or zoomed by a
 -- twentieth of the view. Returns true if it was.
 function overlay.refresh()
-	if not overlay.isOn() then
+	if not wanted() then
 		state.edges, state.key = nil, nil
 		return false
 	end
@@ -161,7 +186,7 @@ end
 -- one edge renderable at most (2026-10-10, a crash: "Must not specify more than 1
 -- EdgeRenderable"), so whoever adds it puts all lines into one (menu patch).
 function overlay.lines()
-	if not overlay.isOn() or not state.edges or #state.edges == 0 then
+	if not wanted() or not state.edges or #state.edges == 0 then
 		return nil
 	end
 	local ok, result = pcall(function()

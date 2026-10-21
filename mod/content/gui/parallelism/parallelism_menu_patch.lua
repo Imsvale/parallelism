@@ -646,7 +646,8 @@ local function paramsApi(ref)
 end
 
 -- An open builder is redrawn when the network overlay changes: the hidden redraw param
--- is bumped (negative values: not the preview's versions). Nothing while no builder is.
+-- is bumped (negative values: not the preview's versions). With no builder open any more,
+-- the builder's view of the network ends.
 overlay.onChange = function(version)
 	for __, ref in ipairs(paramRefs) do
 		local api_ = paramsApi(ref)
@@ -656,6 +657,7 @@ overlay.onChange = function(version)
 			return
 		end
 	end
+	overlay.setBuilderView(false)
 end
 
 local lastLoggedRedraw = nil
@@ -1030,6 +1032,9 @@ function patch.install()
 		local count = 1
 		local side, spacing, reverse
 		if builder then
+			-- the builder's Wireframe on: its view of the network around the camera too, also
+			-- while not dragging (parallelism_overlay.lua)
+			overlay.setBuilderView(shared.DEBUG_WIREFRAME and params[shared.KEY_WIREFRAME] == 2)
 			-- the replace / upgrade mode keeps the count value but must not build anything extra
 			count = isDrawing(builder, params) and params[shared.KEY_COUNT] or 1
 			side = sideChoices(builder)[params[shared.KEY_SIDE] or 0] or shared.SIDE_RIGHT
@@ -1197,9 +1202,9 @@ function patch.install()
 			end
 		else
 			clearPreview()
-			if builder and overlay.isOn() then
-				-- a single road or track with the network overlay on: its refs too, to redraw
-				-- the menu when the overlay changes (overlay.onChange below)
+			if builder and (overlay.isOn() or overlay.builderView()) then
+				-- a single road or track with the network overlay or the builder's view on: its
+				-- refs too, to redraw the menu when the view changes (overlay.onChange below)
 				paramRefs = { select(6, ...), select(3, ...) }
 			end
 			if builder and actionParams and actionParams.getProposalStringsFn and shared.SHOW_RADIUS then
@@ -1265,6 +1270,9 @@ function patch.install()
 			end
 		end
 		if overlay.isOn() and params and params.children then
+			addLines(overlay.lines())
+		elseif overlay.builderView() and params and params.children and type(params.tool) == "string"
+			and params.tool:find("construction-menu-", 1, true) == 1 then
 			addLines(overlay.lines())
 		end
 		if injectPreview then
