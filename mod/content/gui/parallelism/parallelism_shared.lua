@@ -6,7 +6,7 @@
 local config = require "parallelism_config.lua"
 
 -- Dev switches from parallelism_dev.lua: committed with all off (a release), filled in by
--- dev mode on the dev branch (tools/devmode.sh, devmode/). See mods\RELEASING.md.
+-- dev mode on the dev branch (../tools/devmode.sh, devmode/). See mods\RELEASING.md.
 local okDev, dev = pcall(require, "parallelism_dev.lua")
 if not okDev or type(dev) ~= "table" then
 	dev = {}
