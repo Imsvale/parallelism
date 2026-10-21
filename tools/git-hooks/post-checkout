@@ -1,4 +1,0 @@
-#!/bin/sh
-# After a branch checkout: dev mode on for dev, off for anything else (tools/devmode.sh).
-[ "$3" = 1 ] || exit 0
-sh "$(git rev-parse --show-toplevel)/tools/devmode.sh" auto
