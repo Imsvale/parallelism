@@ -28,7 +28,7 @@ Tidied 2026-10-05 after the one-rule redesign (docs/design/2026-10-03_node-place
   straight on until level with it): no kinks, but not where the player started the bend.
   The player can do it by hand already. docs/studies/2026-10-06_staggered-junction-bends.md
 - **Splitting a two-way road into two one-way carriageways, an idea (2026-10-15).** From
-  the Smart traffic lights mod's study (its docs/studies/2026-10-15_traffic-manager-feasibility.md):
+  the lab's study (`../traffic-lab`) (its docs/studies/2026-10-15_traffic-manager-feasibility.md):
   a turn bay (an added left lane before a junction) on a two-way road forces the through
   lanes of that direction to jog sideways by a lane width at one node, in the engine's
   short transition (cars brake to ~22 km/h). As two one-way carriageways, each can be
