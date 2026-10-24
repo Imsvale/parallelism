@@ -325,18 +325,29 @@ function geometry.parameterAtLength(edge, length)
 	if length <= 0 then
 		return 0
 	end
+	-- (the curve inline, as geometry.hermite computes x and y: no table per point)
+	local p0, p1, t0, t1 = edge.p0, edge.p1, edge.t0, edge.t1
+	local p0x, p0y, p1x, p1y, t0x, t0y, t1x, t1y = p0.x, p0.y, p1.x, p1.y, t0.x, t0.y, t1.x, t1.y
+	local function at(u)
+		local u2 = u * u
+		local u3 = u2 * u
+		local h00 = 2 * u3 - 3 * u2 + 1
+		local h10 = u3 - 2 * u2 + u
+		local h01 = -2 * u3 + 3 * u2
+		local h11 = u3 - u2
+		return h00 * p0x + h10 * t0x + h01 * p1x + h11 * t1x, h00 * p0y + h10 * t0y + h01 * p1y + h11 * t1y
+	end
 	local n = 64
 	local total = 0
-	local prev = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, 0)
+	local prevX, prevY = at(0)
 	for i = 1, n do
-		local u = i / n
-		local p = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, u)
-		local step = horizontalDistance(prev, p)
+		local x, y = at(i / n)
+		local step = length2d(prevX - x, prevY - y)
 		if total + step >= length then
 			return (i - 1 + (length - total) / math.max(step, 1e-12)) / n
 		end
 		total = total + step
-		prev = p
+		prevX, prevY = x, y
 	end
 	return 1
 end
