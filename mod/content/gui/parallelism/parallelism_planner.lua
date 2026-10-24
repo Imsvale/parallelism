@@ -2906,9 +2906,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		segment.comp.roadType = props.comp.roadType
 		-- the track type's trackDistance on native track (0 on roads), wherever the track
 		-- lies; with 0 neighboring tracks do not share catenary masts as they should
-		pcall(function()
-			segment.comp.distance = props.comp.distance
-		end)
+		if not options.noDistance then
+			pcall(function()
+				segment.comp.distance = props.comp.distance
+			end)
+		end
 		-- e.g. the barriers of a highway; not in every proposal, so optional
 		pcall(function()
 			if props.comp.edgeDecorations ~= nil then

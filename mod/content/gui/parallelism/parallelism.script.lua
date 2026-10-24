@@ -727,7 +727,7 @@ local function sendBuild(label, proposal, stats, onDone)
 	-- bridges: without it a bundle got only a narrow central pillar, built one by one
 	-- natively it gets one across its whole width (fixed together with the edge
 	-- distance, which of the two did it was not tested)
-	context.extendProposalRedoPillars = true
+	context.extendProposalRedoPillars = not shared.BUILD_NO_REDO_PILLARS
 	-- (how long the game takes with it, from sending to the result)
 	local sent = planner.clockMs()
 	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
@@ -812,7 +812,7 @@ end
 local function buildCombined(job)
 	shared.log("tracks at offsets " .. table.concat(job.offsets, ", ") .. ":")
 	local proposal, stats = planner.makeProposal(readDrawn(job), job.offsets, shared.log, false,
-		{ reverse = job.reverse, step = job.distance })
+		{ reverse = job.reverse, step = job.distance, noDistance = shared.BUILD_NO_DISTANCE })
 	shared.log("  planned in " .. tostring(stats.timing))
 	if stats.edges == 0 then
 		return
@@ -852,12 +852,46 @@ end
 
 -- Runs once the player's build is in the world: the drawn edges are read back from
 -- there, and edges it split are found in their new state.
+-- dev experiment (shared.BUILD_CHUNK): the parallels built in chunks of that many, one
+-- chunk after the other, each planned against the world with the chunks before it, to see
+-- whether the game's time for a big track build grows faster than its size. Not for
+-- players: a later chunk failing leaves the earlier ones built.
+local function buildChunks(job, from)
+	local offsets = {}
+	for i = from, math.min(#job.offsets, from + shared.BUILD_CHUNK - 1) do
+		offsets[#offsets + 1] = job.offsets[i]
+	end
+	if #offsets == 0 then
+		return
+	end
+	shared.log("chunk at offsets " .. table.concat(offsets, ", ") .. ":")
+	local proposal, stats = planner.makeProposal(readDrawn(job), offsets, shared.log, false,
+		{ reverse = job.reverse, step = job.distance, noDistance = shared.BUILD_NO_DISTANCE })
+	shared.log("  planned in " .. tostring(stats.timing))
+	if stats.edges == 0 or #stats.problems > 0 then
+		shared.log("  chunk not built: " .. tostring(stats.problems[1]))
+		return
+	end
+	sendBuild("chunk", proposal, stats, function(success)
+		if success then
+			local ok, err = pcall(buildChunks, job, from + shared.BUILD_CHUNK)
+			if not ok then
+				shared.log("chunk failed: " .. tostring(err))
+			end
+		end
+	end)
+end
+
 local function runJob(job)
 	local ok, err = pcall(function()
 		local comp = planner.getEdgeComp(job.drawn[1].entity)
 		job.distance = planner.parallelDistance(comp.roadTemplate, job.spacing)
 		job.offsets = geometry.offsets(job.count, job.side, job.distance)
-		buildCombined(job)
+		if shared.BUILD_CHUNK > 0 then
+			buildChunks(job, 1)
+		else
+			buildCombined(job)
+		end
 	end)
 	if not ok then
 		shared.log("runJob failed: " .. tostring(err))
