@@ -76,6 +76,11 @@ local shared = {
 	DUMP_AT_DRAG_START = dev.dumpAtDragStart == true,
 	MEASURE_CROSSINGS = dev.measureCrossings == true,
 
+	-- dev switch: the menu's log lines per plan and per draw (each plan, perf every 100
+	-- tooltip calls, slow plans, refused plans held still, the game's verdicts); a release
+	-- logs only failures
+	LOG_PLANS = dev.logPlans == true,
+
 	-- dev aid: a "Radius" line in the track and road builder tooltip (tightest curve of the
 	-- drawn track), also for single tracks. Out of scope for this mod: the sibling mod
 	-- Better Construction Tooltip (imsvale_better_construction_tooltip) has it now, so off
@@ -124,16 +129,17 @@ end
 -- extra roads are planned and checked as always but not drawn while dragging (another
 -- mod's preview, e.g. Auto Bridges', then gets the builder's one preview slot); Wireframe
 -- still draws.
+-- (Asked on every draw: mod settings can't change during a game, so read once.)
 function shared.showPreview()
 	if not shared.SHOW_PREVIEW then
 		return false
 	end
-	local index = tonumber(shared.modParam("hidePreview"))
-	if not shared.loggedHidePreview then
-		shared.loggedHidePreview = true
+	if shared.hidePreviewIndex == nil then
+		local index = tonumber(shared.modParam("hidePreview"))
+		shared.hidePreviewIndex = index or false
 		shared.log("mod option hidePreview: index " .. tostring(index))
 	end
-	return index ~= 2
+	return shared.hidePreviewIndex ~= 2
 end
 
 function shared.maxCount(builder)

@@ -5,4 +5,5 @@ return {
 	dumpBuilds = true,
 	dumpAtDragStart = true,
 	measureCrossings = true,
+	logPlans = true,
 }

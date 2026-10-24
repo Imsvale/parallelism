@@ -30,20 +30,9 @@ local EDGES_MAX = 1500
 local ROAD_COLOR = { 0.7, 0.75, 0.8, 0.8 }
 local TRACK_COLOR = { 0.85, 0.7, 0.45, 0.8 }
 
--- the four sides of a square around p, as straight edges, into edges
-function overlay.addSquare(edges, p, h, color)
-	local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
-	for i = 1, 4 do
-		local a, b = corners[i], corners[i % 4 + 1]
-		local p0 = { x = p.x + a[1], y = p.y + a[2], z = p.z }
-		local p1 = { x = p.x + b[1], y = p.y + b[2], z = p.z }
-		local t = { x = p1.x - p0.x, y = p1.y - p0.y, z = 0 }
-		edges[#edges + 1] = { p0 = p0, p1 = p1, t0 = t, t1 = t, color = color }
-	end
-end
-
--- one line of an edge renderable
-function overlay.makeEdge(e, color, width)
+-- one line of an edge renderable (stepSize: the length of the pieces it's drawn in,
+-- default 1 m)
+function overlay.makeEdge(e, color, width, stepSize)
 	local geom = api.type.EdgeGeometry.new()
 	geom.type = api.type.EdgeGeometry.Type.CUBIC_SPLINE
 	local spline = geom.cubicSpline
@@ -57,8 +46,38 @@ function overlay.makeEdge(e, color, width)
 	edge.colors = { api.type.Vec4f.new(color[1], color[2], color[3], color[4]) }
 	edge.width = width
 	edge.offsetZ = 1.0
-	edge.stepSize = 1.0
+	edge.stepSize = stepSize or 1.0
 	return edge
+end
+
+-- a straight, level line from (x0, y0) to (x1, y1) at height z: one piece, no curve to
+-- sample
+local function makeStraightEdge(x0, y0, x1, y1, z, color, width)
+	local st = api.type.EdgeGeometry.Straight.new()
+	st.pos = { api.type.Vec2f.new(x0, y0), api.type.Vec2f.new(x1, y1) }
+	local geom = api.type.EdgeGeometry.new()
+	geom.type = api.type.EdgeGeometry.Type.STRAIGHT
+	geom.straight = st
+	geom.height = api.type.Vec2f.new(z, z)
+	geom.tangent = api.type.Vec2f.new(0, 0)
+	geom.length = math.sqrt((x1 - x0) ^ 2 + (y1 - y0) ^ 2)
+	geom.width = width
+	local edge = builtin.type.EdgeRenderable.Edge.new(geom)
+	edge.colors = { api.type.Vec4f.new(color[1], color[2], color[3], color[4]) }
+	edge.width = width
+	edge.offsetZ = 1.0
+	edge.stepSize = 2.0
+	return edge
+end
+
+-- A node marker: the four sides of a square of half size h around p, as straight lines,
+-- appended to lines.
+function overlay.addSquareLines(lines, p, h, color, width)
+	local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
+	for i = 1, 4 do
+		local a, b = corners[i], corners[i % 4 + 1]
+		lines[#lines + 1] = makeStraightEdge(p.x + a[1], p.y + a[2], p.x + b[1], p.y + b[2], p.z, color, width)
+	end
 end
 
 -- (a zero-length edge crashed the game drawing it)
@@ -68,13 +87,64 @@ function overlay.drawable(e)
 	return geometry.arcLength(e) >= 0.1 and t0 > 1e-3 and t1 > 1e-3
 end
 
+-- Nothing is built again that can't have changed (after path-visualizer, 2026-10-24):
+-- * each edge in view is read once and kept while it stays in view (entries, by entity:
+--   its plain geometry, kind, end nodes and line). An entity's geometry doesn't change: a
+--   build that reshapes an edge replaces it with a new entity. The entries are dropped
+--   anyway after a build the mod hears of, and once a minute;
+-- * the lines are joined once per change of the view (version), not on every draw;
+-- * node markers are kept by node and look, and drawn as straight lines.
+local REREAD_AFTER = 60 -- seconds: entries read again, for builds the mod didn't hear of
+
 local state = {
 	on = false,
-	edges = nil,
+	edges = nil, -- the entries in view, in octree order
+	entries = {}, -- entity -> entry (see refresh)
+	squares = {}, -- node marker key -> its lines
 	key = nil,
 	version = 0,
+	lines = nil, -- the joined lines, for linesVersion
+	linesVersion = nil,
+	readAt = nil, -- clock() when the entries were last all dropped
 	failed = false,
+	timing = { refreshes = 0, reads = 0, refreshMs = 0, builds = 0, buildMs = 0, since = nil },
 }
+
+local function clock()
+	local ok, c = pcall(os.clock)
+	return ok and c or nil
+end
+
+-- dev: the overlay's cost, logged every 10 s while it works (shared.LOG_PLANS)
+local function noteTiming(field, started, reads)
+	if not shared.LOG_PLANS or not started then
+		return
+	end
+	local c = clock()
+	if not c then
+		return
+	end
+	local tm = state.timing
+	if field == "refresh" then
+		tm.refreshes = tm.refreshes + 1
+		tm.refreshMs = tm.refreshMs + (c - started) * 1000
+		tm.reads = tm.reads + (reads or 0)
+	else
+		tm.builds = tm.builds + 1
+		tm.buildMs = tm.buildMs + (c - started) * 1000
+	end
+	tm.since = tm.since or c
+	if c - tm.since >= 10 then
+		shared.log(string.format("perf [network view]: %d refreshes in %.0f ms (%d edges read), %d line builds in %.0f ms; %d edges, %d lines in view",
+			tm.refreshes, tm.refreshMs, tm.reads, tm.builds, tm.buildMs, state.edges and #state.edges or 0, state.lines and #state.lines or 0))
+		state.timing = { refreshes = 0, reads = 0, refreshMs = 0, builds = 0, buildMs = 0, since = c }
+	end
+end
+
+-- After a build: every entry is read again at the next refresh.
+function overlay.networkChanged()
+	state.entries, state.squares, state.key = {}, {}, nil
+end
 
 function overlay.isOn()
 	return state.on and not state.failed
@@ -129,6 +199,10 @@ function overlay.subscribe()
 		return
 	end
 	pcall(function()
+		-- a build was applied (any tool): the network is read again
+		react.onEvent("onProposalApply", function()
+			overlay.networkChanged()
+		end)
 		local seen = react.useState(state.version)
 		react.onStep(function()
 			if seen:old() ~= state.version then
@@ -142,11 +216,17 @@ end
 -- twentieth of the view. Returns true if it was.
 function overlay.refresh()
 	if not wanted() then
-		state.edges, state.key = nil, nil
+		state.edges, state.key, state.lines, state.linesVersion = nil, nil, nil, nil
+		state.entries, state.squares = {}, {}
 		return false
 	end
 	local changed = false
 	local ok, err = pcall(function()
+		local c = clock()
+		if c and (not state.readAt or c - state.readAt > REREAD_AFTER) then
+			state.readAt = c
+			overlay.networkChanged()
+		end
 		local camera = api.gui.camera.getCameraData()
 		local radius = math.max(50, camera.z)
 		local step = radius / 20
@@ -155,21 +235,31 @@ function overlay.refresh()
 			return
 		end
 		state.key = key
-		local list = {}
+		local started = shared.LOG_PLANS and clock()
+		local list, entries, old, reads = {}, {}, state.entries, 0
 		local tracks = api.type["enum"].RoadType.TRACK
 		for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(camera.x, camera.y), radius,
 			api.type.ComponentType.BASE_EDGE)) do
 			if #list >= EDGES_MAX then
 				break
 			end
-			local comp = planner.getEdgeComp(entity)
-			if comp then
-				list[#list + 1] = { edge = planner.toEdge(comp), track = comp.roadType == tracks, node0 = comp.node0, node1 = comp.node1 }
+			local entry = old[entity]
+			if entry == nil then
+				reads = reads + 1
+				local comp = planner.getEdgeComp(entity)
+				entry = comp and { edge = planner.toEdge(comp), track = comp.roadType == tracks, node0 = comp.node0, node1 = comp.node1 } or false
+			end
+			entries[entity] = entry
+			if entry then
+				list[#list + 1] = entry
 			end
 		end
+		-- (only what's in view is kept)
+		state.entries = entries
 		state.edges = list
 		state.version = state.version + 1
 		changed = true
+		noteTiming("refresh", started, reads)
 	end)
 	if not ok then
 		state.failed = true
@@ -189,16 +279,24 @@ function overlay.lines()
 	if not wanted() or not state.edges or #state.edges == 0 then
 		return nil
 	end
+	if state.linesVersion == state.version then
+		return state.lines
+	end
+	local started = shared.LOG_PLANS and clock()
 	local ok, result = pcall(function()
 		local edges, ends = {}, {}
 		for __, w in ipairs(state.edges) do
-			local e = w.edge
-			if overlay.drawable(e) then
-				edges[#edges + 1] = overlay.makeEdge(e, w.track and TRACK_COLOR or ROAD_COLOR, 0.4)
+			if w.line == nil then
+				-- (in 2 m pieces: an overview, it doesn't need the builder's detail)
+				w.line = overlay.drawable(w.edge) and overlay.makeEdge(w.edge, w.track and TRACK_COLOR or ROAD_COLOR, 0.4, 2.0) or false
+			end
+			if w.line then
+				edges[#edges + 1] = w.line
+				local e = w.edge
 				for __, n in ipairs({ { w.node0, e.p0 }, { w.node1, e.p1 } }) do
 					local entry = ends[n[1]]
 					if entry == nil then
-						entry = { position = n[2], count = 0, track = w.track }
+						entry = { node = n[1], position = n[2], count = 0, track = w.track }
 						ends[n[1]] = entry
 						ends[#ends + 1] = entry
 					end
@@ -211,12 +309,21 @@ function overlay.lines()
 			if i > overlay.MAX_NODE_MARKERS then
 				break
 			end
-			local c = n.track and TRACK_COLOR or ROAD_COLOR
-			overlay.addSquare(squares, n.position, n.count >= 3 and overlay.JUNCTION_MARKER or overlay.NODE_MARKER, { c[1], c[2], c[3], 1 })
+			local junction = n.count >= 3
+			local key = n.node .. (junction and "j" or "n") .. (n.track and "t" or "r")
+			local lines = state.squares[key]
+			if lines == nil then
+				local c = n.track and TRACK_COLOR or ROAD_COLOR
+				lines = {}
+				overlay.addSquareLines(lines, n.position, junction and overlay.JUNCTION_MARKER or overlay.NODE_MARKER, { c[1], c[2], c[3], 1 }, 0.3)
+			end
+			squares[key] = lines
+			for __, l in ipairs(lines) do
+				edges[#edges + 1] = l
+			end
 		end
-		for __, s in ipairs(squares) do
-			edges[#edges + 1] = overlay.makeEdge(s, s.color, 0.3)
-		end
+		-- (only the markers in view are kept)
+		state.squares = squares
 		return edges
 	end)
 	if not ok then
@@ -224,6 +331,8 @@ function overlay.lines()
 		shared.log("network overlay failed, off until the game restarts: " .. tostring(result))
 		return nil
 	end
+	state.lines, state.linesVersion = result, state.version
+	noteTiming("build", started)
 	return result
 end
 

@@ -115,7 +115,13 @@ local function refusedLines(stats)
 end
 
 -- dev aid: what the preview costs, logged every 100 tooltip calls (countPreviewCall)
-local previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0, paced = 0, rendered = 0, lagMs = 0, maxLagMs = 0 }
+-- (idleMs: the calls that changed nothing; draws: the builder's action drawn; lineBuilds,
+-- lineMs: the plan's lines built for it, the rest of the draws reused them)
+local function newPreviewPerf()
+	return { calls = 0, changes = 0, ms = 0, idleMs = 0, judged = 0, judgeMs = 0, paced = 0, rendered = 0, lagMs = 0, maxLagMs = 0,
+		draws = 0, lineBuilds = 0, lineMs = 0 }
+end
+local previewPerf = newPreviewPerf()
 
 local function updatePreview(proposal)
 	local drawn = planner.collectDrawnSegments(proposal.proposal, shared.roadTypeOf(preview.builder))
@@ -163,7 +169,7 @@ local function updatePreview(proposal)
 	if started then
 		local took = planner.clockMs() - started
 		previewDebounce.planned(planKey, took)
-		if took > 20 then
+		if took > 20 and shared.LOG_PLANS then
 			shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: preview plan took %.0f ms (%d drawn, %d edges, %d crossings; %s)", took, #drawn, stats.edges, stats.crossings,
 				tostring(stats.timing)))
 		end
@@ -210,10 +216,10 @@ local function updatePreview(proposal)
 		and refusedLines(stats) or nil
 	preview.tooTight = stats.tooTight and stats.minAllowedRadius or nil
 	-- dev aid: what the preview planned, next to what the game says about it
-	local planned = string.format("%d drawn, %d edges, %d anchored, %d crossings, %d too shallow, %d moved, %d dropped, %d problems%s",
+	local planned = shared.LOG_PLANS and string.format("%d drawn, %d edges, %d anchored, %d crossings, %d too shallow, %d moved, %d dropped, %d problems%s",
 		#drawn, stats.edges, stats.anchored, stats.crossings, stats.shallow, stats.moved, stats.dropped, #stats.problems,
 		#stats.problems > 0 and (" (" .. stats.problems[1] .. ")") or "")
-	if planned ~= preview.loggedPlan then
+	if planned and planned ~= preview.loggedPlan then
 		preview.loggedPlan = planned
 		shared.log("preview planned: " .. planned)
 		-- dev aid: a plan with crossings in full, the game's crashes so far came with those
@@ -336,25 +342,30 @@ local WIREFRAME_COLORS = {
 	ours = { 0, 0.9, 1, 0.9 },       -- new track of the mod
 	existing = { 1, 0.85, 0, 0.9 },  -- existing track cut or reshaped, added again
 	removed = { 1, 0.1, 0.1, 0.6 },  -- existing track the plan removes
-	world = { 0.6, 0.6, 0.6, 0.6 },  -- existing track nearby, untouched (native builds)
 }
 -- node markers and lines: the network overlay's (parallelism_overlay.lua)
 local NODE_MARKER = overlay.NODE_MARKER
 local JUNCTION_MARKER = overlay.JUNCTION_MARKER
 local MAX_NODE_MARKERS = overlay.MAX_NODE_MARKERS
-local addSquare = overlay.addSquare
+local addSquareLines = overlay.addSquareLines
 local makeWireframeEdge = overlay.makeEdge
 local wireframeFailed = false
 
 -- The wireframe of a native build (count 1): the builder's live proposal (drawn edges,
--- the pieces of edges it cuts, the edges it removes) and the existing edges around it,
--- each with its nodes. For studying what the builder does.
-local NATIVE_WIREFRAME_RADIUS = 150
-local MAX_WORLD_EDGES = 250
-local function nativeWireframe(proposal, builder)
+-- the pieces of edges it cuts, the edges it removes). For studying what the builder does.
+-- The existing network around it is the builder's network view, which comes on with the
+-- same Wireframe setting (parallelism_overlay.lua). Returns the list only when the
+-- proposal differs from the one with signature `last` (the builder asks many times a
+-- second, also while the drag holds still), and the proposal's signature.
+local function nativeWireframe(proposal, builder, last)
 	local sp = proposal.proposal
-	local list = {}
 	local drawn = planner.collectDrawnSegments(sp, shared.roadTypeOf(builder))
+	local signature = #drawn > 0 and string.format("%d|%.2f,%.2f|%.2f,%.2f|%d|%d", #drawn, drawn[1].edge.p0.x, drawn[1].edge.p0.y,
+		drawn[#drawn].edge.p1.x, drawn[#drawn].edge.p1.y, #sp.addedSegments, #sp.removedSegments) or nil
+	if signature == last then
+		return nil, signature
+	end
+	local list = {}
 	local drawnEdge = {}
 	for __, d in ipairs(drawn) do
 		list[#list + 1] = { edge = d.edge, kind = "drawn" }
@@ -365,30 +376,10 @@ local function nativeWireframe(proposal, builder)
 			list[#list + 1] = { edge = planner.toEdge(s.comp), kind = "existing" }
 		end
 	end
-	local removed = {}
 	for __, s in ipairs(sp.removedSegments) do
-		removed[s.entity < 0 and (-s.entity - 1) or s.entity] = true
 		list[#list + 1] = { edge = planner.toEdge(s.comp), kind = "removed" }
 	end
-	-- the world around the drag
-	local seen = {}
-	local count = 0
-	for __, d in ipairs(drawn) do
-		local m = geometry.hermite(d.edge.p0, d.edge.p1, d.edge.t0, d.edge.t1, 0.5)
-		for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(m.x, m.y), NATIVE_WIREFRAME_RADIUS,
-			api.type.ComponentType.BASE_EDGE)) do
-			if not seen[entity] and not removed[entity] and count < MAX_WORLD_EDGES then
-				seen[entity] = true
-				local comp = planner.getEdgeComp(entity)
-				if comp then
-					count = count + 1
-					list[#list + 1] = { edge = planner.toEdge(comp), kind = "world" }
-				end
-			end
-		end
-	end
-	return list, #drawn > 0 and string.format("%d|%.2f,%.2f|%.2f,%.2f|%d", #drawn, drawn[1].edge.p0.x, drawn[1].edge.p0.y,
-		drawn[#drawn].edge.p1.x, drawn[#drawn].edge.p1.y, #sp.addedSegments) or nil
+	return list, signature
 end
 
 -- A refused plan drawn as lines (preview.refused): white, the problem in red.
@@ -440,15 +431,7 @@ local function makeWireframe()
 		local edges = {}
 		-- the spot a refused plan names: a small white square, 3 m across
 		if preview.problemAt then
-			local p, h = preview.problemAt, 1.5
-			local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
-			for i = 1, 4 do
-				local a, b = corners[i], corners[i % 4 + 1]
-				local p0 = { x = p.x + a[1], y = p.y + a[2], z = p.z }
-				local p1 = { x = p.x + b[1], y = p.y + b[2], z = p.z }
-				local t = { x = p1.x - p0.x, y = p1.y - p0.y, z = 0 }
-				edges[#edges + 1] = makeWireframeEdge({ p0 = p0, p1 = p1, t0 = t, t1 = t }, { 1, 1, 1, 1 }, 0.4)
-			end
+			addSquareLines(edges, preview.problemAt, 1.5, { 1, 1, 1, 1 }, 0.4)
 		end
 		-- node markers at the ends of the edges: by position, with the edges meeting there
 		-- (removed ones not counted, they are gone after the build)
@@ -473,23 +456,19 @@ local function makeWireframe()
 					end
 					if w.kind ~= "removed" then
 						n.count = n.count + 1
-						if n.kind == "removed" or n.kind == "world" then
+						if n.kind == "removed" then
 							n.kind = w.kind
 						end
 					end
 				end
 			end
 		end
-		local squares = {}
 		for i, n in ipairs(order) do
 			if i > MAX_NODE_MARKERS then
 				break
 			end
 			local c = WIREFRAME_COLORS[n.kind] or WIREFRAME_COLORS.ours
-			addSquare(squares, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 })
-		end
-		for __, s in ipairs(squares) do
-			edges[#edges + 1] = makeWireframeEdge(s, s.color, 0.3)
+			addSquareLines(edges, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 }, 0.3)
 		end
 		return edges
 	end)
@@ -500,6 +479,24 @@ local function makeWireframe()
 		return nil
 	end
 	return result
+end
+
+-- The plan's lines, built once per plan (preview version) and reused for every draw of
+-- it: the builder's action is drawn far more often than the plan changes (the camera, the
+-- builder's own state, the network view).
+local planLinesCache = { kind = nil, version = nil, lines = nil }
+
+local function planLines(kind, make)
+	local c = planLinesCache
+	if c.kind ~= kind or c.version ~= preview.version then
+		local started = shared.LOG_PLANS and planner.clockMs()
+		c.kind, c.version, c.lines = kind, preview.version, make()
+		if started then
+			previewPerf.lineBuilds = previewPerf.lineBuilds + 1
+			previewPerf.lineMs = previewPerf.lineMs + ((planner.clockMs() or started) - started)
+		end
+	end
+	return c.lines
 end
 
 -- The preview of one extra track: the game's own proposal viewer, which draws the
@@ -590,6 +587,9 @@ local function makeViewer(index)
 				preview.warning = (not preview.failed[index] and message) or nil
 				preview.gameMessage = message
 				-- dev aid: what the game says about the preview, when that changes
+				if not shared.LOG_PLANS then
+					return
+				end
 				local messages = {}
 				for __, m in ipairs(errorState.messages) do
 					messages[#messages + 1] = tostring(m)
@@ -667,6 +667,9 @@ local lastLoggedRedraw = nil
 -- lua time spent, logged every 100 calls
 
 local function countPreviewCall(changed, started)
+	if not shared.LOG_PLANS then
+		return
+	end
 	previewPerf.calls = previewPerf.calls + 1
 	if changed then
 		previewPerf.changes = previewPerf.changes + 1
@@ -674,12 +677,16 @@ local function countPreviewCall(changed, started)
 	local now = planner.clockMs()
 	if started and now then
 		previewPerf.ms = previewPerf.ms + (now - started)
+		if not changed then
+			previewPerf.idleMs = previewPerf.idleMs + (now - started)
+		end
 	end
 	if previewPerf.calls >= 100 then
-		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua (of which %d judged by the game in %.0f ms); %d changes held back by pacing, %d plans drawn, %.0f ms on average from plan to drawn (most %.0f ms)",
-			previewPerf.calls, previewPerf.changes, previewPerf.ms, previewPerf.judged, previewPerf.judgeMs,
-			previewPerf.paced, previewPerf.rendered, previewPerf.rendered > 0 and previewPerf.lagMs / previewPerf.rendered or 0, previewPerf.maxLagMs))
-		previewPerf = { calls = 0, changes = 0, ms = 0, judged = 0, judgeMs = 0, paced = 0, rendered = 0, lagMs = 0, maxLagMs = 0 }
+		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua (%.0f ms in calls that changed nothing; %d judged by the game in %.0f ms); %d changes held back by pacing, %d plans drawn, %.0f ms on average from plan to drawn (most %.0f ms); %d draws of the builder, %d line builds in %.0f ms",
+			previewPerf.calls, previewPerf.changes, previewPerf.ms, previewPerf.idleMs, previewPerf.judged, previewPerf.judgeMs,
+			previewPerf.paced, previewPerf.rendered, previewPerf.rendered > 0 and previewPerf.lagMs / previewPerf.rendered or 0, previewPerf.maxLagMs,
+			previewPerf.draws, previewPerf.lineBuilds, previewPerf.lineMs))
+		previewPerf = newPreviewPerf()
 	end
 end
 
@@ -1058,7 +1065,9 @@ function patch.install()
 			showSpacingFrom()
 			if preview.builder ~= builder or preview.count ~= count or preview.side ~= side or preview.spacing ~= spacing
 				or preview.reverse ~= reverse or preview.resName ~= definition.resName then
-				shared.log("menu spacing param = " .. tostring(params[shared.KEY_SPACING]))
+				if shared.LOG_PLANS then
+					shared.log("menu spacing param = " .. tostring(params[shared.KEY_SPACING]))
+				end
 				preview.builder = builder
 				preview.count = count
 				preview.side = side
@@ -1076,7 +1085,7 @@ function patch.install()
 			end
 			-- dev aid: what the hidden redraw param holds, against the preview version
 			local redrawValue = tostring(params[shared.KEY_REDRAW])
-			if redrawValue ~= lastLoggedRedraw then
+			if shared.LOG_PLANS and redrawValue ~= lastLoggedRedraw then
 				lastLoggedRedraw = redrawValue
 				shared.log("redraw param = " .. redrawValue .. ", preview version = " .. preview.version)
 			end
@@ -1086,6 +1095,7 @@ function patch.install()
 				local onClear = edgeBuilder.onClearFn
 				edgeBuilder.onClearFn = function(...)
 					onClear(...)
+					overlay.networkChanged()
 					local ok, err = pcall(function()
 						clearPreview()
 						requestRedraw()
@@ -1127,7 +1137,7 @@ function patch.install()
 							gameRefused = gameRefused or f
 						end
 						local reason = preview.firstProblem or (gameRefused and ("the game: " .. tostring(preview.gameMessage)))
-						if reason and not preview.stillLogged and preview.stillCalls >= HOLD_STILL_CALLS and preview.plan then
+						if shared.LOG_PLANS and reason and not preview.stillLogged and preview.stillCalls >= HOLD_STILL_CALLS and preview.plan then
 							preview.stillLogged = true
 							shared.log("refused and held still: " .. tostring(reason))
 							for __, note in ipairs(preview.notes or {}) do
@@ -1174,6 +1184,7 @@ function patch.install()
 				local onClear = edgeBuilder.onClearFn
 				edgeBuilder.onClearFn = function(...)
 					onClear(...)
+					overlay.networkChanged()
 					pcall(function()
 						preview.wireframeEdges = nil
 						preview.nativeSignature = nil
@@ -1187,7 +1198,7 @@ function patch.install()
 			actionParams.getProposalStringsFn = function(proposal, proposalData)
 				local strings = getProposalStrings(proposal, proposalData) or {}
 				local ok, err = pcall(function()
-					local list, signature = nativeWireframe(proposal, builder)
+					local list, signature = nativeWireframe(proposal, builder, preview.nativeSignature)
 					if signature ~= preview.nativeSignature then
 						preview.nativeSignature = signature
 						preview.wireframeEdges = list
@@ -1329,10 +1340,11 @@ function patch.install()
 						params.children[#params.children + 1] = makeViewer(1)
 					end
 				end
+				previewPerf.draws = previewPerf.draws + 1
 				if preview.wireframe then
-					addLines(makeWireframe())
+					addLines(planLines("wireframe", makeWireframe))
 				elseif preview.refused and not preview.proposals[1] and shared.showPreview() then
-					addLines(makeRefused())
+					addLines(planLines("refused", makeRefused))
 				end
 				if SPIKE_SELECTOR and preview.builder == shared.STREET_BUILDER then
 					-- experiment: does a script see the build click? A Selector is how the base
