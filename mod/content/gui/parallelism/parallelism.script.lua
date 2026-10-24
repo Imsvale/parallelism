@@ -736,11 +736,13 @@ local function sendBuild(label, proposal, stats, onDone)
 			costs = ", costs " .. tostring(res.resultProposalData.costs)
 		end)
 		local took = sent and planner.clockMs() and string.format(", the game took %.0f ms", planner.clockMs() - sent) or ""
-		shared.log(label .. " (" .. describeStats(stats) .. "): " .. (success and "ok" or "FAILED") .. costs .. took)
+		shared.log(label .. (stats and (" (" .. describeStats(stats) .. ")") or "") .. ": " .. (success and "ok" or "FAILED") .. costs .. took)
 		local message = nil
 		if not success then
 			-- the whole plan, as a lua table that tests can load
-			shared.log("  plan: " .. planner.planToString(stats.plan))
+			if stats then
+				shared.log("  plan: " .. planner.planToString(stats.plan))
+			end
 			local ok, err = pcall(logErrorState, res)
 			if not ok then
 				shared.log("  no error details: " .. tostring(err))
@@ -750,7 +752,7 @@ local function sendBuild(label, proposal, stats, onDone)
 				message = #messages > 0 and tostring(messages[1]) or nil
 			end)
 		end
-		onDone(success, message)
+		onDone(success, message, res)
 	end)
 end
 
@@ -850,45 +852,179 @@ local function buildCombined(job)
 	end)
 end
 
--- Runs once the player's build is in the world: the drawn edges are read back from
--- there, and edges it split are found in their new state.
--- dev experiment (shared.BUILD_CHUNK): the parallels built in chunks of that many, one
--- chunk after the other, each planned against the world with the chunks before it, to see
--- whether the game's time for a big track build grows faster than its size. Not for
--- players: a later chunk failing leaves the earlier ones built.
-local function buildChunks(job, from)
-	local offsets = {}
-	for i = from, math.min(#job.offsets, from + shared.BUILD_CHUNK - 1) do
-		offsets[#offsets + 1] = job.offsets[i]
+-- Big track bundles are built in chunks of whole parallels (more track than
+-- shared.BUILD_CHUNK_LENGTH): the game's time for one track build grows steeply with the
+-- amount of track in it, not with its number of edges (2026-10-24: 0.3-0.4 s for each chunk
+-- of about 8 km, 3-12 s for a 50-track bundle of about 25 km in one; roads did not slow
+-- down like that, 50 of them took 0.7 s). Each chunk is planned against the world with the
+-- chunks before it built. The build stays all or nothing: if a chunk fails, the chunks
+-- already built are taken down again.
+
+-- How many parallels go in one chunk: as many as fit in BUILD_CHUNK_LENGTH; all of them
+-- for roads (shared.BUILD_CHUNK, a dev switch, sets the number for any build).
+local function parallelsPerChunk(job)
+	if shared.BUILD_CHUNK > 0 then
+		return shared.BUILD_CHUNK
 	end
-	if #offsets == 0 then
-		return
+	if job.builder == shared.STREET_BUILDER then
+		return math.huge
 	end
-	shared.log("chunk at offsets " .. table.concat(offsets, ", ") .. ":")
-	local proposal, stats = planner.makeProposal(readDrawn(job), offsets, shared.log, false,
-		{ reverse = job.reverse, step = job.distance, noDistance = shared.BUILD_NO_DISTANCE })
-	shared.log("  planned in " .. tostring(stats.timing))
-	if stats.edges == 0 or #stats.problems > 0 then
-		shared.log("  chunk not built: " .. tostring(stats.problems[1]))
-		return
+	local length = 0
+	for __, d in ipairs(readDrawn(job)) do
+		length = length + geometry.arcLength(d.edge)
 	end
-	sendBuild("chunk", proposal, stats, function(success)
-		if success then
-			local ok, err = pcall(buildChunks, job, from + shared.BUILD_CHUNK)
-			if not ok then
-				shared.log("chunk failed: " .. tostring(err))
+	if length <= 0 then
+		return math.huge
+	end
+	return math.max(1, math.floor(shared.BUILD_CHUNK_LENGTH / length))
+end
+
+-- The edges a chunk built that are new pieces of ours (not the existing roads and tracks it
+-- cut or re-laid): of the entities the game reports, those matching a planned piece of ours.
+local MATCH_DISTANCE = 0.05
+
+local function ourBuiltEdges(res, stats)
+	local found = {}
+	pcall(function()
+		local ours = {}
+		for __, p in ipairs(stats.plan) do
+			if p.ours then
+				ours[#ours + 1] = p.edge
+			end
+		end
+		for __, r in ipairs(res.resultEntities) do
+			local entity = type(r) == "number" and r or (r[1] or r.entity)
+			local comp = entity and entity >= 0 and planner.getEdgeComp(entity) or nil
+			if comp then
+				local p0, p1 = comp.position0, comp.position1
+				for __, e in ipairs(ours) do
+					local function near(a, b)
+						return math.abs(a.x - b.x) < MATCH_DISTANCE and math.abs(a.y - b.y) < MATCH_DISTANCE
+							and math.abs(a.z - b.z) < MATCH_DISTANCE
+					end
+					if (near(p0, e.p0) and near(p1, e.p1)) or (near(p0, e.p1) and near(p1, e.p0)) then
+						found[#found + 1] = entity
+						break
+					end
+				end
 			end
 		end
 	end)
+	return found
 end
 
+-- Takes down the edges given (built by earlier chunks) and those of their nodes left
+-- without edges; then onDone(success).
+local function removeBuilt(edges, onDone)
+	if #edges == 0 then
+		onDone(true)
+		return
+	end
+	local removing = {}
+	for __, e in ipairs(edges) do
+		removing[e] = true
+	end
+	local nodes, seen = {}, {}
+	for __, e in ipairs(edges) do
+		local comp = planner.getEdgeComp(e)
+		for __, n in ipairs(comp and { comp.node0, comp.node1 } or {}) do
+			if not seen[n] then
+				seen[n] = true
+				local others = false
+				pcall(function()
+					for __, s in ipairs(api.engine.system.streetSystem.getNodeSegments(n)) do
+						if not removing[s] then
+							others = true
+						end
+					end
+				end)
+				if not others then
+					nodes[#nodes + 1] = n
+				end
+			end
+		end
+	end
+	local proposal = api.type.SimpleProposal.new()
+	proposal.streetProposal.edgesToRemove = edges
+	proposal.streetProposal.nodesToRemove = nodes
+	sendBuild("taking down the chunks built (" .. #edges .. " edges, " .. #nodes .. " nodes)", proposal, nil, function(success)
+		onDone(success)
+	end)
+end
+
+local function buildInChunks(job, perChunk)
+	local chunks = math.ceil(#job.offsets / perChunk)
+	shared.log(string.format("tracks at offsets %s, in %d chunks of %d:", table.concat(job.offsets, ", "), chunks, perChunk))
+	local built = {}
+	local noun = shared.nounOf(job.builder)
+	local function fail(message)
+		shared.log("chunked build failed, taking down the " .. #built .. " edges built")
+		removeBuilt(built, function(removed)
+			if not removed then
+				shared.log("taking down the chunks built failed")
+			end
+			notify("The parallel " .. noun .. " could not be built" .. (message and (": " .. message) or "")
+				.. ". Only the drawn one was built.")
+		end)
+	end
+	local function chunk(index)
+		local from = (index - 1) * perChunk + 1
+		local offsets = {}
+		for i = from, math.min(#job.offsets, from + perChunk - 1) do
+			offsets[#offsets + 1] = job.offsets[i]
+		end
+		if #offsets == 0 then
+			return
+		end
+		local proposal, stats = planner.makeProposal(readDrawn(job), offsets, shared.log, false,
+			{ reverse = job.reverse, step = job.distance, noDistance = shared.BUILD_NO_DISTANCE })
+		shared.log(string.format("  chunk %d of %d (offsets %s) planned in %s", index, chunks, table.concat(offsets, ", "), tostring(stats.timing)))
+		if stats.edges == 0 then
+			chunk(index + 1)
+			return
+		end
+		if #stats.problems > 0 then
+			-- never hand the game a plan like this, it can crash on it
+			shared.log("  chunk not built: the plan has " .. #stats.problems .. " problems (" .. tostring(stats.problems[1]) .. ")")
+			fail("they cannot be laid out safely here")
+			return
+		end
+		local candidates = {}
+		for i, construction in ipairs(previewVerdict.bulldozeConstructions or {}) do
+			candidates[#candidates + 1] = { construction = construction, building = previewVerdict.bulldozeBuildings[i] }
+		end
+		local bulldoze = planner.buildingsInTheWay(proposal, candidates)
+		if #bulldoze > 0 then
+			proposal.constructionsToRemove = bulldoze
+		end
+		sendBuild(string.format("chunk %d of %d", index, chunks), proposal, stats, function(success, message, res)
+			if not success then
+				fail(message)
+				return
+			end
+			for __, e in ipairs(ourBuiltEdges(res, stats)) do
+				built[#built + 1] = e
+			end
+			local ok, err = pcall(chunk, index + 1)
+			if not ok then
+				shared.log("chunk " .. (index + 1) .. " failed: " .. tostring(err))
+				fail(nil)
+			end
+		end)
+	end
+	chunk(1)
+end
+
+-- Runs once the player's build is in the world: the drawn edges are read back from
+-- there, and edges it split are found in their new state.
 local function runJob(job)
 	local ok, err = pcall(function()
 		local comp = planner.getEdgeComp(job.drawn[1].entity)
 		job.distance = planner.parallelDistance(comp.roadTemplate, job.spacing)
 		job.offsets = geometry.offsets(job.count, job.side, job.distance)
-		if shared.BUILD_CHUNK > 0 then
-			buildChunks(job, 1)
+		local perChunk = parallelsPerChunk(job)
+		if perChunk < #job.offsets then
+			buildInChunks(job, perChunk)
 		else
 			buildCombined(job)
 		end

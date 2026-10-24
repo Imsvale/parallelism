@@ -11,5 +11,11 @@ return {
 	-- The Spacing slider: up to this many meters between neighboring tracks or roads
 	-- (edge to edge), in steps of this many meters (the slider's fine steps).
 	MAX_SPACING = 20,
+
+	-- Track bundles with more track than this (meters, all parallels together) are built
+	-- in chunks of whole parallels: the game's time for one track build grows steeply with
+	-- the amount of track in it (2026-10-24: chunks of about 8 km took 0.3-0.4 s each, a
+	-- whole 50-track bundle of about 25 km 3-12 s).
+	BUILD_CHUNK_LENGTH = 8000,
 	SPACING_STEP = 0.5,
 }

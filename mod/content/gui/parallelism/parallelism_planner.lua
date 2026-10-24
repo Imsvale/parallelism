@@ -2881,6 +2881,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			node0 = node0.entity,
 			node1 = node1.entity,
 			edge = { p0 = node0.position, p1 = node1.position, t0 = piece.t0, t1 = piece.t1 },
+			-- a new piece of ours, not existing road or track cut or re-laid
+			ours = props.origins == nil,
 		}
 		pieces[#pieces + 1] = { entity = entity, node0 = node0.entity, node1 = node1.entity, t0 = piece.t0, t1 = piece.t1,
 			origins = props.origins, template = templateOf(props), comp = props.comp }

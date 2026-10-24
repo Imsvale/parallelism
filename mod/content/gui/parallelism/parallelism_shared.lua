@@ -45,6 +45,7 @@ local shared = {
 	COUNT_SETTING_FIRST = 2,
 
 	SPACING_STEP = config.SPACING_STEP,
+	BUILD_CHUNK_LENGTH = config.BUILD_CHUNK_LENGTH,
 	MAX_SPACING = config.MAX_SPACING,
 	-- Roads side by side: the road builder snaps a second road a road width plus this
 	-- much away (measured 2026-10-01: 20 m between two 16 m one-way roads). The default
