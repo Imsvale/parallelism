@@ -457,23 +457,39 @@ local function segmentIntersection(p0, p1, q0, q1)
 end
 
 -- Newton iterations on a(ua) = b(ub) in the horizontal plane
+-- (point and derivative inline, as geometry.hermite and hermiteDerivative compute x and
+-- y: no tables per step)
+local function pointAndDerivative(e, u)
+	local u2 = u * u
+	local u3 = u2 * u
+	local h00 = 2 * u3 - 3 * u2 + 1
+	local h10 = u3 - 2 * u2 + u
+	local h01 = -2 * u3 + 3 * u2
+	local h11 = u3 - u2
+	local d00 = 6 * u2 - 6 * u
+	local d10 = 3 * u2 - 4 * u + 1
+	local d01 = -6 * u2 + 6 * u
+	local d11 = 3 * u2 - 2 * u
+	local p0, p1, t0, t1 = e.p0, e.p1, e.t0, e.t1
+	return h00 * p0.x + h10 * t0.x + h01 * p1.x + h11 * t1.x, h00 * p0.y + h10 * t0.y + h01 * p1.y + h11 * t1.y,
+		d00 * p0.x + d10 * t0.x + d01 * p1.x + d11 * t1.x, d00 * p0.y + d10 * t0.y + d01 * p1.y + d11 * t1.y
+end
+
 local function refine(a, b, ua, ub)
 	for __ = 1, 8 do
-		local pa = evalEdge(a, ua)
-		local pb = evalEdge(b, ub)
-		local fx, fy = pa.x - pb.x, pa.y - pb.y
+		local pax, pay, dax, day = pointAndDerivative(a, ua)
+		local pbx, pby, dbx, dby = pointAndDerivative(b, ub)
+		local fx, fy = pax - pbx, pay - pby
 		if fx * fx + fy * fy < 1e-10 then
 			break
 		end
-		local da = derivEdge(a, ua)
-		local db = derivEdge(b, ub)
 		-- [da.x -db.x; da.y -db.y] * [dua; dub] = [-fx; -fy]
-		local det = da.x * (-db.y) - (-db.x) * da.y
+		local det = dax * (-dby) - (-dbx) * day
 		if math.abs(det) < 1e-9 then
 			break
 		end
-		ua = ua + (-fx * (-db.y) - (-db.x) * (-fy)) / det
-		ub = ub + (da.x * (-fy) - (-fx) * da.y) / det
+		ua = ua + (-fx * (-dby) - (-dbx) * (-fy)) / det
+		ub = ub + (dax * (-fy) - (-fx) * day) / det
 	end
 	if ua < 0 or ua > 1 or ub < 0 or ub > 1 then
 		return nil
