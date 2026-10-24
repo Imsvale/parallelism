@@ -524,20 +524,43 @@ local TRANSPORT_ROAD = { 2, 3, 4 } -- CAR, BUS, TRUCK
 local TRANSPORT_TRAM = { 5, 6 } -- TRAM, ELECTRIC_TRAM
 local JUNCTION_MAX_TURN = 135
 local JUNCTION_STRAIGHT = 45
-local function junctionConnections(edges)
-	local function hasMode(lane, modes)
-		local found = false
-		pcall(function()
-			for mode, on in pairs(lane.transportModes) do
-				for __, m in ipairs(modes) do
-					if on and mode == m then
-						found = true
+-- What each lane of a lane list carries: { road, tram, person } per lane, read once per
+-- list (a junction asks for road, tram and sidewalk; each read of a game lane's
+-- transportModes copies it).
+local laneSummaries = setmetatable({}, { __mode = "k" })
+
+local function summarizeLanes(lanes)
+	local cached = laneSummaries[lanes]
+	if cached then
+		return cached
+	end
+	local function hasMode(modesOn, modes)
+		for __, m in ipairs(modes) do
+			if modesOn[m] then
+				return true
+			end
+		end
+		return false
+	end
+	local summary = {}
+	pcall(function()
+		for i, lane in ipairs(lanes) do
+			local modesOn = {}
+			pcall(function()
+				for mode, on in pairs(lane.transportModes) do
+					if on then
+						modesOn[mode] = true
 					end
 				end
-			end
-		end)
-		return found
-	end
+			end)
+			summary[i] = { road = hasMode(modesOn, TRANSPORT_ROAD), tram = hasMode(modesOn, TRANSPORT_TRAM), person = modesOn[0] == true }
+		end
+	end)
+	laneSummaries[lanes] = summary
+	return summary
+end
+
+local function junctionConnections(edges)
 	-- per edge: driving lanes coming in and going out, each ordered left to right as the
 	-- driver sees them
 	local info = {}
@@ -545,8 +568,9 @@ local function junctionConnections(edges)
 		local incoming, outgoing = {}, {}
 		local lanes = e.lanes or {}
 		local n = #lanes
+		local summary = summarizeLanes(lanes)
 		for i, lane in ipairs(lanes) do
-			local road, tram = hasMode(lane, TRANSPORT_ROAD), hasMode(lane, TRANSPORT_TRAM)
+			local road, tram = summary[i] and summary[i].road, summary[i] and summary[i].tram
 			if road or tram then
 				local physical = i - 1
 				local frame = e.atStart and physical or (n - 1 - physical)
@@ -707,17 +731,15 @@ planner.junctionConnections = junctionConnections
 
 -- true if a road with these lanes has a sidewalk (a lane for PERSON, transport mode 0)
 local function junctionHasSidewalk(lanes)
-	local found = false
-	pcall(function()
-		for __, lane in ipairs(lanes) do
-			for mode, on in pairs(lane.transportModes) do
-				if on and mode == 0 then
-					found = true
-				end
-			end
+	if lanes == nil then
+		return false
+	end
+	for __, lane in ipairs(summarizeLanes(lanes)) do
+		if lane.person then
+			return true
 		end
-	end)
-	return found
+	end
+	return false
 end
 
 -- The smallest radius the game allows for a track or road type.
