@@ -758,6 +758,13 @@ local function spacingRange(_builder, resName)
 	return 0, shared.MAX_SPACING, planner.defaultGap(resName)
 end
 
+-- The count of roads or tracks (the drawn one included) as the toolbar holds it: a
+-- slider's number, read as a whole one.
+local function readCount(params)
+	local value = tonumber(params and params[shared.KEY_COUNT]) or 1
+	return math.max(1, math.floor(value + 0.5))
+end
+
 -- the Spacing from setting as last seen: the slider shows the gap, or the distance
 -- between centers (the gap plus the width)
 local spacingFromCenter = false
@@ -848,9 +855,11 @@ local function isDrawing(builder, params)
 end
 
 local function makeParams(builder, resName)
-	local countValues = {}
-	for i = 1, shared.maxCount(builder) do
-		countValues[i] = tostring(i)
+	-- the count: a slider from 1 (the drawn one alone) to the mod setting's most
+	local maxCount = shared.maxCount(builder)
+	local countNumbers = {}
+	for i = 1, maxCount do
+		countNumbers[i] = i + 0.0
 	end
 	local streets = builder == shared.STREET_BUILDER
 	-- short labels only to fit four buttons
@@ -886,7 +895,7 @@ local function makeParams(builder, resName)
 		if not isDrawing(builder, params) then
 			return "Disabled"
 		end
-		return (params[shared.KEY_COUNT] or 1) > 1 and "Enabled" or "Disabled"
+		return readCount(params) > 1 and "Enabled" or "Disabled"
 	end
 
 	local result = {
@@ -895,11 +904,17 @@ local function makeParams(builder, resName)
 			key = shared.KEY_COUNT,
 			name = streets and _("Roads") or _("Tracks"),
 			tooltip = streets and _("Number of parallel roads to build.") or _("Number of parallel tracks to build."),
-			values = countValues,
+			numbers = countNumbers,
 			defaultIndex = 1,
 			resetOnCategoryChange = false,
 			resetOnMenuClose = false,
-			uiType = api.type["enum"].ScriptParamType.Button,
+			uiType = api.type["enum"].ScriptParamType.Slider,
+			stepValueFn = function(value, direction)
+				return math.max(1, math.min(maxCount, math.floor(value + 0.5) + direction))
+			end,
+			formatValueFn = function(value)
+				return string.format("%d", math.floor(value + 0.5))
+			end,
 			yearFrom = 0,
 			yearTo = 0,
 			location = api.type["enum"].ScriptParamLocation.Toolbar,
@@ -1080,7 +1095,7 @@ function patch.install()
 			-- while not dragging (parallelism_overlay.lua)
 			overlay.setBuilderView(shared.DEBUG_WIREFRAME and params[shared.KEY_WIREFRAME] == 2)
 			-- the replace / upgrade mode keeps the count value but must not build anything extra
-			count = isDrawing(builder, params) and params[shared.KEY_COUNT] or 1
+			count = isDrawing(builder, params) and readCount(params) or 1
 			side = sideChoices(builder)[params[shared.KEY_SIDE] or 0] or shared.SIDE_RIGHT
 			spacing = spacingOf(params, builder, definition.resName)
 			readSpacingFrom(params)
