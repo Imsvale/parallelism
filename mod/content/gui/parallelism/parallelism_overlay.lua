@@ -124,9 +124,11 @@ end
 --   after a build the mod hears of (the builder clears, onProposalApply while the HUD
 --   overlay is on) everything is read again for a few seconds, which also covers the
 --   mod's own build right after the player's; and every few seconds anyway, for builds it
---   doesn't hear of (towns, other tools while the builder is closed);
+--   doesn't hear of (towns, other tools while the builder is closed). Read again means
+--   compared: an unchanged edge keeps its entry and line, and with nothing changed the
+--   view is not redrawn;
 -- * the lines are joined once per change of the view (version), not on every draw;
--- * node markers are kept by node and look, and drawn as straight lines.
+-- * node markers are kept by node and look, one line object each.
 local REREAD_AFTER = 10 -- seconds: entries read again, for builds the mod didn't hear of
 local DIRTY_FOR = 3 -- seconds after a build the mod heard of: read again on every step
 
@@ -178,7 +180,7 @@ end
 
 -- After a build: every entry is read again at the next refresh.
 function overlay.networkChanged()
-	state.entries, state.squares, state.key = {}, {}, nil
+	state.verify = true
 	local c = clock()
 	if c then
 		state.dirtyUntil = c + DIRTY_FOR
@@ -261,46 +263,90 @@ function overlay.refresh()
 	end
 	local changed = false
 	local ok, err = pcall(function()
+		-- every entry read again and compared (verify): after a build the mod heard of, for a
+		-- few seconds, and every REREAD_AFTER anyway; those unchanged keep their lines, and
+		-- with nothing changed the view stays as it is (no redraw)
 		local c = clock()
 		if c and (not state.readAt or c - state.readAt > REREAD_AFTER) then
 			state.readAt = c
-			state.entries, state.squares, state.key = {}, {}, nil
+			state.verify = true
 		elseif c and state.dirtyUntil and c < state.dirtyUntil then
-			state.entries, state.squares, state.key = {}, {}, nil
+			state.verify = true
 		end
+		local verify = state.verify == true
+		state.verify = false
 		local camera = api.gui.camera.getCameraData()
 		local radius = math.max(50, camera.z)
 		local step = radius / 20
 		local key = string.format("%d,%d,%d", math.floor(camera.x / step), math.floor(camera.y / step), math.floor(math.log(radius) * 20))
-		if key == state.key and state.edges then
+		if key == state.key and state.edges and not verify then
 			return
 		end
+		local moved = key ~= state.key or state.edges == nil
 		state.key = key
 		local started = shared.LOG_PLANS and clock()
 		local list, entries, old, reads = {}, {}, state.entries, 0
+		local different = moved
 		local tracks = api.type["enum"].RoadType.TRACK
+		local function sameEdge(a, b)
+			for __, k in ipairs({ "p0", "p1", "t0", "t1" }) do
+				local u, v = a[k], b[k]
+				if u.x ~= v.x or u.y ~= v.y or u.z ~= v.z then
+					return false
+				end
+			end
+			return true
+		end
 		for __, entity in ipairs(api.engine.util.octree.findEntitiesInCircle(api.type.Vec2f.new(camera.x, camera.y), radius,
 			api.type.ComponentType.BASE_EDGE)) do
 			if #list >= EDGES_MAX then
 				break
 			end
 			local entry = old[entity]
-			if entry == nil then
+			if entry == nil or verify then
 				reads = reads + 1
 				local comp = planner.getEdgeComp(entity)
-				entry = comp and { edge = planner.toEdge(comp), track = comp.roadType == tracks, node0 = comp.node0, node1 = comp.node1 } or false
+				local fresh = comp and { edge = planner.toEdge(comp), track = comp.roadType == tracks, node0 = comp.node0, node1 = comp.node1 } or false
+				if entry and fresh and entry.track == fresh.track and entry.node0 == fresh.node0 and entry.node1 == fresh.node1
+					and sameEdge(entry.edge, fresh.edge) then
+					-- (unchanged: kept, with its line)
+				else
+					entry = fresh
+					different = true
+				end
 			end
 			entries[entity] = entry
 			if entry then
 				list[#list + 1] = entry
 			end
 		end
+		-- the same edges as before, in the same order? (one gone shows up here)
+		if not different then
+			local before = state.edges or {}
+			if #before ~= #list then
+				different = true
+			else
+				for i = 1, #list do
+					if before[i] ~= list[i] then
+						different = true
+						break
+					end
+				end
+			end
+		end
 		-- (only what's in view is kept)
 		state.entries = entries
+		noteTiming("refresh", started, reads)
+		if not different then
+			return
+		end
+		if verify then
+			-- a node may have moved under its id: markers made again
+			state.squares = {}
+		end
 		state.edges = list
 		state.version = state.version + 1
 		changed = true
-		noteTiming("refresh", started, reads)
 	end)
 	if not ok then
 		state.failed = true
