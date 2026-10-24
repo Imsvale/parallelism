@@ -10,4 +10,5 @@ return {
 	buildNoDistance = false,
 	buildNoRedoPillars = false,
 	buildChunk = 0,
+	buildMergeStraights = false,
 }

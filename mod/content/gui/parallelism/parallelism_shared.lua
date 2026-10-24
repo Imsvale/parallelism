@@ -89,6 +89,10 @@ local shared = {
 	BUILD_NO_DISTANCE = dev.buildNoDistance == true,
 	BUILD_NO_REDO_PILLARS = dev.buildNoRedoPillars == true,
 	BUILD_CHUNK = tonumber(dev.buildChunk) or 0,
+	-- dev experiment: neighboring straight pieces of a parallel merged into one edge where
+	-- that changes nothing about its shape (one line, heights on it, same type), to see
+	-- whether the game's time for a big build follows the number of edges
+	BUILD_MERGE_STRAIGHTS = dev.buildMergeStraights == true,
 
 	-- dev aid: a "Radius" line in the track and road builder tooltip (tightest curve of the
 	-- drawn track), also for single tracks. Out of scope for this mod: the sibling mod
