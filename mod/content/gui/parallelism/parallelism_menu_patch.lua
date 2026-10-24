@@ -374,11 +374,11 @@ local function makeWireframeEdge(e, color, width)
 	end)
 end
 
-local function addSquareLines(edges, p, h, color, width)
+local function addNodeMarker(edges, p, h, color, width)
 	local key = string.format("s%.3f,%.3f,%.3f|%g|%g,%g,%g,%g|%g", p.x, p.y, p.z, h, color[1], color[2], color[3], color[4], width)
 	local lines = reuseOrMake(key, function()
 		local list = {}
-		overlay.addSquareLines(list, p, h, color, width)
+		overlay.addNodeMarker(list, p, h, color, width)
 		return list
 	end)
 	for __, l in ipairs(lines) do
@@ -466,9 +466,9 @@ local function makeWireframe()
 	end
 	local ok, result = pcall(function()
 		local edges = {}
-		-- the spot a refused plan names: a small white square, 3 m across
+		-- the spot a refused plan names: a small white ring, 3 m across
 		if preview.problemAt then
-			addSquareLines(edges, preview.problemAt, 1.5, { 1, 1, 1, 1 }, 0.4)
+			addNodeMarker(edges, preview.problemAt, 1.5, { 1, 1, 1, 1 }, 0.4)
 		end
 		-- node markers at the ends of the edges: by position, with the edges meeting there
 		-- (removed ones not counted, they are gone after the build)
@@ -505,7 +505,7 @@ local function makeWireframe()
 				break
 			end
 			local c = WIREFRAME_COLORS[n.kind] or WIREFRAME_COLORS.ours
-			addSquareLines(edges, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 }, 0.3)
+			addNodeMarker(edges, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 }, 0.3)
 		end
 		return edges
 	end)

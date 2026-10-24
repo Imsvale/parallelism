@@ -1,5 +1,5 @@
 -- The network overlay: every road and track edge around the camera as a line, with a
--- square at each node (larger where 3 or more edges meet), switched on and off with a
+-- ring at each node (larger where 3 or more edges meet), switched on and off with a
 -- button in the HUD's mod button area (parallelism_overlay_button.script.lua).
 --
 -- A 3D overlay only renders as part of the active tool's action (an action descriptor):
@@ -19,7 +19,7 @@ local planner = require "parallelism_planner.lua"
 
 local overlay = {}
 
--- node markers: squares of this half size (meters), larger where 3 or more edges meet
+-- node markers: rings of this radius (meters), larger where 3 or more edges meet
 overlay.NODE_MARKER = 0.75
 overlay.JUNCTION_MARKER = 1.5
 overlay.MAX_NODE_MARKERS = 400
@@ -70,14 +70,46 @@ local function makeStraightEdge(x0, y0, x1, y1, z, color, width)
 	return edge
 end
 
--- A node marker: the four sides of a square of half size h around p, as straight lines,
--- appended to lines.
+-- The square node marker (overlay.MARKER_RING false): the four sides of a square of half
+-- size h around p, as straight lines, appended to lines.
 function overlay.addSquareLines(lines, p, h, color, width)
 	local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
 	for i = 1, 4 do
 		local a, b = corners[i], corners[i % 4 + 1]
 		lines[#lines + 1] = makeStraightEdge(p.x + a[1], p.y + a[2], p.x + b[1], p.y + b[2], p.z, color, width)
 	end
+end
+
+-- A node marker: a ring of radius h around p, one arc (one line object where the square
+-- took four; nodes move with every plan, so they are made anew each time). Just short of a
+-- full turn: a closed one might be degenerate to the renderer. Drawn in pieces of a
+-- sixteenth of the circle, or it comes out a polygon. overlay.MARKER_RING false: squares.
+overlay.MARKER_RING = true
+
+function overlay.addNodeMarker(lines, p, h, color, width)
+	if not overlay.MARKER_RING then
+		overlay.addSquareLines(lines, p, h, color, width)
+		return
+	end
+	local angle = 2 * math.pi - 0.02
+	local arc = api.type.EdgeGeometry.Arc.new()
+	arc.center = api.type.Vec2f.new(p.x, p.y)
+	arc.radius = h
+	arc.startAngle = 0
+	arc.angle = angle
+	local geom = api.type.EdgeGeometry.new()
+	geom.type = api.type.EdgeGeometry.Type.ARC
+	geom.arc = arc
+	geom.height = api.type.Vec2f.new(p.z, p.z)
+	geom.tangent = api.type.Vec2f.new(0, 0)
+	geom.length = h * angle
+	geom.width = width
+	local edge = builtin.type.EdgeRenderable.Edge.new(geom)
+	edge.colors = { api.type.Vec4f.new(color[1], color[2], color[3], color[4]) }
+	edge.width = width
+	edge.offsetZ = 1.0
+	edge.stepSize = math.max(0.05, geom.length / 16)
+	lines[#lines + 1] = edge
 end
 
 -- (a zero-length edge crashed the game drawing it)
@@ -326,7 +358,7 @@ function overlay.lines()
 			if lines == nil then
 				local c = n.track and TRACK_COLOR or ROAD_COLOR
 				lines = {}
-				overlay.addSquareLines(lines, n.position, junction and overlay.JUNCTION_MARKER or overlay.NODE_MARKER, { c[1], c[2], c[3], 1 }, 0.3)
+				overlay.addNodeMarker(lines, n.position, junction and overlay.JUNCTION_MARKER or overlay.NODE_MARKER, { c[1], c[2], c[3], 1 }, 0.3)
 			end
 			squares[key] = lines
 			for __, l in ipairs(lines) do
