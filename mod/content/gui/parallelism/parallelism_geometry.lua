@@ -587,12 +587,22 @@ end
 
 -- True if the edge runs along the others for its whole length, where it may span
 -- several of them (the builder sometimes moves a node when it splits a track).
-function geometry.liesOnAny(edge, others, tolerance)
+-- (othersSampled: their samplePoints, if the caller tests several edges against them)
+function geometry.liesOnAny(edge, others, tolerance, othersSampled)
+	if #others == 0 then
+		return false
+	end
+	if othersSampled == nil then
+		othersSampled = {}
+		for i, other in ipairs(others) do
+			othersSampled[i] = geometry.samplePoints(other)
+		end
+	end
 	for i = 0, 8 do
 		local p = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, i / 8)
 		local onSome = false
-		for __, other in ipairs(others) do
-			if geometry.distanceToEdge(p, other) < tolerance then
+		for __, pts in ipairs(othersSampled) do
+			if geometry.withinDistance(p, pts, tolerance) then
 				onSome = true
 				break
 			end

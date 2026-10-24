@@ -89,12 +89,16 @@ end
 
 -- Nothing is built again that can't have changed (after path-visualizer, 2026-10-24):
 -- * each edge in view is read once and kept while it stays in view (entries, by entity:
---   its plain geometry, kind, end nodes and line). An entity's geometry doesn't change: a
---   build that reshapes an edge replaces it with a new entity. The entries are dropped
---   anyway after a build the mod hears of, and once a minute;
+--   its plain geometry, kind, end nodes and line). A build replaces the edges it reshapes,
+--   but entity ids get reused (planner.isApplied), so an id can come back as another edge:
+--   after a build the mod hears of (the builder clears, onProposalApply while the HUD
+--   overlay is on) everything is read again for a few seconds, which also covers the
+--   mod's own build right after the player's; and every few seconds anyway, for builds it
+--   doesn't hear of (towns, other tools while the builder is closed);
 -- * the lines are joined once per change of the view (version), not on every draw;
 -- * node markers are kept by node and look, and drawn as straight lines.
-local REREAD_AFTER = 60 -- seconds: entries read again, for builds the mod didn't hear of
+local REREAD_AFTER = 10 -- seconds: entries read again, for builds the mod didn't hear of
+local DIRTY_FOR = 3 -- seconds after a build the mod heard of: read again on every step
 
 local state = {
 	on = false,
@@ -106,6 +110,7 @@ local state = {
 	lines = nil, -- the joined lines, for linesVersion
 	linesVersion = nil,
 	readAt = nil, -- clock() when the entries were last all dropped
+	dirtyUntil = nil, -- clock() until which every step reads everything again (a build)
 	failed = false,
 	timing = { refreshes = 0, reads = 0, refreshMs = 0, builds = 0, buildMs = 0, since = nil },
 }
@@ -144,6 +149,10 @@ end
 -- After a build: every entry is read again at the next refresh.
 function overlay.networkChanged()
 	state.entries, state.squares, state.key = {}, {}, nil
+	local c = clock()
+	if c then
+		state.dirtyUntil = c + DIRTY_FOR
+	end
 end
 
 function overlay.isOn()
@@ -225,7 +234,9 @@ function overlay.refresh()
 		local c = clock()
 		if c and (not state.readAt or c - state.readAt > REREAD_AFTER) then
 			state.readAt = c
-			overlay.networkChanged()
+			state.entries, state.squares, state.key = {}, {}, nil
+		elseif c and state.dirtyUntil and c < state.dirtyUntil then
+			state.entries, state.squares, state.key = {}, {}, nil
 		end
 		local camera = api.gui.camera.getCameraData()
 		local radius = math.max(50, camera.z)

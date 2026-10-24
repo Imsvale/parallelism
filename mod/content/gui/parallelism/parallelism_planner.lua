@@ -852,8 +852,10 @@ end
 local function collectDrawnSegments(streetProposal, roadType)
 	roadType = roadType or trackRoadType()
 	local removed = {}
+	local removedSampled = {}
 	for __, segment in ipairs(streetProposal.removedSegments) do
 		removed[#removed + 1] = toEdge(segment.comp)
+		removedSampled[#removedSampled + 1] = geometry.samplePoints(removed[#removed])
 	end
 
 	local drawn = {}
@@ -862,7 +864,7 @@ local function collectDrawnSegments(streetProposal, roadType)
 	for __, segment in ipairs(planner.pinned(streetProposal.addedSegments, pins)) do
 		if segment.comp.roadType == roadType then
 			local edge = toEdge(segment.comp)
-			if not geometry.liesOnAny(edge, removed, REMNANT_TOLERANCE) then
+			if not geometry.liesOnAny(edge, removed, REMNANT_TOLERANCE, removedSampled) then
 				drawn[#drawn + 1] = { entity = segment.entity, segmentType = segment.type, comp = segment.comp, edge = edge, pins = pins }
 			end
 		end
