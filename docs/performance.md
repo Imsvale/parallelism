@@ -100,6 +100,17 @@ A 6-track drag over 6 tracks takes 60-155 ms per plan, simple bundles 20-30 ms.
     check: only the build logs);
   - Wireframe and refused-plan line objects reused from the previous plan where geometry
     (to the millimeter) and look are unchanged.
+  - junctions read each lane's transport modes once (one summary per lane list);
+  - `straysFrom` (every merge and refit in the re-lay): the curve's samples as number
+    arrays, and samples far off the curve searched block by block with a box test
+    (identical results, merges 3x);
+  - the crossing refinement inline (no tables per Newton step);
+  - `laneConfigs` read once per use (each read copies the list); allowed radius, track
+    distance and widths kept per template name.
+
+The game's `ProposalViewer` judges what it shows; it takes only a (Simple)Proposal and
+`makeProposalData` returns no expanded proposal to hand it, so the viewer's judgement
+cannot be shared with the menu's own (checked 2026-10-24, `builtin.d.tl`).
 
 The preview display (the game judging and meshing our proposal) is about half the cost
 of a drag change (user, 2026-10-24: Hide the preview, and it is that much faster). It is
