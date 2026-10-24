@@ -6,7 +6,7 @@ The mod is in a pretty good place now, but I'll keep hunting for edge cases to m
 ### Features
 
 * Parallel roads and tracks, obviously
-* Defaults: 9 tracks, 9 roads – configurable (see limitations below)
+* Defaults: 9 tracks, 9 roads – configurable up to 50 in the mod settings
 * Preview the build while dragging
 * Track across track
 * Roads across roads
@@ -23,9 +23,7 @@ The mod is in a pretty good place now, but I'll keep hunting for edge cases to m
 
 **Edge cases:** I have done a ton of testing to try to find all the edge cases where it doesn't work. I have fixed a lot, but no doubt many still remain. This is 99% of the work, and I'll be continuing to swat them wherever I find them. You can help – see **Reporting issues** below.
 
-**Construction panel size:** The mod supports an arbitrary number of parallel roads and tracks, but the construction panel can only fit so many buttons for the setting. You can change the defaults (listed above), but the panel starts to look weird at 10+, and really cramped beyond 12. At 16 the tens are all squished, so that's the current cap.
-
-I might look into ways to present more options more cleanly, but needing more than 10 seems pretty niche.
+**Number of parallels:** The count is a slider in the construction panel. Its maximum is set in the mod settings, up to 50. Large counts get slow when crossing other roads or tracks (see Performance).
 
 **Performance**: With many parallels crossing many other, the tool will be slow. Lua can only do so much here. Ideally a parallel road and track construction tool will be built into the game natively so it can be much quicker using the game's own C++ engine rather than the Lua wrapper. The nature of this tool requires looking up many, many things in the area around the build. I encourage you to complain to the devs and ask for this to be done in the base game instead. :)
 
