@@ -1199,17 +1199,65 @@ local function findSelfCrossing(drawn, tracks)
 			planned[#planned + 1] = oe.edge
 		end
 	end
-	for i, edge in ipairs(planned) do
-		for __, d in ipairs(drawn) do
-			local x = crossing(edge, d.edge)
-			if x then
-				return "a parallel edge would cross the drawn one at " .. shared.vecToString(x.pointA)
+	-- Every pair is a lot of pairs (50 parallels: some 500 edges, 125000 pairs, most of a
+	-- plan's time): only pairs whose boxes overlap can cross, found through a grid of the
+	-- boxes, and tested in the same order as all pairs would be, so the same crossing is
+	-- the one reported. (A box around the control points holds the curve and so the
+	-- polyline the crossing search samples: boxes apart, no crossing to find.)
+	local function boxesApart(a, b)
+		return a.maxX < b.minX or b.maxX < a.minX or a.maxY < b.minY or b.maxY < a.minY
+	end
+	local boxes, cells = {}, {}
+	local CELL = 64
+	local function cellsOf(box)
+		local list = {}
+		for cx = math.floor(box.minX / CELL), math.floor(box.maxX / CELL) do
+			for cy = math.floor(box.minY / CELL), math.floor(box.maxY / CELL) do
+				list[#list + 1] = cx .. ":" .. cy
 			end
 		end
-		for j = i + 1, #planned do
-			local x = crossing(edge, planned[j])
-			if x then
-				return "two parallel edges would cross each other at " .. shared.vecToString(x.pointA)
+		return list
+	end
+	for i, edge in ipairs(planned) do
+		boxes[i] = geometry.edgeBox(edge, 0)
+		for __, key in ipairs(cellsOf(boxes[i])) do
+			local cell = cells[key]
+			if cell == nil then
+				cell = {}
+				cells[key] = cell
+			end
+			cell[#cell + 1] = i
+		end
+	end
+	local drawnBoxes = {}
+	for k, d in ipairs(drawn) do
+		drawnBoxes[k] = geometry.edgeBox(d.edge, 0)
+	end
+	for i, edge in ipairs(planned) do
+		for k, d in ipairs(drawn) do
+			if not boxesApart(boxes[i], drawnBoxes[k]) then
+				local x = crossing(edge, d.edge)
+				if x then
+					return "a parallel edge would cross the drawn one at " .. shared.vecToString(x.pointA)
+				end
+			end
+		end
+		local candidates, seen = {}, {}
+		for __, key in ipairs(cellsOf(boxes[i])) do
+			for __, j in ipairs(cells[key]) do
+				if j > i and not seen[j] then
+					seen[j] = true
+					candidates[#candidates + 1] = j
+				end
+			end
+		end
+		table.sort(candidates)
+		for __, j in ipairs(candidates) do
+			if not boxesApart(boxes[i], boxes[j]) then
+				local x = crossing(edge, planned[j])
+				if x then
+					return "two parallel edges would cross each other at " .. shared.vecToString(x.pointA)
+				end
 			end
 		end
 	end
