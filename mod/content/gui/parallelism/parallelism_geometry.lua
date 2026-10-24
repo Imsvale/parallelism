@@ -722,19 +722,48 @@ end
 -- what is being checked; a sample further off than the window is measured fully).
 function geometry.straysFrom(curve, pieces)
 	local n = math.max(32, math.min(400, math.ceil(horizontalDistance(curve.p0, curve.p1) / 0.5)))
-	local line = {}
-	for i = 0, n do
-		line[i] = geometry.hermite(curve.p0, curve.p1, curve.t0, curve.t1, i / n)
+	-- the samples as two arrays of numbers, the curve inline as geometry.hermite computes
+	-- x and y (up to 401 points, several times per merge: no table per point)
+	local lx, ly = {}, {}
+	do
+		local p0x, p0y, p1x, p1y = curve.p0.x, curve.p0.y, curve.p1.x, curve.p1.y
+		local t0x, t0y, t1x, t1y = curve.t0.x, curve.t0.y, curve.t1.x, curve.t1.y
+		for i = 0, n do
+			local u = i / n
+			local u2 = u * u
+			local u3 = u2 * u
+			local h00 = 2 * u3 - 3 * u2 + 1
+			local h10 = u3 - 2 * u2 + u
+			local h01 = -2 * u3 + 3 * u2
+			local h11 = u3 - u2
+			lx[i] = h00 * p0x + h10 * t0x + h01 * p1x + h11 * t1x
+			ly[i] = h00 * p0y + h10 * t0y + h01 * p1y + h11 * t1y
+		end
 	end
 	local function toSegment(p, j)
-		local q0, q1 = line[j], line[j + 1]
-		local dx, dy = q1.x - q0.x, q1.y - q0.y
+		local q0x, q0y = lx[j], ly[j]
+		local dx, dy = lx[j + 1] - q0x, ly[j + 1] - q0y
 		local len2 = dx * dx + dy * dy
 		local s = 0
 		if len2 > 1e-12 then
-			s = math.max(0, math.min(1, ((p.x - q0.x) * dx + (p.y - q0.y) * dy) / len2))
+			s = math.max(0, math.min(1, ((p.x - q0x) * dx + (p.y - q0y) * dy) / len2))
 		end
-		return length2d(p.x - (q0.x + s * dx), p.y - (q0.y + s * dy))
+		return length2d(p.x - (q0x + s * dx), p.y - (q0y + s * dy))
+	end
+	-- boxes around blocks of BLOCK segments, for the full search (made when first needed)
+	local BLOCK = 16
+	local blockBoxes = nil
+	local function makeBlockBoxes()
+		local boxes = {}
+		for j0 = 0, n - 1, BLOCK do
+			local minX, minY, maxX, maxY = lx[j0], ly[j0], lx[j0], ly[j0]
+			for i = j0 + 1, math.min(n, j0 + BLOCK) do
+				minX, maxX = math.min(minX, lx[i]), math.max(maxX, lx[i])
+				minY, maxY = math.min(minY, ly[i]), math.max(maxY, ly[i])
+			end
+			boxes[#boxes + 1] = { minX = minX, minY = minY, maxX = maxX, maxY = maxY }
+		end
+		return boxes
 	end
 	local segment = math.max(horizontalDistance(curve.p0, curve.p1) / n, 1e-6)
 	local at = 0
@@ -752,11 +781,20 @@ function geometry.straysFrom(curve, pieces)
 				end
 			end
 			if best > 0.5 then
-				-- off the window's reach: the whole curve
-				for j = 0, n - 1 do
-					local d = toSegment(p, j)
-					if d < best then
-						best, bestJ = d, j
+				-- off the window's reach: the whole curve, block by block; a block whose box
+				-- is further than the best so far cannot hold a nearer segment (the margin
+				-- covers rounding: what is skipped could not have won)
+				blockBoxes = blockBoxes or makeBlockBoxes()
+				for k, box in ipairs(blockBoxes) do
+					local ex = math.max(box.minX - p.x, 0, p.x - box.maxX)
+					local ey = math.max(box.minY - p.y, 0, p.y - box.maxY)
+					if length2d(ex, ey) <= best + 1e-9 then
+						for j = (k - 1) * BLOCK, math.min(n - 1, k * BLOCK - 1) do
+							local d = toSegment(p, j)
+							if d < best then
+								best, bestJ = d, j
+							end
+						end
 					end
 				end
 			end
