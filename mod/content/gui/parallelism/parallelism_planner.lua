@@ -327,7 +327,7 @@ end
 
 -- edges / nodes within radius of center (Vec2f), the overlay's included
 -- dev aid: time spent in the game's spatial index and the overlay's part (planner timing)
-local searchTiming = { octree = 0, overlay = 0 }
+local searchTiming = { octree = 0, overlay = 0, nodeOctree = 0, nodeSearches = 0 }
 
 local function edgesInCircle(center, radius)
 	local result = {}
@@ -371,7 +371,13 @@ end
 
 local function nodesInCircle(center, radius)
 	local result = {}
-	for __, n in ipairs(api.engine.util.octree.findEntitiesInCircle(center, radius, api.type.ComponentType.BASE_NODE)) do
+	local started = clockMs and clockMs()
+	local found = api.engine.util.octree.findEntitiesInCircle(center, radius, api.type.ComponentType.BASE_NODE)
+	if started then
+		searchTiming.nodeOctree = searchTiming.nodeOctree + (clockMs() - started)
+		searchTiming.nodeSearches = searchTiming.nodeSearches + 1
+	end
+	for __, n in ipairs(found) do
 		if not (overlay and (overlay.hiddenNodes[n] or overlay.nodes[n])) then
 			result[#result + 1] = n
 		end
@@ -1226,8 +1232,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	geometry.fastIntersections = shared.PERF_MEASURES
 	-- (offAdopt, offNodes, offPast, offTransition: parts of offsets, for the dev log)
 	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0, relay = 0, segments = 0, configs = 0,
-		offAdopt = 0, offNodes = 0, offPast = 0, offTransition = 0 }
-	searchTiming.octree, searchTiming.overlay = 0, 0
+		offAdopt = 0, offNodes = 0, offPast = 0, offTransition = 0, offEnds = 0 }
+	searchTiming.octree, searchTiming.overlay, searchTiming.nodeOctree, searchTiming.nodeSearches = 0, 0, 0, 0
 	local function lap(name, since)
 		local t = clockMs()
 		if t and since then
@@ -1885,16 +1891,22 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 			local best, bestS = nil, math.huge
 			local reasons = {}
+			-- (a road end outside this box around a path piece is too far from it to count)
+			for __, path in ipairs(paths) do
+				path.box = geometry.edgeBox(path.edge, JUNCTION_REUSE_DISTANCE)
+			end
 			for __, road in ipairs(roads) do
 				for __, path in ipairs(paths) do
 					-- an end node of the road on the parallel (an existing junction, e.g. a T
 					-- built earlier and now extended to an X): the intersection search below
 					-- misses points at an edge's very end (seen 2026-10-03)
 					for __, p in ipairs({ road.p0, road.p1 }) do
-						local u, off = geometry.closestParameter(p, path.edge)
-						local s = path.sAt(u)
-						if off < JUNCTION_REUSE_DISTANCE and math.abs(s) <= reach and math.abs(s) < math.abs(bestS) then
-							best, bestS = { x = p.x, y = p.y, z = offsetPosition.z }, s
+						if geometry.inBox(p, path.box) then
+							local u, off = geometry.closestParameter(p, path.edge)
+							local s = path.sAt(u)
+							if off < JUNCTION_REUSE_DISTANCE and math.abs(s) <= reach and math.abs(s) < math.abs(bestS) then
+								best, bestS = { x = p.x, y = p.y, z = offsetPosition.z }, s
+							end
 						end
 					end
 					for __, x in ipairs(geometry.intersections(path.edge, road)) do
@@ -2038,6 +2050,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				end
 				nodes[entity] = node
 				lap("offNodes", nodeStart)
+				if useCount[entity] == 1 then
+					lap("offEnds", nodeStart)
+				end
 			end
 			return node
 		end
@@ -3794,10 +3809,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	planRoadType = nil
 	local finished = clockMs()
 	if finished and timing.start then
-		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f (adopt %.0f, nodes %.0f, past ends %.0f, transitions %.0f), crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f; searches: game index %.0f, builder's edges %.0f",
+		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f (adopt %.0f, nodes %.0f of which run ends %.0f, past ends %.0f, transitions %.0f), crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f; searches: game index %.0f, builder's edges %.0f, nodes in the game index %.0f (%d searches)",
 			finished - timing.start, (timing.firstTrack or timing.start) - timing.start, timing.offsets,
-			timing.offAdopt, timing.offNodes, timing.offPast, timing.offTransition, timing.crossings, timing.merges,
-			checkStart - emitStart, timing.relay, timing.segments, timing.configs, finished - checkStart, searchTiming.octree, searchTiming.overlay)
+			timing.offAdopt, timing.offNodes, timing.offEnds, timing.offPast, timing.offTransition, timing.crossings, timing.merges,
+			checkStart - emitStart, timing.relay, timing.segments, timing.configs, finished - checkStart, searchTiming.octree, searchTiming.overlay,
+			searchTiming.nodeOctree, searchTiming.nodeSearches)
 	end
 	return proposal, stats
 end

@@ -184,12 +184,26 @@ local function horizontalDistance(a, b)
 end
 
 -- parameter u of the point on the edge closest to p (horizontally), and that distance
+-- (The curve is evaluated some 145 times: inline, as geometry.hermite computes x and y,
+-- without a table per point; called a lot while planning.)
 function geometry.closestParameter(p, edge)
+	local p0, p1, t0, t1 = edge.p0, edge.p1, edge.t0, edge.t1
+	local p0x, p0y, p1x, p1y, t0x, t0y, t1x, t1y = p0.x, p0.y, p1.x, p1.y, t0.x, t0.y, t1.x, t1.y
+	local px, py = p.x, p.y
+	local function distanceAt(u)
+		local u2 = u * u
+		local u3 = u2 * u
+		local h00 = 2 * u3 - 3 * u2 + 1
+		local h10 = u3 - 2 * u2 + u
+		local h01 = -2 * u3 + 3 * u2
+		local h11 = u3 - u2
+		return length2d(px - (h00 * p0x + h10 * t0x + h01 * p1x + h11 * t1x), py - (h00 * p0y + h10 * t0y + h01 * p1y + h11 * t1y))
+	end
 	local n = 64
 	local bestU, bestD = 0, math.huge
 	for i = 0, n do
 		local u = i / n
-		local d = horizontalDistance(p, geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, u))
+		local d = distanceAt(u)
 		if d < bestD then
 			bestU, bestD = u, d
 		end
@@ -200,16 +214,28 @@ function geometry.closestParameter(p, edge)
 	for __ = 1, 40 do
 		local a = lo + (hi - lo) / 3
 		local b = hi - (hi - lo) / 3
-		local da = horizontalDistance(p, geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, a))
-		local db = horizontalDistance(p, geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, b))
-		if da < db then
+		if distanceAt(a) < distanceAt(b) then
 			hi = b
 		else
 			lo = a
 		end
 	end
 	local u = (lo + hi) / 2
-	return u, horizontalDistance(p, geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, u))
+	return u, distanceAt(u)
+end
+
+-- A box around the edge, grown by margin on all sides: the curve lies within the hull
+-- of its Bezier control points (p0, p0 + t0 / 3, p1 - t1 / 3, p1), so a point outside
+-- the box is further than margin from the curve.
+function geometry.edgeBox(edge, margin)
+	local xs = { edge.p0.x, edge.p0.x + edge.t0.x / 3, edge.p1.x - edge.t1.x / 3, edge.p1.x }
+	local ys = { edge.p0.y, edge.p0.y + edge.t0.y / 3, edge.p1.y - edge.t1.y / 3, edge.p1.y }
+	return { minX = math.min(xs[1], xs[2], xs[3], xs[4]) - margin, maxX = math.max(xs[1], xs[2], xs[3], xs[4]) + margin,
+		minY = math.min(ys[1], ys[2], ys[3], ys[4]) - margin, maxY = math.max(ys[1], ys[2], ys[3], ys[4]) + margin }
+end
+
+function geometry.inBox(p, box)
+	return p.x >= box.minX and p.x <= box.maxX and p.y >= box.minY and p.y <= box.maxY
 end
 
 -- Splits the edge at u into two edges with the same shape, and returns them plus the
