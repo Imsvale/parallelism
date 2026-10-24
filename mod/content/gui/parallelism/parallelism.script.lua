@@ -728,12 +728,15 @@ local function sendBuild(label, proposal, stats, onDone)
 	-- natively it gets one across its whole width (fixed together with the edge
 	-- distance, which of the two did it was not tested)
 	context.extendProposalRedoPillars = true
+	-- (how long the game takes with it, from sending to the result)
+	local sent = planner.clockMs()
 	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
 		local costs = ""
 		pcall(function()
 			costs = ", costs " .. tostring(res.resultProposalData.costs)
 		end)
-		shared.log(label .. " (" .. describeStats(stats) .. "): " .. (success and "ok" or "FAILED") .. costs)
+		local took = sent and planner.clockMs() and string.format(", the game took %.0f ms", planner.clockMs() - sent) or ""
+		shared.log(label .. " (" .. describeStats(stats) .. "): " .. (success and "ok" or "FAILED") .. costs .. took)
 		local message = nil
 		if not success then
 			-- the whole plan, as a lua table that tests can load
@@ -810,6 +813,7 @@ local function buildCombined(job)
 	shared.log("tracks at offsets " .. table.concat(job.offsets, ", ") .. ":")
 	local proposal, stats = planner.makeProposal(readDrawn(job), job.offsets, shared.log, false,
 		{ reverse = job.reverse, step = job.distance })
+	shared.log("  planned in " .. tostring(stats.timing))
 	if stats.edges == 0 then
 		return
 	end
