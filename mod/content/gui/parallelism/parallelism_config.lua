@@ -2,7 +2,7 @@
 -- loads its own copy (through parallelism_shared.lua), so this holds values only.
 
 return {
-	-- The most tracks or roads the Tracks / Roads buttons offer, the drawn one included.
+	-- The most tracks or roads the Tracks / Roads sliders offer, the drawn one included.
 	-- These are the fallbacks: the mod settings (maxTracks and maxRoads in mod.json, whose
 	-- defaultIndex is the default there) decide when the game can tell them.
 	MAX_TRACKS = 9,
