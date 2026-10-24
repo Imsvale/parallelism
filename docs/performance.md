@@ -95,6 +95,16 @@ A 6-track drag over 6 tracks takes 60-155 ms per plan, simple bundles 20-30 ms.
     `parameterAtLength` evaluate the curve inline, without a table per sample
     (bit-identical, 2-3x). Besides their own time this cuts the garbage: phases of the
     same plan varied 3-23 ms from run to run, the collector stepping in where it happened.
+  - node configs read once per node per plan; the LaneConnection constructor probed once;
+    log lines run per node and crossing not built when no log is given (preview, drag
+    check: only the build logs);
+  - Wireframe and refused-plan line objects reused from the previous plan where geometry
+    (to the millimeter) and look are unchanged.
+
+The preview display (the game judging and meshing our proposal) is about half the cost
+of a drag change (user, 2026-10-24: Hide the preview, and it is that much faster). It is
+the game's work on our parallels; showing the joined proposal also redraws the builder's
+part, but that is only about 1/count of it.
 
 Measured 2026-10-24 (dev build, after the pass), per plan of the preview: a 6-road bundle
 over 4 roads (20 crossings) 21-58 ms, mostly 21-30 (re-lay 2-28, node configs 4-10, the
