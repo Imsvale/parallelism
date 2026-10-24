@@ -75,7 +75,9 @@ end
 -- (one straight line as wide as it is long, a single piece). One line object each either
 -- way. Nodes that do not move keep theirs (by node in the network view, by position in
 -- the Wireframe); one that moves gets a new one: the geometry is in world coordinates.
-overlay.markerShape = "disc"
+overlay.markerShape = "square"
+-- the node markers' color, in the network view and the Wireframe (a medium magenta)
+overlay.MARKER_COLOR = { 0.8, 0.3, 0.75, 1 }
 -- bumped when the shape changes, so markers already made are made again
 overlay.markerGeneration = 0
 
@@ -400,9 +402,8 @@ function overlay.lines()
 			local key = n.node .. (junction and "j" or "n") .. (n.track and "t" or "r") .. overlay.markerShape
 			local lines = state.squares[key]
 			if lines == nil then
-				local c = n.track and TRACK_COLOR or ROAD_COLOR
 				lines = {}
-				overlay.addNodeMarker(lines, n.position, junction and overlay.JUNCTION_MARKER or overlay.NODE_MARKER, { c[1], c[2], c[3], 1 })
+				overlay.addNodeMarker(lines, n.position, junction and overlay.JUNCTION_MARKER or overlay.NODE_MARKER, overlay.MARKER_COLOR)
 			end
 			squares[key] = lines
 			for __, l in ipairs(lines) do

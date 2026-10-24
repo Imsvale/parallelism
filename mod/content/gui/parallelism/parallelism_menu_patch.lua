@@ -504,8 +504,7 @@ local function makeWireframe()
 			if i > MAX_NODE_MARKERS then
 				break
 			end
-			local c = WIREFRAME_COLORS[n.kind] or WIREFRAME_COLORS.ours
-			addNodeMarker(edges, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 })
+			addNodeMarker(edges, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, overlay.MARKER_COLOR)
 		end
 		return edges
 	end)
