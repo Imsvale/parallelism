@@ -56,6 +56,9 @@ EdgeRenderable", a fatal error). If the action already has one, the game crashes
 
 ### Fix
 
+Done 2026-10-24 (the guard below, plus the same `__newindex` refusal as for viewers; the
+merge is not done).
+
 Recognise EdgeRenderables the same way as viewers, and never add a second one:
 
 ```lua

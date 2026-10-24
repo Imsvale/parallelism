@@ -1,3 +1,3 @@
 Shared notes for all mods in this folder: `../CLAUDE.md` (and `../docs/`). Cross-mod compatibility rules: `../docs/COMPATIBILITY.md`.
 
-Open compatibility gap (2026-10-24): the ActionDescriptor wrapper in `mod/content/gui/parallelism/parallelism_menu_patch.lua` adds its EdgeRenderable without checking for one already in the action (two crash the game). Review, the issue and the fix: `docs/design/2026-10-24_cross-mod-compatibility.md`.
+Compatibility review (2026-10-24): `docs/design/2026-10-24_cross-mod-compatibility.md`. Its gap (an EdgeRenderable added without checking for one already in the action) is fixed the guard way: ours is left out of an action that has one, a second one added after ours is refused. Merging our lines into another mod's set is not done.

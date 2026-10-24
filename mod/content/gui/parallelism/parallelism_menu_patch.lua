@@ -1257,6 +1257,34 @@ function patch.install()
 			shared.log("a second preview in the builder left out (" .. by .. "): the game takes one")
 		end
 	end
+	-- The same for EdgeRenderables: one at most ("Must not specify more than 1
+	-- EdgeRenderable", fatal). Ours is left out of an action that already has one, and a
+	-- second one added by a wrapper after ours is refused
+	-- (docs/design/2026-10-24_cross-mod-compatibility.md).
+	local renderables = {}
+	local EdgeRenderable = builtin.EdgeRenderable
+	builtin.EdgeRenderable = function(...)
+		local node = EdgeRenderable(...)
+		if node ~= nil then
+			renderables[node] = true
+		end
+		return node
+	end
+	local function holdsRenderable(children)
+		for __, child in ipairs(children) do
+			if renderables[child] then
+				return true
+			end
+		end
+		return false
+	end
+	local loggedSecondRenderable = false
+	local function secondRenderableLeftOut(by)
+		if not loggedSecondRenderable then
+			loggedSecondRenderable = true
+			shared.log("a second line set in an action left out (" .. by .. "): the game takes one")
+		end
+	end
 	builtin.ActionDescriptor = function(params, ...)
 		-- the network overlay, while on, in every action (parallelism_overlay.lua); each
 		-- action subscribes to it, to be redrawn when its view changes
@@ -1330,14 +1358,22 @@ function patch.install()
 			end
 		end
 		if #lines > 0 and params and params.children then
-			params.children[#params.children + 1] = builtin.EdgeRenderable{ edges = lines, ignoreDepth = true }
+			if holdsRenderable(params.children) then
+				secondRenderableLeftOut("ours")
+			else
+				params.children[#params.children + 1] = builtin.EdgeRenderable{ edges = lines, ignoreDepth = true }
+			end
 		end
-		-- (another mod's wrapper after ours adding a second viewer: refused)
+		-- (another mod's wrapper after ours adding a second viewer or line set: refused)
 		local children = params and type(params.children) == "table" and params.children or nil
 		if children and getmetatable(children) == nil then
 			setmetatable(children, { __newindex = function(t, k, v)
 				if viewers[v] and holdsViewer(t) then
 					secondViewerLeftOut("another mod's")
+					return
+				end
+				if renderables[v] and holdsRenderable(t) then
+					secondRenderableLeftOut("another mod's")
 					return
 				end
 				rawset(t, k, v)
@@ -1348,6 +1384,7 @@ function patch.install()
 			setmetatable(children, nil)
 		end
 		viewers = {}
+		renderables = {}
 		return result
 	end
 
