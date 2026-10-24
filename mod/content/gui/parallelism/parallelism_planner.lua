@@ -432,13 +432,16 @@ local function getTemplate(name)
 	return cached or nil
 end
 
+-- (each read of a game object's laneConfigs copies the list: read once)
 local function laneConfigsOf(comp, templateName)
-	if comp.laneConfigs ~= nil and sizeOf(comp.laneConfigs) > 0 then
-		return comp.laneConfigs
+	local own = comp.laneConfigs
+	if own ~= nil and sizeOf(own) > 0 then
+		return own
 	end
 	local template = getTemplate(templateName)
-	if template and template.laneConfigs ~= nil and sizeOf(template.laneConfigs) > 0 then
-		return template.laneConfigs
+	local fromTemplate = template and template.laneConfigs
+	if fromTemplate ~= nil and sizeOf(fromTemplate) > 0 then
+		return fromTemplate
 	end
 	error("no lane configs for an edge of " .. tostring(templateName))
 end
@@ -845,6 +848,28 @@ local function roadWidth(roadTemplate)
 	end
 	return widthOf(roadTemplate)
 end
+
+-- Templates do not change during a game, so what is read from them (each a pass over the
+-- template's lanes, which every read copies) is kept by template name. Asked per piece
+-- and per crossing.
+local function keptByTemplate(fn)
+	local kept = {}
+	return function(name)
+		if name == nil or not shared.PERF_MEASURES then
+			return fn(name)
+		end
+		local entry = kept[name]
+		if entry == nil then
+			entry = { value = fn(name) }
+			kept[name] = entry
+		end
+		return entry.value
+	end
+end
+allowedRadius = keptByTemplate(allowedRadius)
+getTrackDistance = keptByTemplate(getTrackDistance)
+widthOf = keptByTemplate(widthOf)
+roadWidth = keptByTemplate(roadWidth)
 
 -- The Spacing value is the gap between the edges of neighbors (the panel may show it
 -- from center to center instead). Its default: as the game places them, the road builder
@@ -4150,8 +4175,9 @@ function planner.typedSegment(s, removedComps, templateName)
 	comp.roadType = from.roadType
 	comp.roadTemplate = from.roadTemplate
 	comp.roadStyle = from.roadStyle
-	if from.laneConfigs ~= nil and sizeOf(from.laneConfigs) > 0 then
-		comp.laneConfigs = from.laneConfigs
+	local fromLanes = from.laneConfigs
+	if fromLanes ~= nil and sizeOf(fromLanes) > 0 then
+		comp.laneConfigs = fromLanes
 	end
 	pcall(function()
 		comp.distance = from.distance
