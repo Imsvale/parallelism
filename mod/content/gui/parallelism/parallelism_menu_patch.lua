@@ -174,7 +174,7 @@ local function updatePreview(proposal)
 		local took = planner.clockMs() - started
 		previewDebounce.planned(planKey, took)
 		if took > 20 and shared.LOG_PLANS then
-			shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: preview plan took %.0f ms (%d drawn, %d edges, %d crossings; %s)", took, #drawn, stats.edges, stats.crossings,
+			shared.log(string.format("perf [" .. shared.nounOf(preview.builder) .. " " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: preview plan took %.0f ms (%d drawn, %d edges, %d crossings; %s)", took, #drawn, stats.edges, stats.crossings,
 				tostring(stats.timing)))
 		end
 	end
@@ -719,7 +719,7 @@ local function countPreviewCall(changed, started)
 		end
 	end
 	if previewPerf.calls >= 100 then
-		shared.log(string.format("perf [tracks " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua (%.0f ms in calls that changed nothing; %d judged by the game in %.0f ms); %d changes held back by pacing, %d plans drawn, %.0f ms on average from plan to drawn (most %.0f ms); %d draws of the builder, %d line builds in %.0f ms",
+		shared.log(string.format("perf [" .. shared.nounOf(preview.builder) .. " " .. preview.count .. (shared.SHOW_PREVIEW and "" or ", preview hidden") .. "]: %d tooltip calls, %d preview changes (each a menu redraw), %.0f ms preview lua (%.0f ms in calls that changed nothing; %d judged by the game in %.0f ms); %d changes held back by pacing, %d plans drawn, %.0f ms on average from plan to drawn (most %.0f ms); %d draws of the builder, %d line builds in %.0f ms",
 			previewPerf.calls, previewPerf.changes, previewPerf.ms, previewPerf.idleMs, previewPerf.judged, previewPerf.judgeMs,
 			previewPerf.paced, previewPerf.rendered, previewPerf.rendered > 0 and previewPerf.lagMs / previewPerf.rendered or 0, previewPerf.maxLagMs,
 			previewPerf.draws, previewPerf.lineBuilds, previewPerf.lineMs))

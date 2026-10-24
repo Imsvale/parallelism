@@ -173,7 +173,7 @@ local perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0
 
 local function logPerf()
 	if perf.requests >= 100 and shared.LOG_PLANS then
-		shared.log(string.format("perf [tracks " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring, %d judged by the game in %.0f ms",
+		shared.log(string.format("perf [" .. shared.nounOf(current.builder) .. " " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring, %d judged by the game in %.0f ms",
 			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs, perf.judged, perf.judgeMs))
 		perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0, judged = 0, judgeMs = 0 }
 	end
