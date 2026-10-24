@@ -165,13 +165,28 @@ end
 function geometry.minRadiusAlong(edge, samples)
 	-- about one per meter, a short sharp bend in a long edge falls between 16 samples
 	samples = samples or math.max(16, math.min(200, math.floor(length2d(edge.p1.x - edge.p0.x, edge.p1.y - edge.p0.y))))
+	-- (both derivatives inline, as hermiteDerivative and hermiteSecondDerivative compute
+	-- them: no tables per sample)
+	local p0, p1, t0, t1 = edge.p0, edge.p1, edge.t0, edge.t1
+	local p0x, p0y, p1x, p1y, t0x, t0y, t1x, t1y = p0.x, p0.y, p1.x, p1.y, t0.x, t0.y, t1.x, t1.y
 	local best = math.huge
 	for i = 0, samples do
 		local u = i / samples
-		local d1 = geometry.hermiteDerivative(edge.p0, edge.p1, edge.t0, edge.t1, u)
-		local d2 = hermiteSecondDerivative(edge.p0, edge.p1, edge.t0, edge.t1, u)
-		local speed = length2d(d1.x, d1.y)
-		local cross = math.abs(d1.x * d2.y - d1.y * d2.x)
+		local u2 = u * u
+		local d00 = 6 * u2 - 6 * u
+		local d10 = 3 * u2 - 4 * u + 1
+		local d01 = -6 * u2 + 6 * u
+		local d11 = 3 * u2 - 2 * u
+		local d1x = d00 * p0x + d10 * t0x + d01 * p1x + d11 * t1x
+		local d1y = d00 * p0y + d10 * t0y + d01 * p1y + d11 * t1y
+		local e00 = 12 * u - 6
+		local e10 = 6 * u - 4
+		local e01 = -12 * u + 6
+		local e11 = 6 * u - 2
+		local d2x = e00 * p0x + e10 * t0x + e01 * p1x + e11 * t1x
+		local d2y = e00 * p0y + e10 * t0y + e01 * p1y + e11 * t1y
+		local speed = length2d(d1x, d1y)
+		local cross = math.abs(d1x * d2y - d1y * d2x)
 		if speed > 1e-9 and cross > 1e-12 then
 			best = math.min(best, speed * speed * speed / cross)
 		end
@@ -278,14 +293,25 @@ function geometry.reverse(edge)
 end
 
 -- horizontal length along the curve, by sampling
+-- (inline, as geometry.hermite computes x and y: no table per point, called a lot)
 function geometry.arcLength(edge)
+	local p0, p1, t0, t1 = edge.p0, edge.p1, edge.t0, edge.t1
+	local p0x, p0y, p1x, p1y, t0x, t0y, t1x, t1y = p0.x, p0.y, p1.x, p1.y, t0.x, t0.y, t1.x, t1.y
 	local n = 32
 	local total = 0
-	local prev = edge.p0
+	local prevX, prevY = p0x, p0y
 	for i = 1, n do
-		local cur = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, i / n)
-		total = total + horizontalDistance(prev, cur)
-		prev = cur
+		local u = i / n
+		local u2 = u * u
+		local u3 = u2 * u
+		local h00 = 2 * u3 - 3 * u2 + 1
+		local h10 = u3 - 2 * u2 + u
+		local h01 = -2 * u3 + 3 * u2
+		local h11 = u3 - u2
+		local x = h00 * p0x + h10 * t0x + h01 * p1x + h11 * t1x
+		local y = h00 * p0y + h10 * t0y + h01 * p1y + h11 * t1y
+		total = total + length2d(prevX - x, prevY - y)
+		prevX, prevY = x, y
 	end
 	return total
 end
@@ -540,23 +566,35 @@ end
 local SAMPLES = 32
 
 -- horizontal distance of point p to the edge, by sampling
+-- (the curve inline, as geometry.hermite computes x and y: no table per point)
 function geometry.distanceToEdge(p, edge)
+	local p0, p1, t0, t1 = edge.p0, edge.p1, edge.t0, edge.t1
+	local p0x, p0y, p1x, p1y, t0x, t0y, t1x, t1y = p0.x, p0.y, p1.x, p1.y, t0.x, t0.y, t1.x, t1.y
+	local px, py = p.x, p.y
 	local best = math.huge
-	local prev = edge.p0
+	local prevX, prevY = p0x, p0y
 	for i = 1, SAMPLES do
-		local cur = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, i / SAMPLES)
-		local dx, dy = cur.x - prev.x, cur.y - prev.y
+		local u = i / SAMPLES
+		local u2 = u * u
+		local u3 = u2 * u
+		local h00 = 2 * u3 - 3 * u2 + 1
+		local h10 = u3 - 2 * u2 + u
+		local h01 = -2 * u3 + 3 * u2
+		local h11 = u3 - u2
+		local curX = h00 * p0x + h10 * t0x + h01 * p1x + h11 * t1x
+		local curY = h00 * p0y + h10 * t0y + h01 * p1y + h11 * t1y
+		local dx, dy = curX - prevX, curY - prevY
 		local len2 = dx * dx + dy * dy
 		local s = 0
 		if len2 > 1e-12 then
-			s = ((p.x - prev.x) * dx + (p.y - prev.y) * dy) / len2
+			s = ((px - prevX) * dx + (py - prevY) * dy) / len2
 			s = math.max(0, math.min(1, s))
 		end
-		local d = length2d(p.x - (prev.x + s * dx), p.y - (prev.y + s * dy))
+		local d = length2d(px - (prevX + s * dx), py - (prevY + s * dy))
 		if d < best then
 			best = d
 		end
-		prev = cur
+		prevX, prevY = curX, curY
 	end
 	return best
 end
