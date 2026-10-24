@@ -319,5 +319,32 @@ do
 	check("refitFrom ahead: nothing", geometry.refitFrom(v(0, 32.8), d, curve) == nil)
 end
 
+-- withinDistance on samplePoints agrees with distanceToEdge
+do
+	local seed = 12345
+	local function rnd(a, b)
+		seed = (seed * 1103515245 + 12345) % 2147483648
+		return a + (b - a) * seed / 2147483648
+	end
+	local disagreements, tested = 0, 0
+	for __ = 1, 200 do
+		local edge = { p0 = v(rnd(-100, 100), rnd(-100, 100)), p1 = v(rnd(-100, 100), rnd(-100, 100)),
+			t0 = v(rnd(-150, 150), rnd(-150, 150), 0), t1 = v(rnd(-150, 150), rnd(-150, 150), 0) }
+		local pts = geometry.samplePoints(edge)
+		for __ = 1, 20 do
+			local p, r = v(rnd(-150, 150), rnd(-150, 150)), rnd(0, 60)
+			local d = geometry.distanceToEdge(p, edge)
+			-- (a point right at the limit may round either way)
+			if math.abs(d - r) > 1e-6 then
+				tested = tested + 1
+				if geometry.withinDistance(p, pts, r) ~= (d <= r) then
+					disagreements = disagreements + 1
+				end
+			end
+		end
+	end
+	check("withinDistance agrees with distanceToEdge", disagreements == 0, string.format("%d of %d differ", disagreements, tested))
+end
+
 print(failures == 0 and "all passed" or (failures .. " failed"))
 os.exit(failures == 0 and 0 or 1)

@@ -535,6 +535,48 @@ function geometry.distanceToEdge(p, edge)
 	return best
 end
 
+-- The points distanceToEdge measures against (the edge's ends and SAMPLES - 1 between),
+-- for an edge searched many times: then withinDistance tests a point against them.
+function geometry.samplePoints(edge)
+	local pts = { { x = edge.p0.x, y = edge.p0.y } }
+	local minX, minY, maxX, maxY = edge.p0.x, edge.p0.y, edge.p0.x, edge.p0.y
+	for i = 1, SAMPLES do
+		local cur = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, i / SAMPLES)
+		pts[#pts + 1] = { x = cur.x, y = cur.y }
+		minX, minY = math.min(minX, cur.x), math.min(minY, cur.y)
+		maxX, maxY = math.max(maxX, cur.x), math.max(maxY, cur.y)
+	end
+	-- their bounding box: a point further than r from it is further than r from all of them
+	pts.minX, pts.minY, pts.maxX, pts.maxY = minX, minY, maxX, maxY
+	return pts
+end
+
+-- distanceToEdge(p, edge) <= r, with edge given by its samplePoints: the same pieces, no
+-- square roots, and done at the first piece within r.
+function geometry.withinDistance(p, pts, r)
+	if pts.minX and (p.x < pts.minX - r or p.x > pts.maxX + r or p.y < pts.minY - r or p.y > pts.maxY + r) then
+		return false
+	end
+	local r2 = r * r
+	local prev = pts[1]
+	for i = 2, #pts do
+		local cur = pts[i]
+		local dx, dy = cur.x - prev.x, cur.y - prev.y
+		local len2 = dx * dx + dy * dy
+		local s = 0
+		if len2 > 1e-12 then
+			s = ((p.x - prev.x) * dx + (p.y - prev.y) * dy) / len2
+			s = math.max(0, math.min(1, s))
+		end
+		local ex, ey = p.x - (prev.x + s * dx), p.y - (prev.y + s * dy)
+		if ex * ex + ey * ey <= r2 then
+			return true
+		end
+		prev = cur
+	end
+	return false
+end
+
 -- true if the edge runs along the other edge for its whole length
 function geometry.liesOn(edge, other, tolerance)
 	local mid = geometry.hermite(edge.p0, edge.p1, edge.t0, edge.t1, 0.5)

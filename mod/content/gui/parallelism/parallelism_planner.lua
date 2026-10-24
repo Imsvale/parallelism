@@ -251,6 +251,8 @@ local function setOverlay(streetProposal)
 		-- the plain geometry once: searches test it many times per plan
 		o.plain = o.plain or {}
 		o.plain[s.entity] = { p0 = p0, p1 = p1, t0 = vec(comp.tangent0), t1 = vec(comp.tangent1) }
+		-- and its samples, for the distance test in searches (taken when first needed)
+		o.samples = o.samples or {}
 		o.edges[s.entity] = comp
 		o.edgeList[#o.edgeList + 1] = s.entity
 		-- a circle around the edge, to skip it quickly in searches
@@ -345,9 +347,15 @@ local function edgesInCircle(center, radius)
 					if not seen[e] then
 						seen[e] = true
 						local b = overlay.bounds[e]
-						if math.sqrt((b.x - c.x) ^ 2 + (b.y - c.y) ^ 2) <= radius + b.r
-							and geometry.distanceToEdge(c, overlay.plain[e]) <= radius then
-							result[#result + 1] = e
+						if math.sqrt((b.x - c.x) ^ 2 + (b.y - c.y) ^ 2) <= radius + b.r then
+							local pts = overlay.samples[e]
+							if pts == nil then
+								pts = geometry.samplePoints(overlay.plain[e])
+								overlay.samples[e] = pts
+							end
+							if geometry.withinDistance(c, pts, radius) then
+								result[#result + 1] = e
+							end
 						end
 					end
 				end
