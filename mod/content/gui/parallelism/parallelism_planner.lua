@@ -1232,7 +1232,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	geometry.fastIntersections = shared.PERF_MEASURES
 	-- (offAdopt, offNodes, offPast, offTransition: parts of offsets, for the dev log)
 	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0, relay = 0, segments = 0, configs = 0,
-		offAdopt = 0, offNodes = 0, offPast = 0, offTransition = 0, offEnds = 0 }
+		offAdopt = 0, offNodes = 0, offPast = 0, offTransition = 0, offEnds = 0, checkRules = 0, readback = 0 }
 	searchTiming.octree, searchTiming.overlay, searchTiming.nodeOctree, searchTiming.nodeSearches = 0, 0, 0, 0
 	local function lap(name, since)
 		local t = clockMs()
@@ -3729,6 +3729,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		return toAdd, toRemove
 	end
 
+	lap("checkRules", checkStart)
 	local proposal = nil
 	-- only nodes our edges use: a node left without edges (a parallel shortened past it)
 	-- crashed the game in StreetShapeFactory (2026-10-03); before the nodes are emitted and
@@ -3786,6 +3787,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		end
 		-- An edge without lane configs crashes the game (lane_config_util.cpp, seen for
 		-- tracks and for roads in curved mode). Read them back from what the game gets.
+		local readbackStart = clockMs()
 		local ok, err = pcall(function()
 			for i, segment in ipairs(proposal.streetProposal.edgesToAdd) do
 				if sizeOf(segment.comp.laneConfigs) == 0 then
@@ -3803,16 +3805,17 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			table.insert(stats.problems, 1, "lane configs could not be checked: " .. tostring(err))
 			shared.log("lane config check failed: " .. tostring(err))
 		end
+		lap("readback", readbackStart)
 	end
 	compCache = nil
 	node2segmentsCache = nil
 	planRoadType = nil
 	local finished = clockMs()
 	if finished and timing.start then
-		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f (adopt %.0f, nodes %.0f of which run ends %.0f, past ends %.0f, transitions %.0f), crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f; searches: game index %.0f, builder's edges %.0f, nodes in the game index %.0f (%d searches)",
+		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f (adopt %.0f, nodes %.0f of which run ends %.0f, past ends %.0f, transitions %.0f), crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f (rules %.0f, lane config read-back %.0f); searches: game index %.0f, builder's edges %.0f, nodes in the game index %.0f (%d searches)",
 			finished - timing.start, (timing.firstTrack or timing.start) - timing.start, timing.offsets,
 			timing.offAdopt, timing.offNodes, timing.offEnds, timing.offPast, timing.offTransition, timing.crossings, timing.merges,
-			checkStart - emitStart, timing.relay, timing.segments, timing.configs, finished - checkStart, searchTiming.octree, searchTiming.overlay,
+			checkStart - emitStart, timing.relay, timing.segments, timing.configs, finished - checkStart, timing.checkRules, timing.readback, searchTiming.octree, searchTiming.overlay,
 			searchTiming.nodeOctree, searchTiming.nodeSearches)
 	end
 	return proposal, stats
