@@ -165,14 +165,14 @@ end
 -- one of the extra tracks would cross another track flatter than the game allows, the
 -- whole drag is refused, with the reason, instead of building the rest around it.
 local lastRefusal = nil
--- the last drag checked and the answer
-local lastCheck = { signature = nil, result = nil }
+-- the last drag checked and the answer (crossings: its plan crossed or joined roads)
+local lastCheck = { signature = nil, result = nil, crossings = false }
 -- dev aid: how often the builder asks and what answering costs, logged every so often
 local perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0, judged = 0, judgeMs = 0 }
 
 
 local function logPerf()
-	if perf.requests >= 100 then
+	if perf.requests >= 100 and shared.LOG_PLANS then
 		shared.log(string.format("perf [tracks " .. current.count .. "]: %d builder requests, %d planned, %.0f ms planning (worst %.0f ms: %s), %.0f ms measuring, %d judged by the game in %.0f ms",
 			perf.requests, perf.planned, perf.planMs, perf.worstMs, tostring(perf.worstTiming), perf.measureMs, perf.judged, perf.judgeMs))
 		perf = { requests = 0, planned = 0, planMs = 0, measureMs = 0, worstMs = 0, judged = 0, judgeMs = 0 }
@@ -462,9 +462,14 @@ local function checkPlayerProposal(param)
 		d.template = current.resName
 	end
 	local distance = planner.parallelDistance(current.resName, current.spacing)
-	-- only the verdict is needed here, not the game objects of a proposal
-	local __, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, shared.PERF_MEASURES,
-		{ reverse = current.reverse, overlay = param[1].proposal })
+	-- Only the verdict is needed here, not the game objects of a proposal; but where the
+	-- game is asked for its verdict below (crossings, none from the preview yet), it needs
+	-- them. A drag that crossed at its last position likely does at this one: planned in
+	-- full right away, not once for the check and again for the game (twice the time on
+	-- the drags that take the longest, and the builder waits for this answer).
+	local full = verdict == nil and lastCheck.crossings
+	local fullPlanned, stats = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil,
+		not full and shared.PERF_MEASURES, { reverse = current.reverse, overlay = param[1].proposal })
 	if started then
 		local took = planner.clockMs() - started
 		perf.planned = perf.planned + 1
@@ -527,7 +532,7 @@ local function checkPlayerProposal(param)
 	-- each leaves a large native object behind)
 	if result == nil and verdict == nil and (stats.crossings + stats.anchored) > 0 then
 		local ok, err = pcall(function()
-			local planned = planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, false,
+			local planned = fullPlanned or planner.makeProposal(drawn, geometry.offsets(current.count, current.side, distance), nil, false,
 				{ reverse = current.reverse, overlay = param[1].proposal })
 			if planned then
 				-- judged together with the builder's part: it was planned against it
@@ -607,7 +612,7 @@ local function checkPlayerProposal(param)
 			shared.log("judged together: failed: " .. tostring(err))
 		end
 	end
-	lastCheck = { signature = signature, result = result }
+	lastCheck = { signature = signature, result = result, crossings = (stats.crossings + stats.anchored) > 0 }
 	return result
 end
 
