@@ -124,3 +124,6 @@ ramps and a bridge, a frame or more later.
   by that mod's toolbar key `parallelTracksEnabled`. It doesn't apply to Parallelism.
 - The build preview shows none of this (Parallelism's preview is planned from the road as
   dragged).
+
+Decided 2026-10-24 (user): no coordination with Auto Bridges, neither a shared preview nor
+a joint build. The guards and its own fallback are as far as it goes.
