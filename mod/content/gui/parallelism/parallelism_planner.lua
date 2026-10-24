@@ -991,6 +991,14 @@ end
 -- The node config of a node in the world; nil for one that is not (yet): asking the
 -- game about such an entity is an error ("Invalid entity"), e.g. drawn nodes while
 -- dragging.
+-- (While a plan is made, each node's config is read from the game once: it is asked for
+-- several times per node. The component hands out fresh copies of its lists on every
+-- read, so keeping it is safe.)
+local nodeConfigCache = nil
+
+-- whether api.type.LaneConnection.new works (nil: not tried yet)
+local laneConnectionNew = nil
+
 local function worldNodeConfig(node)
 	if overlay then
 		if overlay.configs[node] then
@@ -1003,10 +1011,18 @@ local function worldNodeConfig(node)
 	if node < 0 then
 		return nil
 	end
+	local cached = nodeConfigCache and nodeConfigCache[node]
+	if cached ~= nil then
+		return cached or nil
+	end
 	local ok, cfg = pcall(function()
 		return api.engine.getComponent(node, api.type.ComponentType.BASE_NODE_CONFIG)
 	end)
-	return ok and cfg or nil
+	cfg = ok and cfg or nil
+	if nodeConfigCache then
+		nodeConfigCache[node] = cfg or false
+	end
+	return cfg
 end
 
 -- Which edges meet at each node, fetched once per plan when first needed (the whole
@@ -1206,8 +1222,12 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		offsets = { offsets }
 	end
 	options = options or {}
+	-- (logging: a log was given; the preview and the drag check give none, and the log
+	-- lines run per node and crossing are then not even built)
+	local logging = log ~= nil
 	log = log or function() end
 	compCache = shared.PERF_MEASURES and {} or nil
+	nodeConfigCache = shared.PERF_MEASURES and {} or nil
 	node2segmentsCache = nil
 	planRoadType = drawn[1] and drawn[1].comp.roadType or trackRoadType()
 	planRoadWidth = nil
@@ -1969,7 +1989,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				elseif node then
 					stats.reused = stats.reused + 1
 					reusedNodes[node.entity] = true
-					log("  node " .. entity .. ": existing node " .. node.entity .. " " .. shared.vecToString(node.position))
+					if logging then
+						log("  node " .. entity .. ": existing node " .. node.entity .. " " .. shared.vecToString(node.position))
+					end
 					local segments = getNode2Segments()[node.entity]
 					if noJunctions and segments and #segments >= 2 then
 						-- joining a road in the middle, not at its end
@@ -2024,7 +2046,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							anchorCuts[node.entity].otherWidth = widthOf(anchoredComp.roadTemplate) or plannedWidth()
 						end
 						stats.anchored = stats.anchored + 1
-						log("  node " .. entity .. ": anchored on edge " .. edgeEntity .. string.format(" at u = %.3f ", u) .. shared.vecToString(point))
+						if logging then
+							log("  node " .. entity .. ": anchored on edge " .. edgeEntity .. string.format(" at u = %.3f ", u) .. shared.vecToString(point))
+						end
 					end
 				end
 				if node == nil then
@@ -2039,7 +2063,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					mirrorOf[node.entity] = entity
 				end
 				-- dev aid: how each end of the run was placed
-				if useCount[entity] == 1 then
+				if logging and useCount[entity] == 1 then
 					local segments = getNode2Segments()[entity]
 					log(string.format("  run end: drawn node %d (%d world edges) at %s -> our node %d at %s%s%s", entity,
 						segments and #segments or 0, shared.vecToString(position), node.entity, shared.vecToString(node.position),
@@ -2529,7 +2553,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								local cut = addSplit(entity, u, node, angle)
 								cut.level = level or nil
 								stats.crossings = stats.crossings + 1
-								log("  crossing edge " .. entity .. string.format(" at its plain node %d, %.1f deg ", plainNode, angle) .. shared.vecToString(x.pointA))
+								if logging then
+									log("  crossing edge " .. entity .. string.format(" at its plain node %d, %.1f deg ", plainNode, angle) .. shared.vecToString(x.pointA))
+								end
 							end
 						elseif math.abs(x.pointA.z - x.pointB.z) < NODE_SNAP_HEIGHT
 							and isAwayFromEnds(oe.edge, x.pointA) and isAwayFromEnds(other, x.pointB) then
@@ -2562,7 +2588,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 										end
 									end
 								end
-								log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg ", x.ub, angle) .. shared.vecToString(x.pointA))
+								if logging then
+									log("  crossing edge " .. entity .. string.format(" at u = %.3f, %.1f deg ", x.ub, angle) .. shared.vecToString(x.pointA))
+								end
 							end
 						end
 					end
@@ -2963,11 +2991,13 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 						if a then
 							-- dev aid: what makes it a junction (2026-10-03: a refusal named a node the
 							-- player knew of no junction at)
-							local names = {}
-							for __, s in ipairs(segments) do
-								names[#names + 1] = tostring(s) .. (own[s] and " (this road)" or "")
+							if logging then
+								local names = {}
+								for __, s in ipairs(segments) do
+									names[#names + 1] = tostring(s) .. (own[s] and " (this road)" or "")
+								end
+								log(string.format("  re-laid road ends at junction %d, %.1f deg: edges %s", n.id, a, table.concat(names, ", ")))
 							end
-							log(string.format("  re-laid road ends at junction %d, %.1f deg: edges %s", n.id, a, table.concat(names, ", ")))
 							local keep, corner = junctionRoom({ angle = a }, roadWidth(c.edges[1].comp.roadTemplate) or planRoadWidth, planRoadWidth)
 							junctions[#junctions + 1] = { id = n.id, node = endIndex, keepBefore = endIndex == 1 and 0 or keep,
 								keepAfter = endIndex == 1 and keep or 0, corner = corner }
@@ -2990,12 +3020,14 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			if relayStart then
 				timing.relay = timing.relay + clockMs() - relayStart
 			end
-			local ids = {}
-			for __, e in ipairs(c.edges) do
-				ids[#ids + 1] = tostring(e.id)
+			if logging then
+				local ids = {}
+				for __, e in ipairs(c.edges) do
+					ids[#ids + 1] = tostring(e.id)
+				end
+				log(string.format("  re-laid road of edges %s: %d junctions, %d nodes removed, %d pieces", table.concat(ids, ","),
+					#junctions, #result.removedNodes, #result.pieces))
 			end
-			log(string.format("  re-laid road of edges %s: %d junctions, %d nodes removed, %d pieces", table.concat(ids, ","),
-				#junctions, #result.removedNodes, #result.pieces))
 			for __, p in ipairs(result.problemPoints or {}) do
 				problemAt(p)
 			end
@@ -3500,14 +3532,21 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- are reused (each read of laneConnections hands out fresh copies).
 		local function makeLaneConnections(connections)
 			local make = nil
-			pcall(function()
-				if api.type.LaneConnection and api.type.LaneConnection.new then
-					api.type.LaneConnection.new()
-					make = function()
-						return api.type.LaneConnection.new()
+			-- (whether the constructor works: found out once)
+			if laneConnectionNew == nil then
+				laneConnectionNew = false
+				pcall(function()
+					if api.type.LaneConnection and api.type.LaneConnection.new then
+						api.type.LaneConnection.new()
+						laneConnectionNew = true
 					end
+				end)
+			end
+			if laneConnectionNew then
+				make = function()
+					return api.type.LaneConnection.new()
 				end
-			end)
+			end
 			if make == nil then
 				for __, d in ipairs(drawn) do
 					for __, node in ipairs({ d.node0, d.node1 }) do
@@ -3644,14 +3683,16 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 							toAdd[#toAdd + 1] = nc
 						end)
 						done[node] = true
-						local listed = {}
-						for __, c in ipairs(connections) do
-							listed[#listed + 1] = string.format("%d.%d->%d.%d%s%s", c.segment0, c.lane0, c.segment1, c.lane1,
-								c.withRoad and " road" or "", c.withTram and " tram" or "")
+						if logging then
+							local listed = {}
+							for __, c in ipairs(connections) do
+								listed[#listed + 1] = string.format("%d.%d->%d.%d%s%s", c.segment0, c.lane0, c.segment1, c.lane1,
+									c.withRoad and " road" or "", c.withTram and " tram" or "")
+							end
+							log(string.format("  junction node %d: %d edges, %d lane connections [%s], crosswalks [%s]%s", node, #edges,
+								#connections, table.concat(listed, ", "), table.concat(crosswalks, ", "),
+								ok and "" or (", config failed: " .. tostring(err))))
 						end
-						log(string.format("  junction node %d: %d edges, %d lane connections [%s], crosswalks [%s]%s", node, #edges,
-							#connections, table.concat(listed, ", "), table.concat(crosswalks, ", "),
-							ok and "" or (", config failed: " .. tostring(err))))
 						if not ok then
 							stats.junctionFailed = tostring(err)
 						end
@@ -3808,6 +3849,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		lap("readback", readbackStart)
 	end
 	compCache = nil
+	nodeConfigCache = nil
 	node2segmentsCache = nil
 	planRoadType = nil
 	local finished = clockMs()
@@ -4051,7 +4093,8 @@ local function makeProposal(drawn, offsets, log, planOnly, options)
 	node2segmentsCache = nil
 	local ok, proposal, stats = pcall(makeProposalIn, drawn, offsets, log, planOnly, options)
 	setOverlay(nil)
-	node2segmentsCache = nil
+	-- (the per-plan caches end with the plan, also one that failed half way)
+	node2segmentsCache, compCache, nodeConfigCache = nil, nil, nil
 	if not ok then
 		error(proposal, 0)
 	end
