@@ -1,18 +1,23 @@
 # Performance
 
 Where the time goes while dragging, what has been done about it, what could still be
-done, and what cannot. Status 2026-10-03.
+done, and what cannot. Status 2026-10-03, with the 2026-10-24 pass under Done.
 
 ## How to measure
 
-With `PERF_MEASURES` on (`parallelism_shared.lua`), the log has two kinds of lines:
+With `PERF_MEASURES` on (`parallelism_shared.lua`) and the `logPlans` dev switch on (the dev
+build; a release logs none of these), the log has these lines:
 
 - `perf [tracks N]: preview plan took X ms (... ; orient, offsets, crossings, merges,
   emit (re-lay, game objects, node configs), check; searches: game index, builder's
   edges)`: one plan for the preview, by phase. Logged for plans over 20 ms.
 - `perf [tracks N]: 100 builder requests, P planned, X ms planning (worst ...), ...,
   J judged by the game in Y ms` (the drag check), and `100 tooltip calls, C preview
-  changes, X ms preview lua (of which J judged by the game in Y ms)` (the preview).
+  changes, X ms preview lua (... ms in calls that changed nothing; J judged by the game in
+  Y ms); ...; D draws of the builder, L line builds in Z ms` (the preview; a line build is
+  the Wireframe or refused plan built for a draw, the other draws reuse it).
+- `perf [network view]: R refreshes in X ms (E edges read), L line builds in Y ms; ...`,
+  every 10 s while the network view (HUD overlay, or the builder with Wireframe on) works.
 
 `tests/chain_bench.lua` times the re-laying offline.
 
@@ -64,6 +69,26 @@ A 6-track drag over 6 tracks takes 60-155 ms per plan, simple bundles 20-30 ms.
   a memory problem), component and template caches, adaptive sampling and cached
   polylines in the crossing search, a preview debounce.
 
+- **2026-10-24 pass** (after path-visualizer's: nothing worked out again that can't have
+  changed):
+  - lines for the edge renderable (plan Wireframe, refused plan, network view) built once
+    per change, not on every draw of the action;
+  - the network view keeps the edges in view by entity and node markers by node, read
+    again after builds it hears of (3 s, which covers the mod's own build) and every
+    10 s (entity ids get reused); straight-line node markers, world edges in 2 m pieces;
+  - the single-road Wireframe checks for a change before reading anything; its world
+    edges are left to the network view, which comes on with it;
+  - the builder's edges are sampled once per plan for the search distance test, which
+    tests the samples with a bounding-box reject and stops at the first hit (same results,
+    19x offline; the 77 ms item below);
+  - drawn-road collection (every tooltip call and drag check) tests against the removed
+    edges' samples;
+  - the drag check plans in full right away when the previous drag position crossed
+    roads, and the game judges that plan (it planned twice on exactly those drags);
+  - the tooltip checks the preview's references 4 times a second, not on every call;
+  - per-plan logging (each plan, perf lines, verdicts) only in the dev build;
+  - the Hide preview setting read once.
+
 ## What could still be done
 
 Roughly by expected gain:
@@ -75,9 +100,7 @@ Roughly by expected gain:
 2. **Fewer judgements by the game.** The preview's safety judgement before showing a plan
    (added against the empty-node crash) could go now that the join's consistency check
    refuses such plans. Saves 10-30 ms per preview change.
-3. **Searching the builder's edges** still costs about 77 ms on the biggest drags: the
-   exact distance (`distanceToEdge`, sampled) runs for every edge whose bounding circle
-   touches the search. A rough distance first (as done for our own nodes) would skip most.
+3. ~~Searching the builder's edges~~: done 2026-10-24 (sampled once, bounding-box reject).
 4. **Re-laying**: about half a millisecond per crossing. Edge lengths and positions
    along each chain are sampled again for every junction and piece; computing them once
    per chain would save part of it.
