@@ -352,8 +352,40 @@ local WIREFRAME_COLORS = {
 local NODE_MARKER = overlay.NODE_MARKER
 local JUNCTION_MARKER = overlay.JUNCTION_MARKER
 local MAX_NODE_MARKERS = overlay.MAX_NODE_MARKERS
-local addSquareLines = overlay.addSquareLines
-local makeWireframeEdge = overlay.makeEdge
+-- Line objects by geometry (to the millimeter) and look, kept from one plan's lines to
+-- the next: dragging changes a few pieces of the plan, the rest come back the same.
+-- (cur: those of the lines being built, prev: of the lines before; the others go.)
+local lineObjects = { cur = {}, prev = {} }
+
+local function reuseOrMake(key, make)
+	local line = lineObjects.cur[key] or lineObjects.prev[key]
+	if line == nil then
+		line = make()
+	end
+	lineObjects.cur[key] = line
+	return line
+end
+
+local function makeWireframeEdge(e, color, width)
+	local key = string.format("e%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f|%g,%g,%g,%g|%g", e.p0.x, e.p0.y, e.p0.z,
+		e.p1.x, e.p1.y, e.p1.z, e.t0.x, e.t0.y, e.t1.x, e.t1.y, color[1], color[2], color[3], color[4], width)
+	return reuseOrMake(key, function()
+		return overlay.makeEdge(e, color, width)
+	end)
+end
+
+local function addSquareLines(edges, p, h, color, width)
+	local key = string.format("s%.3f,%.3f,%.3f|%g|%g,%g,%g,%g|%g", p.x, p.y, p.z, h, color[1], color[2], color[3], color[4], width)
+	local lines = reuseOrMake(key, function()
+		local list = {}
+		overlay.addSquareLines(list, p, h, color, width)
+		return list
+	end)
+	for __, l in ipairs(lines) do
+		edges[#edges + 1] = l
+	end
+end
+
 local wireframeFailed = false
 
 -- The wireframe of a native build (count 1): the builder's live proposal (drawn edges,
@@ -495,6 +527,7 @@ local function planLines(kind, make)
 	local c = planLinesCache
 	if c.kind ~= kind or c.version ~= preview.version then
 		local started = shared.LOG_PLANS and planner.clockMs()
+		lineObjects.prev, lineObjects.cur = lineObjects.cur, {}
 		c.kind, c.version, c.lines = kind, preview.version, make()
 		if started then
 			previewPerf.lineBuilds = previewPerf.lineBuilds + 1
