@@ -1224,7 +1224,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	end
 	local looseEndRadius = math.min(MIN_PIECE_LENGTH * 1.5, LOOSE_END_SHARE * step)
 	geometry.fastIntersections = shared.PERF_MEASURES
-	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0, relay = 0, segments = 0, configs = 0 }
+	-- (offAdopt, offNodes, offPast, offTransition: parts of offsets, for the dev log)
+	local timing = { start = clockMs(), offsets = 0, crossings = 0, merges = 0, relay = 0, segments = 0, configs = 0,
+		offAdopt = 0, offNodes = 0, offPast = 0, offTransition = 0 }
 	searchTiming.octree, searchTiming.overlay = 0, 0
 	local function lap(name, since)
 		local t = clockMs()
@@ -1460,6 +1462,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		local movable = {}
 		-- run ends slid onto a road (branchPoint): node -> where the parallel would end
 		local branchFrom = {}
+		local adoptStart = clockMs()
 
 		-- The drawn road continues from a junction where an earlier bundle's roads have
 		-- their own junctions on the same road (a T of ours extended at another angle):
@@ -1621,6 +1624,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				end
 			end
 		end
+
+		lap("offAdopt", adoptStart)
 
 		-- The drawn run starts (atStart) or ends at the end of an existing road and kinks
 		-- there. If the parallel of that road ends where it should, move its end to the
@@ -1922,6 +1927,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		local function getNode(entity, position, tangent, atStart)
 			local node = nodes[entity]
 			if node == nil then
+				local nodeStart = clockMs()
 				local newPosition = geometry.offsetPoint(position, tangent, offset)
 				if newPosition == nil then
 					return nil
@@ -2031,6 +2037,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					branchFrom[node.entity] = slidFrom
 				end
 				nodes[entity] = node
+				lap("offNodes", nodeStart)
 			end
 			return node
 		end
@@ -2281,6 +2288,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- each end slid past its edge's start: the edges before it are walked back to the
 		-- one the meeting point lies on, which is cut there and ends at the slid node; the
 		-- edges and nodes in between go
+		local pastStart = clockMs()
 		for __, pe in ipairs(pastEnds) do
 			local other, fitted = pe.other, false
 			-- the edges taken out on the way, shown if the end cannot be fitted
@@ -2361,6 +2369,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		-- the parallel and is refitted over both, as often as it needs: the transition from
 		-- the old road into the curve is as long as the curve needs, not one edge (2026-10-04:
 		-- 47.6 m where a concentric parallel would curve at 98 m). Not across a crossing.
+		local transitionStart = lap("offPast", pastStart)
 		for __, oe in ipairs(offsetEdges) do
 			local t = oe.transition
 			local limit = t and allowedRadius(templateOf(oe.props)) or nil
@@ -2403,6 +2412,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			end
 		end
 
+		lap("offTransition", transitionStart)
 		local phase = lap("offsets", timing.trackStart)
 		-- crossings with existing tracks on the same level get a shared node
 		-- (own node .. ":" .. existing edge) of crossings made at one of our nodes
@@ -3784,8 +3794,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 	planRoadType = nil
 	local finished = clockMs()
 	if finished and timing.start then
-		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f, crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f; searches: game index %.0f, builder's edges %.0f",
-			finished - timing.start, (timing.firstTrack or timing.start) - timing.start, timing.offsets, timing.crossings, timing.merges,
+		stats.timing = string.format("%.0f ms: orient %.0f, offsets %.0f (adopt %.0f, nodes %.0f, past ends %.0f, transitions %.0f), crossings %.0f, merges %.0f, emit %.0f (re-lay %.0f, game objects %.0f, node configs %.0f), check %.0f; searches: game index %.0f, builder's edges %.0f",
+			finished - timing.start, (timing.firstTrack or timing.start) - timing.start, timing.offsets,
+			timing.offAdopt, timing.offNodes, timing.offPast, timing.offTransition, timing.crossings, timing.merges,
 			checkStart - emitStart, timing.relay, timing.segments, timing.configs, finished - checkStart, searchTiming.octree, searchTiming.overlay)
 	end
 	return proposal, stats

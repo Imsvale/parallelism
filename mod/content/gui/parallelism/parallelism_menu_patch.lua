@@ -265,6 +265,7 @@ local function updatePreview(proposal)
 	preview.version = preview.version + 1
 	-- dev aid: when this plan was made, to measure how long it takes to be drawn
 	preview.plannedAt = planner.clockMs()
+	preview.plannedVersion = preview.version
 end
 
 -- Tooltip line with the tightest curve of the drawn track: by its ends (as an arc) and
@@ -1326,11 +1327,12 @@ function patch.install()
 		end
 		if injectPreview then
 			injectPreview = false
-			-- dev aid: a new plan drawn, and how long after it was made
+			-- dev aid: a new plan drawn, and how long after it was made (only versions made
+			-- by a plan: a cleared preview bumps it too)
 			if preview.version ~= preview.drawnVersion then
 				preview.drawnVersion = preview.version
 				local now = planner.clockMs()
-				if now and preview.plannedAt then
+				if now and preview.plannedAt and preview.plannedVersion == preview.version then
 					previewPerf.rendered = previewPerf.rendered + 1
 					previewPerf.lagMs = previewPerf.lagMs + (now - preview.plannedAt)
 					previewPerf.maxLagMs = math.max(previewPerf.maxLagMs, now - preview.plannedAt)
