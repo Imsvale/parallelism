@@ -16,6 +16,10 @@ local patch = {}
 -- second), see where the refused plan is logged
 local HOLD_STILL_CALLS = 60
 
+-- how often (ms) a tooltip call checks that the existing edges and nodes the preview
+-- names are still there
+local REFS_CHECK_MS = 250
+
 -- dev experiment: a Selector in the road builder, to see the build click (it disables
 -- the builder, see where it is added)
 local SPIKE_SELECTOR = false
@@ -1112,9 +1116,15 @@ function patch.install()
 				local ok, err = pcall(function()
 					local version = preview.version
 					local started = planner.clockMs()
-					if #preview.proposals > 0 and not planner.refsStillThere(preview.refs) then
-						-- the world changed under the preview (a build): it is planned again
-						clearPreview()
+					-- the world changed under the preview (a build): it is planned again. Checked a
+					-- few times a second, not on every call: it reads every existing edge and node
+					-- the preview names, and each draw checks it anyway before showing it.
+					if #preview.proposals > 0 and (started == nil or not preview.refsCheckedAt
+						or started - preview.refsCheckedAt >= REFS_CHECK_MS or started < preview.refsCheckedAt) then
+						preview.refsCheckedAt = started
+						if not planner.refsStillThere(preview.refs) then
+							clearPreview()
+						end
 					end
 					if shared.builderRefuses(proposalData) then
 						-- the drawn road itself is refused: nothing of ours to show or judge
