@@ -727,7 +727,7 @@ local function sendBuild(label, proposal, stats, onDone)
 	-- bridges: without it a bundle got only a narrow central pillar, built one by one
 	-- natively it gets one across its whole width (fixed together with the edge
 	-- distance, which of the two did it was not tested)
-	context.extendProposalRedoPillars = not shared.BUILD_NO_REDO_PILLARS
+	context.extendProposalRedoPillars = true
 	-- (how long the game takes with it, from sending to the result)
 	local sent = planner.clockMs()
 	api.cmd.sendCommand(api.cmd.makeWorldBuildProposalCmd(proposal, context, false, true, true), function(res, success)
@@ -814,7 +814,7 @@ end
 local function buildCombined(job)
 	shared.log("tracks at offsets " .. table.concat(job.offsets, ", ") .. ":")
 	local proposal, stats = planner.makeProposal(readDrawn(job), job.offsets, shared.log, false,
-		{ reverse = job.reverse, step = job.distance, noDistance = shared.BUILD_NO_DISTANCE })
+		{ reverse = job.reverse, step = job.distance })
 	shared.log("  planned in " .. tostring(stats.timing))
 	if stats.edges == 0 then
 		return
@@ -977,7 +977,7 @@ local function buildInChunks(job, perChunk)
 			return
 		end
 		local proposal, stats = planner.makeProposal(readDrawn(job), offsets, shared.log, false,
-			{ reverse = job.reverse, step = job.distance, noDistance = shared.BUILD_NO_DISTANCE })
+			{ reverse = job.reverse, step = job.distance })
 		shared.log(string.format("  chunk %d of %d (offsets %s) planned in %s", index, chunks, table.concat(offsets, ", "), tostring(stats.timing)))
 		if stats.edges == 0 then
 			chunk(index + 1)

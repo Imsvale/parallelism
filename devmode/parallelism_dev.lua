@@ -6,8 +6,6 @@ return {
 	dumpAtDragStart = true,
 	measureCrossings = true,
 	logPlans = true,
-	-- build experiments (parallelism_shared.lua): flip one at a time
-	buildNoDistance = false,
-	buildNoRedoPillars = false,
+	-- builds in chunks of this many parallels (0: as the build decides)
 	buildChunk = 0,
 }

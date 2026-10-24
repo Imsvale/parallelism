@@ -84,11 +84,8 @@ local shared = {
 	-- dev switch: the node markers' two shapes take turns, to compare their cost in frame
 	-- time (parallelism_overlay.lua, noteFrame)
 	MARKER_AB = dev.markerAB == true,
-	-- dev switches for finding what makes the game slow with a big track build (50 tracks:
-	-- 12 s, 50 roads: under 1 s, 2026-10-24): the build without the tracks' shared-strip
-	-- distance, without redoing pillars, or in chunks of this many parallels (0: all at once)
-	BUILD_NO_DISTANCE = dev.buildNoDistance == true,
-	BUILD_NO_REDO_PILLARS = dev.buildNoRedoPillars == true,
+	-- dev switch: every build in chunks of this many parallels (0: as the build decides, see
+	-- parallelism.script.lua, parallelsPerChunk)
 	BUILD_CHUNK = tonumber(dev.buildChunk) or 0,
 
 	-- dev aid: a "Radius" line in the track and road builder tooltip (tightest curve of the
