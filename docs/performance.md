@@ -87,7 +87,19 @@ A 6-track drag over 6 tracks takes 60-155 ms per plan, simple bundles 20-30 ms.
     roads, and the game judges that plan (it planned twice on exactly those drags);
   - the tooltip checks the preview's references 4 times a second, not on every call;
   - per-plan logging (each plan, perf lines, verdicts) only in the dev build;
-  - the Hide preview setting read once.
+  - the Hide preview setting read once;
+  - a T's parallel ends (`branchPoint`): road ends outside a box around each path piece
+    are skipped instead of searched for their closest point (node placement at a T went
+    from 40-70 ms to 2-8 ms per plan for 6 roads);
+  - `closestParameter`, `arcLength`, `minRadiusAlong`, `distanceToEdge`,
+    `parameterAtLength` evaluate the curve inline, without a table per sample
+    (bit-identical, 2-3x). Besides their own time this cuts the garbage: phases of the
+    same plan varied 3-23 ms from run to run, the collector stepping in where it happened.
+
+Measured 2026-10-24 (dev build, after the pass), per plan of the preview: a 6-road bundle
+over 4 roads (20 crossings) 21-58 ms, mostly 21-30 (re-lay 2-28, node configs 4-10, the
+game's judging about 7.5 ms more); a T of 6 roads 22-44 ms; 9 roads over open ground
+21-43 ms. The network view: 0.1-0.3 ms a refresh, 2-4 ms to build its lines.
 
 ## What could still be done
 
