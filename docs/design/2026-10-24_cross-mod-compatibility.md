@@ -104,3 +104,23 @@ children, i.e. computed from module state rather than inside the descriptor wrap
   past it. Only matters if such a wrapper adds a viewer.
 - Viewers made by a mod that kept its own reference to `builtin.ProposalViewer` from before
   Parallelism loaded aren't recognised. Auto Bridges evidently doesn't (the guard works).
+
+## Auto Bridges and the build (read from its code, mod.io 6450598, 2026-10-24)
+
+Auto Bridges rebuilds after the build, not in it. Its game script queues every applied
+build as a job; its `guiUpdate` rebuilds the jobs that match a confirmed tool build onto
+ramps and a bridge, a frame or more later.
+
+- Parallelism sends its build right after the player's, reading the drawn road while it is
+  still plain, so its parallels are built plain. That ordering is why the two work: if Auto
+  Bridges rebuilt first, the drawn edges Parallelism reads would be gone.
+- Auto Bridges then bridges our parallels through its generic fallback: new segments of a
+  non-tool build lying 3 to 100 m beside a way it bridged in the last 20 s, within about 18
+  degrees of its direction, are bridged with the same settings, each planned on its own
+  (own crossings, ramps and heights). Parallels further than 100 m out keep their level
+  crossings; a failed rebuild of one parallel leaves the others.
+- Its dedicated support (wait for the parallels, raise them with the drawn track in one
+  build, following its heights) is for a different mod.io mod, "Parallel Tracks", detected
+  by that mod's toolbar key `parallelTracksEnabled`. It doesn't apply to Parallelism.
+- The build preview shows none of this (Parallelism's preview is planned from the road as
+  dragged).
