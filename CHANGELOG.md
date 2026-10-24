@@ -5,6 +5,12 @@ entry is also the changelog text for the mod.io upload.
 
 ## Unreleased
 
+- Much faster while dragging, especially with many parallels and when ending on another road (T junctions).
+- Big track bundles build much faster: they're now built in several steps instead of all at once.
+- The number of roads/tracks is now a slider instead of buttons.
+- The max number of roads/tracks in the mod settings now goes up to 50.
+- Wireframe now also shows the network around the camera while not dragging, with node markers as magenta squares.
+- Fixed a possible crash with other mods that draw lines in the construction view.
 - Crossing a road just before it bends now works like the game's own road tool instead of being refused.
 - Parallels ending at a road no longer pick up pieces of that road and wrap around to the other side.
 - The Side setting is kept when the drawn road ends at a road near another road's dead end.
