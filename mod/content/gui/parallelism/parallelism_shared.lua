@@ -80,6 +80,9 @@ local shared = {
 	-- tooltip calls, slow plans, refused plans held still, the game's verdicts); a release
 	-- logs only failures
 	LOG_PLANS = dev.logPlans == true,
+	-- dev switch: the node markers' two shapes take turns, to compare their cost in frame
+	-- time (parallelism_overlay.lua, noteFrame)
+	MARKER_AB = dev.markerAB == true,
 
 	-- dev aid: a "Radius" line in the track and road builder tooltip (tightest curve of the
 	-- drawn track), also for single tracks. Out of scope for this mod: the sibling mod

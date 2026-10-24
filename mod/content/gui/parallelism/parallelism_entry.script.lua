@@ -22,6 +22,7 @@ local lastCheck = nil
 
 local Entry = react.RegisterPluginRecipe(mod_entry_point.ModEntryPointExtension, "ImsvaleParallelTracksEntry", function()
 	react.onStep(function()
+		overlay.noteFrame()
 		local now = os.clock()
 		if lastCheck and now - lastCheck < CHECK_SECONDS then
 			return

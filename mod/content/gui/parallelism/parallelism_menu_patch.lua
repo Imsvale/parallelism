@@ -374,11 +374,11 @@ local function makeWireframeEdge(e, color, width)
 	end)
 end
 
-local function addNodeMarker(edges, p, h, color, width)
-	local key = string.format("s%.3f,%.3f,%.3f|%g|%g,%g,%g,%g|%g", p.x, p.y, p.z, h, color[1], color[2], color[3], color[4], width)
+local function addNodeMarker(edges, p, h, color)
+	local key = string.format("%s%.3f,%.3f,%.3f|%g|%g,%g,%g,%g", overlay.markerShape, p.x, p.y, p.z, h, color[1], color[2], color[3], color[4])
 	local lines = reuseOrMake(key, function()
 		local list = {}
-		overlay.addNodeMarker(list, p, h, color, width)
+		overlay.addNodeMarker(list, p, h, color)
 		return list
 	end)
 	for __, l in ipairs(lines) do
@@ -466,9 +466,9 @@ local function makeWireframe()
 	end
 	local ok, result = pcall(function()
 		local edges = {}
-		-- the spot a refused plan names: a small white ring, 3 m across
+		-- the spot a refused plan names: a small white dot, 3 m across
 		if preview.problemAt then
-			addNodeMarker(edges, preview.problemAt, 1.5, { 1, 1, 1, 1 }, 0.4)
+			addNodeMarker(edges, preview.problemAt, 1.5, { 1, 1, 1, 1 })
 		end
 		-- node markers at the ends of the edges: by position, with the edges meeting there
 		-- (removed ones not counted, they are gone after the build)
@@ -505,7 +505,7 @@ local function makeWireframe()
 				break
 			end
 			local c = WIREFRAME_COLORS[n.kind] or WIREFRAME_COLORS.ours
-			addNodeMarker(edges, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 }, 0.3)
+			addNodeMarker(edges, n.position, n.count >= 3 and JUNCTION_MARKER or NODE_MARKER, { c[1], c[2], c[3], 1 })
 		end
 		return edges
 	end)
@@ -521,14 +521,14 @@ end
 -- The plan's lines, built once per plan (preview version) and reused for every draw of
 -- it: the builder's action is drawn far more often than the plan changes (the camera, the
 -- builder's own state, the network view).
-local planLinesCache = { kind = nil, version = nil, lines = nil }
+local planLinesCache = { kind = nil, version = nil, lines = nil, markers = nil }
 
 local function planLines(kind, make)
 	local c = planLinesCache
-	if c.kind ~= kind or c.version ~= preview.version then
+	if c.kind ~= kind or c.version ~= preview.version or c.markers ~= overlay.markerGeneration then
 		local started = shared.LOG_PLANS and planner.clockMs()
 		lineObjects.prev, lineObjects.cur = lineObjects.cur, {}
-		c.kind, c.version, c.lines = kind, preview.version, make()
+		c.kind, c.version, c.markers, c.lines = kind, preview.version, overlay.markerGeneration, make()
 		if started then
 			previewPerf.lineBuilds = previewPerf.lineBuilds + 1
 			previewPerf.lineMs = previewPerf.lineMs + ((planner.clockMs() or started) - started)

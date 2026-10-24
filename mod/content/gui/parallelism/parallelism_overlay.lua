@@ -1,5 +1,5 @@
 -- The network overlay: every road and track edge around the camera as a line, with a
--- ring at each node (larger where 3 or more edges meet), switched on and off with a
+-- dot at each node (larger where 3 or more edges meet), switched on and off with a
 -- button in the HUD's mod button area (parallelism_overlay_button.script.lua).
 --
 -- A 3D overlay only renders as part of the active tool's action (an action descriptor):
@@ -19,7 +19,7 @@ local planner = require "parallelism_planner.lua"
 
 local overlay = {}
 
--- node markers: rings of this radius (meters), larger where 3 or more edges meet
+-- node markers: dots of this radius (meters), larger where 3 or more edges meet
 overlay.NODE_MARKER = 0.75
 overlay.JUNCTION_MARKER = 1.5
 overlay.MAX_NODE_MARKERS = 400
@@ -50,8 +50,7 @@ function overlay.makeEdge(e, color, width, stepSize)
 	return edge
 end
 
--- a straight, level line from (x0, y0) to (x1, y1) at height z: one piece, no curve to
--- sample
+-- a straight, level line from (x0, y0) to (x1, y1) at height z, in one piece
 local function makeStraightEdge(x0, y0, x1, y1, z, color, width)
 	local st = api.type.EdgeGeometry.Straight.new()
 	st.pos = { api.type.Vec2f.new(x0, y0), api.type.Vec2f.new(x1, y1) }
@@ -66,35 +65,26 @@ local function makeStraightEdge(x0, y0, x1, y1, z, color, width)
 	edge.colors = { api.type.Vec4f.new(color[1], color[2], color[3], color[4]) }
 	edge.width = width
 	edge.offsetZ = 1.0
-	edge.stepSize = 2.0
+	edge.stepSize = math.max(geom.length, 0.1)
 	return edge
 end
 
--- The square node marker (overlay.MARKER_RING false): the four sides of a square of half
--- size h around p, as straight lines, appended to lines.
-function overlay.addSquareLines(lines, p, h, color, width)
-	local corners = { { -h, -h }, { h, -h }, { h, h }, { -h, h } }
-	for i = 1, 4 do
-		local a, b = corners[i], corners[i % 4 + 1]
-		lines[#lines + 1] = makeStraightEdge(p.x + a[1], p.y + a[2], p.x + b[1], p.y + b[2], p.z, color, width)
-	end
-end
+-- Node markers, filled, of half size h around p: a disc (one arc of radius h / 2 as wide
+-- as h, so it is filled to the middle; a little over a full turn, the ends overlapping,
+-- drawn in pieces of a sixteenth of the circle, or it comes out a polygon) or a square
+-- (one straight line as wide as it is long, a single piece). One line object each either
+-- way. Nodes that do not move keep theirs (by node in the network view, by position in
+-- the Wireframe); one that moves gets a new one: the geometry is in world coordinates.
+overlay.markerShape = "disc"
+-- bumped when the shape changes, so markers already made are made again
+overlay.markerGeneration = 0
 
--- A node marker: a ring of radius h around p, one arc (one line object where the square
--- took four; nodes move with every plan, so they are made anew each time). Just short of a
--- full turn: a closed one might be degenerate to the renderer. Drawn in pieces of a
--- sixteenth of the circle, or it comes out a polygon. overlay.MARKER_RING false: squares.
-overlay.MARKER_RING = true
-
-function overlay.addNodeMarker(lines, p, h, color, width)
-	if not overlay.MARKER_RING then
-		overlay.addSquareLines(lines, p, h, color, width)
-		return
-	end
-	local angle = 2 * math.pi - 0.02
+local function makeDisc(p, h, color)
+	local angle = 2 * math.pi + 0.2
+	local r = h / 2
 	local arc = api.type.EdgeGeometry.Arc.new()
 	arc.center = api.type.Vec2f.new(p.x, p.y)
-	arc.radius = h
+	arc.radius = r
 	arc.startAngle = 0
 	arc.angle = angle
 	local geom = api.type.EdgeGeometry.new()
@@ -102,14 +92,22 @@ function overlay.addNodeMarker(lines, p, h, color, width)
 	geom.arc = arc
 	geom.height = api.type.Vec2f.new(p.z, p.z)
 	geom.tangent = api.type.Vec2f.new(0, 0)
-	geom.length = h * angle
-	geom.width = width
+	geom.length = r * angle
+	geom.width = h
 	local edge = builtin.type.EdgeRenderable.Edge.new(geom)
 	edge.colors = { api.type.Vec4f.new(color[1], color[2], color[3], color[4]) }
-	edge.width = width
+	edge.width = h
 	edge.offsetZ = 1.0
-	edge.stepSize = math.max(0.05, geom.length / 16)
-	lines[#lines + 1] = edge
+	edge.stepSize = math.max(0.02, 2 * math.pi * r / 16)
+	return edge
+end
+
+function overlay.addNodeMarker(lines, p, h, color)
+	if overlay.markerShape == "square" then
+		lines[#lines + 1] = makeStraightEdge(p.x - h, p.y, p.x + h, p.y, p.z, color, 2 * h)
+	else
+		lines[#lines + 1] = makeDisc(p, h, color)
+	end
 end
 
 -- (a zero-length edge crashed the game drawing it)
@@ -353,12 +351,12 @@ function overlay.lines()
 				break
 			end
 			local junction = n.count >= 3
-			local key = n.node .. (junction and "j" or "n") .. (n.track and "t" or "r")
+			local key = n.node .. (junction and "j" or "n") .. (n.track and "t" or "r") .. overlay.markerShape
 			local lines = state.squares[key]
 			if lines == nil then
 				local c = n.track and TRACK_COLOR or ROAD_COLOR
 				lines = {}
-				overlay.addNodeMarker(lines, n.position, junction and overlay.JUNCTION_MARKER or overlay.NODE_MARKER, { c[1], c[2], c[3], 1 }, 0.3)
+				overlay.addNodeMarker(lines, n.position, junction and overlay.JUNCTION_MARKER or overlay.NODE_MARKER, { c[1], c[2], c[3], 1 })
 			end
 			squares[key] = lines
 			for __, l in ipairs(lines) do
@@ -387,6 +385,52 @@ overlay.onChange = nil
 
 -- Called on every step (from the entry plugin): reads the network again when the camera
 -- has moved; the subscribed actions see the new version and redraw.
+-- dev (shared.MARKER_AB): the two marker shapes take turns, MARKER_AB_SECONDS each, and
+-- the frame time while the lines are up is logged for each turn, to compare what drawing
+-- them costs the game (shared.LOG_PLANS)
+local MARKER_AB_SECONDS = 20
+local frames = { count = 0, sum = 0, max = 0, since = nil, last = nil }
+
+function overlay.markersChanged()
+	overlay.markerGeneration = overlay.markerGeneration + 1
+	state.squares = {}
+	state.linesVersion = nil
+	state.version = state.version + 1
+	if overlay.onChange then
+		pcall(overlay.onChange, state.version)
+	end
+end
+
+-- Called on every frame (entry plugin).
+function overlay.noteFrame()
+	if not shared.LOG_PLANS or not wanted() then
+		frames.last, frames.since = nil, nil
+		frames.count, frames.sum, frames.max = 0, 0, 0
+		return
+	end
+	local c = clock()
+	if not c then
+		return
+	end
+	if frames.last and c > frames.last then
+		local dt = (c - frames.last) * 1000
+		frames.count, frames.sum, frames.max = frames.count + 1, frames.sum + dt, math.max(frames.max, dt)
+	end
+	frames.last = c
+	frames.since = frames.since or c
+	if c - frames.since >= MARKER_AB_SECONDS then
+		if frames.count > 0 then
+			shared.log(string.format("perf [markers: %s]: %d frames, %.1f ms on average, %.1f ms the slowest; network view %d lines",
+				overlay.markerShape, frames.count, frames.sum / frames.count, frames.max, state.lines and #state.lines or 0))
+		end
+		frames.count, frames.sum, frames.max, frames.since = 0, 0, 0, c
+		if shared.MARKER_AB then
+			overlay.markerShape = overlay.markerShape == "disc" and "square" or "disc"
+			overlay.markersChanged()
+		end
+	end
+end
+
 function overlay.step()
 	if overlay.refresh() and overlay.onChange then
 		pcall(overlay.onChange, state.version)

@@ -6,4 +6,5 @@ return {
 	dumpAtDragStart = true,
 	measureCrossings = true,
 	logPlans = true,
+	markerAB = true,
 }
