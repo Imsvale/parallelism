@@ -72,8 +72,8 @@ end
 -- Node markers, filled, of half size h around p: a disc (one arc of radius h / 2 as wide
 -- as h, so it is filled to the middle; a little over a full turn, the ends overlapping,
 -- drawn in pieces of a sixteenth of the circle, or it comes out a polygon) or a square
--- (one straight line, a single piece: drawn as long as it is wide it came out about twice
--- as long, 2026-10-24, so it is half as long). One line object each either
+-- (one straight line, a single piece; its width set to half its length: drawn as wide as
+-- long it came out twice as wide, 2026-10-24). One line object each either
 -- way. Nodes that do not move keep theirs (by node in the network view, by position in
 -- the Wireframe); one that moves gets a new one: the geometry is in world coordinates.
 overlay.markerShape = "square"
@@ -107,7 +107,7 @@ end
 
 function overlay.addNodeMarker(lines, p, h, color)
 	if overlay.markerShape == "square" then
-		lines[#lines + 1] = makeStraightEdge(p.x - h / 2, p.y, p.x + h / 2, p.y, p.z, color, 2 * h)
+		lines[#lines + 1] = makeStraightEdge(p.x - h, p.y, p.x + h, p.y, p.z, color, h)
 	else
 		lines[#lines + 1] = makeDisc(p, h, color)
 	end
