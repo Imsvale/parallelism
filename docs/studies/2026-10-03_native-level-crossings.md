@@ -157,3 +157,18 @@ year (its models for the road's width class, -bbMin.y); junction area = corner o
 edges at the sharpest unfolded angle + 1.00 m; between them the ramp (height / the road's
 maxSlopeShape). Against the six native limits: 0.5-0.7 m more permissive, 1.4 m on the
 large country road; never stricter.
+
+### The ramp's minimum by road width (2026-10-27, at the limit)
+
+| Road | Width | Minimum ramp |
+|---|---|---|
+| country_old_small | 14 m | 1.78-1.79 m |
+| town_new_small | 16 m | 1.92 m |
+| town_old_medium_tram | 24 m | 2.43-2.47 m |
+| country_old_large | 30 m | 2.65-2.67 m |
+
+The climb is 0.48 m on all of them and their slope limits are the game's defaults, so no
+slope rule gives this; it is not linear in the width either (the line through 14 and 30 m
+says 2.33 at 24). Mechanism unknown. The planner keeps height / maxSlopeShape (1.33 m),
+0.5-1.4 m more permissive than the game; the game's verdict covers the rest. (The medium
+road's T at 69.6 / 110.4 degrees: junction areas 18.28 / 9.34 m, corner + 1 m again.)

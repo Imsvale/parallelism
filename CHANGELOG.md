@@ -11,6 +11,7 @@ entry is also the changelog text for the mod.io upload.
 - The max number of roads/tracks in the mod settings now goes up to 50.
 - Wireframe now also shows the network around the camera while not dragging, with node markers as magenta squares.
 - Fixed a possible crash with other mods that draw lines in the construction view.
+- Level crossings follow the game's own spacing rules: tracks side by side cross a road like the game's own tool allows (touching), and crossings near road junctions fit as close as the barriers allow.
 - Crossing a road just before it bends now works like the game's own road tool instead of being refused.
 - Parallels ending at a road no longer pick up pieces of that road and wrap around to the other side.
 - The Side setting is kept when the drawn road ends at a road near another road's dead end.
