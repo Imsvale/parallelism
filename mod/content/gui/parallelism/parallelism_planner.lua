@@ -3251,7 +3251,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								end
 								log(string.format("  re-laid road ends at junction %d, %.1f deg: edges %s", n.id, a, table.concat(names, ", ")))
 							end
-							local keep, corner
+							local keep, corner, level
 							if streets then
 								keep, corner = junctionRoom({ angle = a }, roadWidth(c.edges[1].comp.roadTemplate) or planRoadWidth, planRoadWidth)
 							else
@@ -3269,19 +3269,32 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 										local e = toEdge(comp)
 										local other = comp.node0 == n.id and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = 0 }
 										local angle = geometry.angleBetween(leaving, other)
-										if angle > 1 and (sharpest == nil or angle < sharpest) then
+										if not isStreet(comp.roadType) then
+											-- a track: the end is a level crossing (the drawn track's, say)
+											level = level or { angle = math.min(angle, 180 - angle), comp = comp }
+										elseif angle > 1 and (sharpest == nil or angle < sharpest) then
 											sharpest = angle
 										end
 									end
 								end
 								keep = 0
-								if sharpest and sharpest < 179 then
+								if level then
+									-- level crossings side by side along a road merge (see junctionRoom)
+									local trackWidth = widthOf(level.comp.roadTemplate) or plannedWidth()
+									level.corner = levelReach(level.angle, trackWidth)
+									level.fullCorner = crossingArea(level.angle, w, trackWidth)
+									level.ramp = levelRamp(c.edges[1].comp.roadTemplate, level.comp.roadTemplate)
+								elseif sharpest and sharpest < 179 then
 									local t = math.rad(sharpest)
 									corner = w / 2 / math.sin(t) + w / 2 / math.tan(t)
 								end
 							end
-							junctions[#junctions + 1] = { id = n.id, node = endIndex, keepBefore = endIndex == 1 and 0 or keep,
+							local j = { id = n.id, node = endIndex, keepBefore = endIndex == 1 and 0 or keep,
 								keepAfter = endIndex == 1 and keep or 0, corner = corner }
+							if level then
+								j.corner, j.merges, j.fullCorner, j.ramp = level.corner, true, level.fullCorner, level.ramp
+							end
+							junctions[#junctions + 1] = j
 						end
 					end
 				end
