@@ -56,6 +56,8 @@ local planWidth = nil
 local LOOSE_END_SHARE = 0.4
 -- shortfall of a piece against MIN_PIECE_LENGTH that is still let through
 local PIECE_TOLERANCE = 0.25
+-- level crossings side by side touch exactly (track width apart): rounding only
+local LEVEL_REACH_TOLERANCE = 0.05
 -- A drag starting (or ending) at the end of an existing road at an angle to it, which
 -- the road builder allows in both its modes, kinks there. From this angle (degrees) on
 -- the parallel of the old road is cut back or extended to the corner where the two
@@ -155,6 +157,12 @@ end
 -- level crossing (fitted 2026-10-03 on one 6.3 degree build: new nodes 110.0 m along the
 -- track and 109.6 m along the road; to check at a second angle)
 local LEVEL_CROSSING_BEYOND = 19.0
+
+-- how far a level crossing at angle reaches along the center line of a road or track,
+-- the other one crossWidth wide (half its width, measured along the line)
+local function levelReach(angle, crossWidth)
+	return crossWidth / 2 / math.sin(math.rad(math.max(math.min(angle, 90), 1)))
+end
 
 -- how far along a road or track (alongWidth wide) the surfaces of a level crossing at
 -- angle overlap, the other one crossWidth wide
@@ -495,7 +503,15 @@ local function junctionRoom(cut, alongWidth, acrossWidth)
 	end
 	if cut.level or isStreet(planRoadType) then
 		local corner = levelCorner(cut.angle, alongWidth, acrossWidth)
-		return math.max(pieceMinimum(), corner + (cut.level and LEVEL_CROSSING_BEYOND or ROAD_JUNCTION_BEYOND)), corner
+		local room = math.max(pieceMinimum(), corner + (cut.level and LEVEL_CROSSING_BEYOND or ROAD_JUNCTION_BEYOND))
+		if cut.level then
+			-- Level crossings side by side may touch: native crossed 8 tracks 4.0 m apart (center
+			-- to center, the track's width) with a road at 88.6 degrees, road pieces of 4.0 m
+			-- between the crossings (2026-10-27). For the spacing between them, a crossing
+			-- reaches along this road or track as far as the other's width on its center line.
+			return room, levelReach(cut.angle, acrossWidth)
+		end
+		return room, corner
 	end
 	return math.max(pieceMinimum(), CROSSING_CLEARANCE / math.tan(math.rad(math.max(cut.angle, 1)))), nil
 end
@@ -3027,6 +3043,39 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 		end
 		return best
 	end
+	-- The angle of the level crossing at a node of chain c (a road crossed by a track or the
+	-- other way round), nil if it is none: one of ours (cutAt), or another one there (the
+	-- drawn one's, an existing one), at its own angle to the chain.
+	local function levelCrossingAngle(nodeId, c)
+		local cut = cutAt[nodeId]
+		if cut then
+			return cut.level and cut.angle or nil
+		end
+		local chainStreet = isStreet(c.edges[1].comp.roadType)
+		local own = {}
+		for __, e in ipairs(c.edges) do
+			own[e.id] = true
+		end
+		local crossing = false
+		for __, s in ipairs(node2segments[nodeId] or {}) do
+			local comp = not own[s] and getEdgeComp(s) or nil
+			if comp and isStreet(comp.roadType) ~= chainStreet then
+				crossing = true
+			end
+		end
+		if not crossing then
+			return nil
+		end
+		local tangent = nil
+		for i, e in ipairs(c.edges) do
+			if c.nodes[i] and c.nodes[i].id == nodeId then
+				tangent = e.edge.t0
+			elseif c.nodes[i + 1] and c.nodes[i + 1].id == nodeId then
+				tangent = e.edge.t1
+			end
+		end
+		return tangent and angleAt(nodeId, tangent, own) or 90
+	end
 	local function accept(curve, pieces)
 		local radius = geometry.minRadiusAlong(curve)
 		if radius >= allowedRadius(templateOf({ comp = drawn[1].comp, template = drawn[1].template })) then
@@ -3150,9 +3199,17 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				addSegment(n0, n1, edge,
 					{ comp = compOf[origin], segmentType = segmentTypeOf(compOf[origin]), playerOwned = getPlayerOwned(origin), origins = p.origins })
 				local length = geometry.arcLength(edge)
-				if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
-					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
-						length, shared.vecToString(n0.position), pieceMinimum())
+				-- a piece between two level crossings only needs their reach (they may touch,
+				-- see junctionRoom); others the minimum piece
+				local minimum, tolerance = pieceMinimum(), PIECE_TOLERANCE
+				local a0, a1 = levelCrossingAngle(p.node0, c), levelCrossingAngle(p.node1, c)
+				if a0 and a1 then
+					minimum = levelReach(a0, plannedWidth()) + levelReach(a1, plannedWidth())
+					tolerance = LEVEL_REACH_TOLERANCE
+				end
+				if length < minimum - tolerance and not stats.shortPiece then
+					stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.1f m",
+						length, shared.vecToString(n0.position), minimum)
 					problemAt(n0.position)
 				end
 			end
