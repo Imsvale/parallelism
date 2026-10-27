@@ -4,7 +4,7 @@
     "severityAdd": "None",
     "severityRemove": "None",
     "visible": true,
-    "cosmetic": false,
+    "cosmetic": true,
     "params": [
         {
             "key": "maxTracks",
