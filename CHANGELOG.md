@@ -5,6 +5,8 @@ entry is also the changelog text for the mod.io upload.
 
 ## Unreleased
 
+## 1.1.0 (revision 4), 2026-10-27
+
 - Much faster while dragging, especially with many parallels and when ending on another road (T junctions).
 - Big track bundles build much faster: they're now built in several steps instead of all at once.
 - The number of roads/tracks is now a slider instead of buttons.
