@@ -84,3 +84,26 @@ straight slide (accepted up to a tenth of the spacing).
   longer road piece than 20.9 built). The builder re-lays the crossed tracks around the
   crossings (removes their nodes, adds new ones further out); that refit is the likely
   limit, not the crossings' spacing.
+
+### A T at 60 degrees (2026-10-27, second session)
+
+Track crossing the T's main road near the junction (node 322), road piece crossing to
+junction at the limit:
+
+| Side | Track angle | Piece | Junction corner | Level corner (2/sin a + 8/tan a) | Extra |
+|---|---|---|---|---|---|
+| acute (60) | 60.4 | 25.8 m | 13.9 m (8/sin 60 + 8/tan 60) | 6.86 m | 5.1 m |
+| obtuse (120) | 88.7 | 10.95 m | 4.6 m (8/sin 60 - 8/tan 60) | 2.18 m | 4.15 m |
+| obtuse (120) | 82.45 | 11.85 m | 4.6 m | 3.08 m | 4.15 m |
+| square T (first session) | 71.5-90 | 15.0-17.1 m | 8 m | 2.0-4.8 m | 4.3 m |
+
+The extra is about 4.2-4.3 m, about 1 m more on the acute side (the real corner is
+rounded differently from the simple corner formula). Screenshot: the barrier and its box
+stand on the road's edge between the junction's corner and the crossing; the road ramps
+up to the top of the rails over about 2 m (track lane height 0.53 m: ballast 0.3 +
+sleepers 0.054 + rail 0.17; road driving lanes 0); one drag logged "Too Much Incline".
+Candidates: 2.5 m corner gap + ramp (0.53 / the road's slope limit), or 2.5 m + the
+barrier's footprint. The town road's template sets no slope limit (game default).
+
+Bulldozing a track that crossed a road leaves the road's node where the crossing was: the
+two road pieces are not merged back.
