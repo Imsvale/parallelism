@@ -107,3 +107,12 @@ barrier's footprint. The town road's template sets no slope limit (game default)
 
 Bulldozing a track that crossed a road leaves the road's node where the crossing was: the
 two road pieces are not merged back.
+
+Slope limits read in game (2026-10-27): town road maxSlope 0.40, maxSlopeBuild 0.20,
+maxSlopeShape 0.40; simple track 0.13 / 0.085 / 0.16. The road's ramp up to the rails at
+maxSlopeShape: 0.53 / 0.40 = 1.33 m. Margin beyond 2.5 m + ramp: 0.3 m (obtuse side),
+0.5 m (square), 1.3 m (acute side): growing with how sharp the junction's curb corner is,
+which the corner formula leaves out. The planner now keeps a level crossing and a road
+junction along a road junction corner + level crossing's full corner + 2.5 m + ramp, all
+from the templates, at most that much more permissive than the game (whose own verdict on
+the plan covers the rest).

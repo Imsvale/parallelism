@@ -889,6 +889,38 @@ getTrackDistance = keptByTemplate(getTrackDistance)
 widthOf = keptByTemplate(widthOf)
 roadWidth = keptByTemplate(roadWidth)
 
+-- The lowest and highest lane of a road or track type (laneConfigs height): a road's
+-- surface, a track's top (ballast, sleepers, rail). Kept by template name; nil if the
+-- template cannot be read.
+local laneHeightsOf = keptByTemplate(function(templateName)
+	local template = getTemplate(templateName)
+	if template == nil then
+		return nil
+	end
+	local low, high = nil, nil
+	for __, lc in ipairs(template.laneConfigs or {}) do
+		local h = lc.height or 0
+		low, high = math.min(low or h, h), math.max(high or h, h)
+	end
+	return { low = low or 0, high = high or 0 }
+end)
+
+-- How long a road ramps up to the top of a track it crosses level: the height between its
+-- surface and the track's top, at the steepest the road's shape takes (its template's
+-- maxSlopeShape). Native: a level crossing next to a road junction kept their corners,
+-- 2.5 m and about this much apart (2026-10-27; town road 0.40, simple track 0.53 m high,
+-- ramp 1.33 m); the rest of what the game kept is the junction's rounded curb, not modeled
+-- (the game's own verdict on the plan catches it).
+local function levelRamp(roadTemplate, trackTemplate)
+	local road, track = getTemplate(roadTemplate), laneHeightsOf(trackTemplate)
+	local surface = laneHeightsOf(roadTemplate)
+	local slope = road and road.maxSlopeShape
+	if not (track and surface and slope and slope > 0) then
+		return 0
+	end
+	return math.max(0, track.high - surface.low) / slope
+end
+
 -- The Spacing value is the gap between the edges of neighbors (the panel may show it
 -- from center to center instead). Its default: as the game places them, the road builder
 -- snapping a second road shared.ROAD_GAP away, a track's template trackDistance between
@@ -3124,6 +3156,12 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					local j = { id = cut.node.entity, position = cut.node.position, keepBefore = keep, keepAfter = keep,
 						node = nodeIndex[cut.node.entity], edge = not nodeIndex[cut.node.entity] and i or nil, corner = corner,
 						merges = (cut.level and alongStreet) or nil }
+					if j.merges then
+						-- next to a junction: the full corner and the ramp (see the relay's spacing)
+						local roadTemplate = c.edges[1].comp.roadTemplate
+						j.fullCorner = levelCorner(cut.angle, widthOf(roadTemplate) or plannedWidth(), plannedWidth())
+						j.ramp = levelRamp(roadTemplate, templateOf({ comp = drawn[1].comp, template = drawn[1].template }))
+					end
 					junctions[#junctions + 1] = j
 					junctionAt[cut.node.entity] = true
 					nodeById[cut.node.entity] = nodeById[cut.node.entity] or cut.node
@@ -3319,6 +3357,12 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				keep = keep or room
 				j.corner = corner
 				j.merges = (cut.level and streets) or nil
+				if j.merges then
+					-- next to a junction: the full corner and the ramp (see the relay's spacing)
+					local crossed = cut.entity and getEdgeComp(cut.entity)
+					j.fullCorner = levelCorner(cut.angle, plannedWidth(), cut.otherWidth or plannedWidth())
+					j.ramp = crossed and levelRamp(templateOf({ comp = drawn[1].comp, template = drawn[1].template }), crossed.roadTemplate) or 0
+				end
 				j.keepBefore, j.keepAfter = keep, keep
 				junctions[#junctions + 1] = j
 			end

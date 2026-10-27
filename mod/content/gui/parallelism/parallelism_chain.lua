@@ -151,9 +151,19 @@ function chain.relay(c, junctions, opts)
 	for __, p in ipairs(points) do
 		if p.junction then
 			if last and last.junction.corner and p.junction.corner then
-				-- (level crossings side by side along a road are one wide crossing: no gap)
-				local gap = (last.junction.merges and p.junction.merges) and 0 or (opts.junctionGap or 0)
-				local need = last.junction.corner + p.junction.corner + gap
+				local a, b = last.junction, p.junction
+				local need
+				if a.merges and b.merges then
+					-- level crossings side by side along a road are one wide crossing: no gap
+					need = a.corner + b.corner
+				else
+					-- a level crossing along a road next to a junction: its full corner and the
+					-- road's ramp up to the top of the track (fullCorner, ramp)
+					local function reach(j)
+						return j.merges and ((j.fullCorner or j.corner) + (j.ramp or 0)) or j.corner
+					end
+					need = reach(a) + reach(b) + (opts.junctionGap or 0)
+				end
 				if p.s - last.s < need - EPS then
 					result.problems[#result.problems + 1] = string.format("junctions %s and %s only %.1f m apart, they need %.1f m",
 						tostring(last.id), tostring(p.id), p.s - last.s, need)
