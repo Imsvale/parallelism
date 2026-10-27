@@ -921,6 +921,70 @@ local function levelRamp(roadTemplate, trackTemplate)
 	return math.max(0, track.high - surface.low) / slope
 end
 
+-- beyond the barrier's and sign's reach, how far a level crossing's area runs on along the
+-- road (native, 2026-10-27: 1.20-1.25 m with a barrier and with a sign alike, fitted on
+-- crossings at 60-89 degrees on four road types)
+local LEVEL_CROSSING_DEPTH = 1.2
+
+-- How far the crossing's barrier or sign reaches outward from the road's edge (its model's
+-- bounding box beyond the post): of the crossing type the game uses now (the one whose years
+-- include this one; the game loads those of the save's climate only), for a road this wide
+-- (the type's config picks the models by street width). 0 if it cannot be read.
+local overhangCache = {}
+
+local function crossingOverhang(roadWidth)
+	local year = nil
+	pcall(function()
+		year = api.engine.util.getYear()
+	end)
+	local key = tostring(year) .. ":" .. tostring(roadWidth)
+	if overhangCache[key] ~= nil then
+		return overhangCache[key]
+	end
+	local overhang = 0
+	pcall(function()
+		local rep = api.res.railroadCrossingTypeRep
+		local best, bestFrom = nil, nil
+		for id in pairs(rep.getAll()) do
+			local t = rep.get(id)
+			local from, to = t.availability.yearFrom or 0, t.availability.yearTo or 0
+			if rep.isVisible(id) and (year == nil or ((from <= year) and (to == 0 or year < to)))
+				and (bestFrom == nil or from > bestFrom) then
+				best, bestFrom = t, from
+			end
+		end
+		if best == nil then
+			return
+		end
+		-- the config entry for this width: the widest whose street width it reaches
+		local entry, entryWidth = nil, nil
+		for __, c in ipairs(best.config) do
+			local w = c.streetWidth or 0
+			if (roadWidth == nil or w <= roadWidth) and (entryWidth == nil or w > entryWidth) then
+				entry, entryWidth = c, w
+			end
+		end
+		entry = entry or best.config[1]
+		for __, path in ipairs({ entry.modelLeft, entry.modelRight }) do
+			if path and path ~= "" then
+				local box = api.res.modelRep.get(api.res.modelRep.find(path)).boundingInfo
+				overhang = math.max(overhang, -box.bbMin.y)
+			end
+		end
+	end)
+	overhangCache[key] = overhang
+	return overhang
+end
+
+-- How far a level crossing's area reaches along the road from its node, squared off across
+-- the road: where the track's edge passes the barrier's (or sign's) outermost point, the
+-- road's half width and the overhang out from the road's center line, and LEVEL_CROSSING_DEPTH
+-- beyond (native, 2026-10-27: read from the lanes of the road edges next to crossings).
+local function crossingArea(angle, roadWidth, trackWidth)
+	local a = math.rad(math.max(math.min(angle, 90), 1))
+	return (roadWidth / 2 + crossingOverhang(roadWidth)) / math.tan(a) + trackWidth / 2 / math.sin(a) + LEVEL_CROSSING_DEPTH
+end
+
 -- The Spacing value is the gap between the edges of neighbors (the panel may show it
 -- from center to center instead). Its default: as the game places them, the road builder
 -- snapping a second road shared.ROAD_GAP away, a track's template trackDistance between
@@ -3159,7 +3223,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 					if j.merges then
 						-- next to a junction: the full corner and the ramp (see the relay's spacing)
 						local roadTemplate = c.edges[1].comp.roadTemplate
-						j.fullCorner = levelCorner(cut.angle, widthOf(roadTemplate) or plannedWidth(), plannedWidth())
+						j.fullCorner = crossingArea(cut.angle, widthOf(roadTemplate) or plannedWidth(), plannedWidth())
 						j.ramp = levelRamp(roadTemplate, templateOf({ comp = drawn[1].comp, template = drawn[1].template }))
 					end
 					junctions[#junctions + 1] = j
@@ -3168,8 +3232,9 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				end
 			end
 			-- roads: a junction at an end of the chain (the drawn road's, an existing one)
-			-- keeps its room on the chain too
-			if streets and planRoadWidth and isStreet(c.edges[1].comp.roadType) then
+			-- keeps its room on the chain too; crossing tracks of ours keep their distance from
+			-- it (its corner, no room of its own: the road is not re-laid around it then)
+			if isStreet(c.edges[1].comp.roadType) and (planRoadWidth or not streets) then
 				for __, endIndex in ipairs({ 1, #c.nodes }) do
 					local n = c.nodes[endIndex]
 					local segments = node2segments[n.id]
@@ -3186,7 +3251,35 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 								end
 								log(string.format("  re-laid road ends at junction %d, %.1f deg: edges %s", n.id, a, table.concat(names, ", ")))
 							end
-							local keep, corner = junctionRoom({ angle = a }, roadWidth(c.edges[1].comp.roadTemplate) or planRoadWidth, planRoadWidth)
+							local keep, corner
+							if streets then
+								keep, corner = junctionRoom({ angle = a }, roadWidth(c.edges[1].comp.roadTemplate) or planRoadWidth, planRoadWidth)
+							else
+								-- along this road, the corner with its sharpest neighbor at the
+								-- junction, by the angle between the directions leaving it (not
+								-- folded: 60 degrees on one side of a 60 degree T, 120 on the
+								-- other; native, 2026-10-27)
+								local w = roadWidth(c.edges[1].comp.roadTemplate) or plannedWidth()
+								local leaving = endIndex == 1 and c.edges[1].edge.t0
+									or { x = -c.edges[#c.edges].edge.t1.x, y = -c.edges[#c.edges].edge.t1.y, z = 0 }
+								local sharpest = nil
+								for __, s in ipairs(segments) do
+									local comp = not own[s] and getEdgeComp(s) or nil
+									if comp then
+										local e = toEdge(comp)
+										local other = comp.node0 == n.id and e.t0 or { x = -e.t1.x, y = -e.t1.y, z = 0 }
+										local angle = geometry.angleBetween(leaving, other)
+										if angle > 1 and (sharpest == nil or angle < sharpest) then
+											sharpest = angle
+										end
+									end
+								end
+								keep = 0
+								if sharpest and sharpest < 179 then
+									local t = math.rad(sharpest)
+									corner = w / 2 / math.sin(t) + w / 2 / math.tan(t)
+								end
+							end
 							junctions[#junctions + 1] = { id = n.id, node = endIndex, keepBefore = endIndex == 1 and 0 or keep,
 								keepAfter = endIndex == 1 and keep or 0, corner = corner }
 						end
@@ -3198,6 +3291,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				joinTolerance = EXISTING_MAX_DEVIATION,
 				refitTolerance = REFIT_MAX_DEVIATION,
 				junctionGap = chainModule.ROAD_JUNCTION_GAP,
+				junctionMargin = chainModule.JUNCTION_AREA_MARGIN,
 				newNode = function(position)
 					local n = newNode(position)
 					nodeById[n.entity] = n
@@ -3360,7 +3454,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				if j.merges then
 					-- next to a junction: the full corner and the ramp (see the relay's spacing)
 					local crossed = cut.entity and getEdgeComp(cut.entity)
-					j.fullCorner = levelCorner(cut.angle, plannedWidth(), cut.otherWidth or plannedWidth())
+					j.fullCorner = crossingArea(cut.angle, plannedWidth(), cut.otherWidth or plannedWidth())
 					j.ramp = crossed and levelRamp(templateOf({ comp = drawn[1].comp, template = drawn[1].template }), crossed.roadTemplate) or 0
 				end
 				j.keepBefore, j.keepAfter = keep, keep
@@ -3393,6 +3487,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				joinTolerance = MAX_MERGE_DEVIATION,
 				refitTolerance = MAX_MERGE_DEVIATION,
 				junctionGap = chainModule.ROAD_JUNCTION_GAP,
+				junctionMargin = chainModule.JUNCTION_AREA_MARGIN,
 				newNode = function(position)
 					local n = newNode(position)
 					nodeById[n.entity] = n

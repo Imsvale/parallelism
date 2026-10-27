@@ -135,3 +135,25 @@ areas can be read exactly:
   depth fitting 1.20-1.30 m: 9.06 m (16 m road, 60.45 deg), 3.40 m (16 m, 88.84), 13.81 m
   (32 m road, 60.0, eu_c_barrier_large, same overhang).
 - Era A crossings have only a sign (no barrier): smaller areas then.
+
+### Era A (1900, sign only) and the rule as built (2026-10-27)
+
+Country roads (no raised sidewalks), 60 degree Ts, crossings at the limit, node areas:
+
+| Edge | Road, side | Angle | Junction area | Ramp | Crossing area |
+|---|---|---|---|---|---|
+| 883 | small (14 m), acute | 82.2 | 13.11 (corner + 1: 13.12) | 1.79 | 4.23 |
+| 938 | small, obtuse | 76.0 | 5.04 (5.04) | 1.78 | 5.10 |
+| 1086 | large (30 m), acute | 76.9 | 26.96 (26.98) | 2.71 | 6.80 |
+| 1114 | large, obtuse | 83.6 | 9.67 (9.66) | 2.67 | 4.95 |
+
+Fitting reach and depth freely per road: depth 1.20 (small), 1.25 (large); with the
+era C barrier it was 1.20: a fixed depth, not the model's. The ramps are not settled
+(1.78-1.92 m on the smaller roads, 2.7 m on the large country road).
+
+The rule in the planner: crossing area = (road half width + overhang) x cot + track half
+width / sin + 1.2 m, the overhang read at run time from the crossing type of the current
+year (its models for the road's width class, -bbMin.y); junction area = corner of the road
+edges at the sharpest unfolded angle + 1.00 m; between them the ramp (height / the road's
+maxSlopeShape). Against the six native limits: 0.5-0.7 m more permissive, 1.4 m on the
+large country road; never stricter.

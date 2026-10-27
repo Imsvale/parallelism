@@ -31,6 +31,10 @@ chain.ROAD_BEYOND = 26.0
 -- neighboring level crossings along a track (native, 2026-10-27: a track across roads
 -- side by side, at three road gaps 2.51 m between the crossings' corners at its limit)
 chain.ROAD_JUNCTION_GAP = 2.5
+-- how far a junction's area reaches beyond the corner of its road edges, along each road
+-- (native, 2026-10-27: read from the lanes of the edges at 60, 90 and 120 degree corners,
+-- town and country roads 14 to 32 m wide, 1.00 m within 2 cm each time)
+chain.JUNCTION_AREA_MARGIN = 1.0
 
 -- How far along a road (width w) the corner of a junction at angle a (degrees) reaches:
 -- where the two road surfaces stop overlapping.
@@ -156,13 +160,19 @@ function chain.relay(c, junctions, opts)
 				if a.merges and b.merges then
 					-- level crossings side by side along a road are one wide crossing: no gap
 					need = a.corner + b.corner
-				else
-					-- a level crossing along a road next to a junction: its full corner and the
-					-- road's ramp up to the top of the track (fullCorner, ramp)
+				elseif a.merges or b.merges then
+					-- a level crossing along a road next to a junction: the crossing's area
+					-- (fullCorner) and the road's ramp up to the track, then the junction's area
+					-- (its corner and opts.junctionMargin), nothing between (native, 2026-10-27)
 					local function reach(j)
-						return j.merges and ((j.fullCorner or j.corner) + (j.ramp or 0)) or j.corner
+						if j.merges then
+							return (j.fullCorner or j.corner) + (j.ramp or 0)
+						end
+						return j.corner + (opts.junctionMargin or 0)
 					end
-					need = reach(a) + reach(b) + (opts.junctionGap or 0)
+					need = reach(a) + reach(b)
+				else
+					need = a.corner + b.corner + (opts.junctionGap or 0)
 				end
 				if p.s - last.s < need - EPS then
 					result.problems[#result.problems + 1] = string.format("junctions %s and %s only %.1f m apart, they need %.1f m",
