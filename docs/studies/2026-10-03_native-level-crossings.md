@@ -116,3 +116,22 @@ which the corner formula leaves out. The planner now keeps a level crossing and 
 junction along a road junction corner + level crossing's full corner + 2.5 m + ramp, all
 from the templates, at most that much more permissive than the game (whose own verdict on
 the plan covers the rest).
+
+### Node areas read from the game (2026-10-27, tools/node_areas.lua)
+
+An edge's transport-network lanes run only between the areas of its two nodes, so the
+areas can be read exactly:
+
+- **Junction area** along a road: the corner of the road edges (w/2 / sin + w/2 / tan of
+  the sharpest neighbor) **+ 1.00 m**: 14.86 m (60 degree side, 13.86 + 1), 5.62 m (120,
+  4.62 + 1), 17.00 m on a 32 m road at a square T (16 + 1).
+- **The ramp** is the edge's own lanes, whatever their length: 0.48 m up (road surface to
+  the crossing's road lanes) over 1.92 m at the limit (slope 0.25, "Too Much Incline"),
+  over 38-58 m on longer edges.
+- **Crossing area** along the road, squared off: set by the barrier model (the crossing
+  type's config picks it by street width; era C EU: eu_c_barrier_small up to 18 m,
+  bbMin y -1.68 = overhang beyond the post, x -0.95 .. 0.43 = 1.38 m deep). Area =
+  (road half width + overhang) x cot(angle) + track half width / sin(angle) + depth,
+  depth fitting 1.20-1.30 m: 9.06 m (16 m road, 60.45 deg), 3.40 m (16 m, 88.84), 13.81 m
+  (32 m road, 60.0, eu_c_barrier_large, same overhang).
+- Era A crossings have only a sign (no barrier): smaller areas then.
