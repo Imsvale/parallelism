@@ -51,3 +51,36 @@ parallels continue from their own T nodes, which lie where each parallel's line 
 track (offset / tan(angle) along it from beside the drawn node): their ends slide along
 the parallel to those nodes, and a curving extension meets them a few metres off the
 straight slide (accepted up to a tenth of the spacing).
+
+## 2026-10-27: limits between level crossings (native, town road 16 m, simple track 4 m)
+
+- **Flattest level crossing:** 6.0 degrees (track across a road: 6.0 built, 5.8 and below
+  refused), the same as track over track. Not exposed by the game: an engine limit.
+- **Along a road, crossings side by side merge** (one wide crossing, barriers only at its
+  outer edges): 8 tracks 4.0 m apart (center to center, ballast touching) crossed by a road
+  at 88.6 degrees, road pieces 4.0 m between the crossings: built. At 45.5 degrees with
+  tracks 5 m apart, 7.0 m pieces: built.
+- **Along a track, each road's crossing needs its full corner plus 2.5 m to the next**
+  (its own barriers and signs; the user saw the extra room is for them). A track across 4
+  roads side by side, at the flattest angle the game took for each road gap:
+
+  | Road gap | Angle | Track piece | Piece - 2 x (8/sin a + 2/tan a) |
+  |---|---|---|---|
+  | 3.0 m | 82.7 | 19.15 m | 2.51 m |
+  | 3.5 m | 74.3 | 20.26 m | 2.51 m |
+  | 4.0 m | 64.2 | 22.20 m | 2.51 m |
+
+  2.5 m is also the gap between road junction corners (native X, 2026-10-03).
+- **Next to a road junction, along the road** (one square T, the track crossing the T's
+  stem): the road piece between them held the junction's corner (8 m), the level
+  crossing's corner (2/sin a + 8/tan a) and 4.3 m: built at 90 degrees with 15.0 m and at
+  71.5 with 17.1 m, refused at 88.0 / 87.6 with 14.4 / 14.3 m and at 71.4 with 17.1 m. One
+  T only: whether the 4.3 m is 2.5 m plus a fixed setback of the barriers, or depends on
+  angle or width, needs a T at another angle (planned).
+- **Nodes near a level crossing** (a road with nodes every 30 m, a track across at 90, 45
+  and 20 degrees): every node the builder removed lay within corner + 19 m, every node it
+  kept beyond it; no contradiction of LEVEL_CROSSING_BEYOND, no tighter bound either.
+- **Roads crossing tracks 5 m apart** were refused below 20.9 degrees (20.8 refused with a
+  longer road piece than 20.9 built). The builder re-lays the crossed tracks around the
+  crossings (removes their nodes, adds new ones further out); that refit is the likely
+  limit, not the crossings' spacing.
