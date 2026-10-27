@@ -494,7 +494,7 @@ end
 --   a level crossing; docs/studies 2026-10-03)
 -- - tracks crossing: the clearance the track builder was measured to need (at 6.1 degrees
 --   7.7 m next to a crossing failed, 14.9 m worked), at least the minimum piece
-local function junctionRoom(cut, alongWidth, acrossWidth)
+local function junctionRoom(cut, alongWidth, acrossWidth, alongStreet)
 	if cut.zone ~= nil then
 		return math.max(pieceMinimum(), cut.zone), nil
 	end
@@ -504,11 +504,13 @@ local function junctionRoom(cut, alongWidth, acrossWidth)
 	if cut.level or isStreet(planRoadType) then
 		local corner = levelCorner(cut.angle, alongWidth, acrossWidth)
 		local room = math.max(pieceMinimum(), corner + (cut.level and LEVEL_CROSSING_BEYOND or ROAD_JUNCTION_BEYOND))
-		if cut.level then
-			-- Level crossings side by side may touch: native crossed 8 tracks 4.0 m apart (center
-			-- to center, the track's width) with a road at 88.6 degrees, road pieces of 4.0 m
-			-- between the crossings (2026-10-27). For the spacing between them, a crossing
-			-- reaches along this road or track as far as the other's width on its center line.
+		if cut.level and alongStreet then
+			-- Along a road, level crossings side by side are one wide crossing and may touch:
+			-- native crossed 8 tracks 4.0 m apart (center to center, the track's width) with a
+			-- road at 88.6 degrees, road pieces of 4.0 m between the crossings (2026-10-27). For
+			-- the spacing between them, a crossing reaches as far as the track's width on the
+			-- road's center line. (Along a track, each road's crossing has its own barriers and
+			-- signs: the full corner, and the gap as between junctions, see the relay calls.)
 			return room, levelReach(cut.angle, acrossWidth)
 		end
 		return room, corner
@@ -3117,9 +3119,11 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			for i, e in ipairs(c.edges) do
 				for __, cut in ipairs(splits[e.id] and splits[e.id].cuts or {}) do
 					-- measured along this (the crossed) road or track, ours across it
-					local keep, corner = junctionRoom(cut, widthOf(c.edges[1].comp.roadTemplate) or plannedWidth(), plannedWidth())
+					local alongStreet = isStreet(c.edges[1].comp.roadType)
+					local keep, corner = junctionRoom(cut, widthOf(c.edges[1].comp.roadTemplate) or plannedWidth(), plannedWidth(), alongStreet)
 					local j = { id = cut.node.entity, position = cut.node.position, keepBefore = keep, keepAfter = keep,
-						node = nodeIndex[cut.node.entity], edge = not nodeIndex[cut.node.entity] and i or nil, corner = corner }
+						node = nodeIndex[cut.node.entity], edge = not nodeIndex[cut.node.entity] and i or nil, corner = corner,
+						merges = (cut.level and alongStreet) or nil }
 					junctions[#junctions + 1] = j
 					junctionAt[cut.node.entity] = true
 					nodeById[cut.node.entity] = nodeById[cut.node.entity] or cut.node
@@ -3155,7 +3159,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			local result = chainModule.relay(c, junctions, {
 				joinTolerance = EXISTING_MAX_DEVIATION,
 				refitTolerance = REFIT_MAX_DEVIATION,
-				junctionGap = streets and chainModule.ROAD_JUNCTION_GAP or 0,
+				junctionGap = chainModule.ROAD_JUNCTION_GAP,
 				newNode = function(position)
 					local n = newNode(position)
 					nodeById[n.entity] = n
@@ -3311,9 +3315,10 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			local junctions = {}
 			local function addJunction(cut, j, keep)
 				-- measured along our road or track, the crossed one across it
-				local room, corner = junctionRoom(cut, plannedWidth(), cut.otherWidth or plannedWidth())
+				local room, corner = junctionRoom(cut, plannedWidth(), cut.otherWidth or plannedWidth(), streets)
 				keep = keep or room
 				j.corner = corner
+				j.merges = (cut.level and streets) or nil
 				j.keepBefore, j.keepAfter = keep, keep
 				junctions[#junctions + 1] = j
 			end
@@ -3343,7 +3348,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 			local result = chainModule.relay(c, junctions, {
 				joinTolerance = MAX_MERGE_DEVIATION,
 				refitTolerance = MAX_MERGE_DEVIATION,
-				junctionGap = streets and chainModule.ROAD_JUNCTION_GAP or 0,
+				junctionGap = chainModule.ROAD_JUNCTION_GAP,
 				newNode = function(position)
 					local n = newNode(position)
 					nodeById[n.entity] = n

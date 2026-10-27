@@ -27,6 +27,9 @@ local chain = {}
 
 -- road rules (native, see the design note)
 chain.ROAD_BEYOND = 26.0
+-- the gap between the corners of neighboring junctions along a road (native X), and of
+-- neighboring level crossings along a track (native, 2026-10-27: a track across roads
+-- side by side, at three road gaps 2.51 m between the crossings' corners at its limit)
 chain.ROAD_JUNCTION_GAP = 2.5
 
 -- How far along a road (width w) the corner of a junction at angle a (degrees) reaches:
@@ -148,7 +151,9 @@ function chain.relay(c, junctions, opts)
 	for __, p in ipairs(points) do
 		if p.junction then
 			if last and last.junction.corner and p.junction.corner then
-				local need = last.junction.corner + p.junction.corner + (opts.junctionGap or 0)
+				-- (level crossings side by side along a road are one wide crossing: no gap)
+				local gap = (last.junction.merges and p.junction.merges) and 0 or (opts.junctionGap or 0)
+				local need = last.junction.corner + p.junction.corner + gap
 				if p.s - last.s < need - EPS then
 					result.problems[#result.problems + 1] = string.format("junctions %s and %s only %.1f m apart, they need %.1f m",
 						tostring(last.id), tostring(p.id), p.s - last.s, need)
