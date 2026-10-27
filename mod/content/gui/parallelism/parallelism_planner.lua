@@ -3445,6 +3445,8 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				nodeById[oe.node0.entity], nodeById[oe.node1.entity] = oe.node0, oe.node1
 			end
 			local junctions = {}
+			-- our road's level crossings, by node: how far each reaches along the road
+			local levelReachAt = {}
 			local function addJunction(cut, j, keep)
 				-- measured along our road or track, the crossed one across it
 				local room, corner = junctionRoom(cut, plannedWidth(), cut.otherWidth or plannedWidth(), streets)
@@ -3452,6 +3454,7 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				j.corner = corner
 				j.merges = (cut.level and streets) or nil
 				if j.merges then
+					levelReachAt[j.id] = levelReach(cut.angle, cut.otherWidth or plannedWidth())
 					-- next to a junction: the full corner and the ramp (see the relay's spacing)
 					local crossed = cut.entity and getEdgeComp(cut.entity)
 					j.fullCorner = crossingArea(cut.angle, plannedWidth(), cut.otherWidth or plannedWidth())
@@ -3524,9 +3527,16 @@ local function makeProposalIn(drawn, offsets, log, planOnly, options)
 				stats.edges = stats.edges + 1
 				if cutNodes[n0.entity] or cutNodes[n1.entity] then
 					local length = geometry.arcLength(edge)
-					if length < pieceMinimum() - PIECE_TOLERANCE and not stats.shortPiece then
-						stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.0f m",
-							length, shared.vecToString(n0.position), pieceMinimum())
+					-- a piece between two level crossings only needs their reach (they may touch,
+					-- see junctionRoom); others the minimum piece
+					local minimum, tolerance = pieceMinimum(), PIECE_TOLERANCE
+					local r0, r1 = levelReachAt[n0.entity], levelReachAt[n1.entity]
+					if r0 and r1 then
+						minimum, tolerance = r0 + r1, LEVEL_REACH_TOLERANCE
+					end
+					if length < minimum - tolerance and not stats.shortPiece then
+						stats.shortPiece = string.format("a piece of %.1f m next to a crossing or branch at %s, the game needs %.1f m",
+							length, shared.vecToString(n0.position), minimum)
 						problemAt(n0.position)
 					end
 				end
